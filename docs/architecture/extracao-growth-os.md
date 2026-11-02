@@ -24,8 +24,8 @@ interface que o Growth OS implementa com Prisma e o OBEDIENT com o próprio banc
 |---|---|---|---|---|
 | 1 | Motor de políticas | `@obedient/policy-engine` | **Feito** | 17 testes portados |
 | 2 | Tipos, classificação de risco e categoria de ferramenta, SSRF, redação, hash de argumentos | `@obedient/integration-gateway` | **Feito** | Mesmo código (só dois comentários mudaram), 52 testes portados |
-| 3 | Event bus: tipos, regras, consumidores e produtores; persistência por porta; vocabulário dividido em genérico (OBEDIENT) e de negócio (Growth OS) | `@obedient/event-bus` | Próxima | Testes de regra portados; o harness do Growth OS passa com a porta Prisma |
-| 4 | Equipes e missões: tipos, transições (máquina de estados), plano, autonomia, contratos | `@obedient/mission-engine` | A fazer | Transições e autonomia testadas sem banco |
+| 3 | Event bus: tipos, regras, consumidores e produtores; vocabulário virou parâmetro (`criarVocabulario`); barramento em memória como contrato; vocabulário próprio do OBEDIENT | `@obedient/event-bus` | **Feito** | Testes de regra portados; contrato do barramento testado (idempotência, isolamento entre tenants, retry, dead letter, eventos derivados). A porta Postgres do Growth OS entra na etapa 6 |
+| 4 | Equipes e missões: tipos, transições (máquina de estados), plano, autonomia, contratos | `@obedient/mission-engine` | Próxima | Transições e autonomia testadas sem banco |
 | 5 | Agent runtime: execução com porta de modelo e porta de fila | `@obedient/agent-orchestrator` | A fazer | Rodada de agente com modelo falso, como o executor do Dot já faz |
 | 6 | O Growth OS passa a importar os pacotes | PR no `casa-de-ia` | A fazer | `npm test`, `test:db` e harness do Growth OS verdes; nenhuma mudança de comportamento em produção |
 
