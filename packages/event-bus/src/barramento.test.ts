@@ -4,7 +4,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { BarramentoEmMemoria, criarVocabulario, ErroPermanente, RegistroDeConsumidores, VOCABULARIO_OBEDIENT, type ContextoPublicacao, type EventoBus } from "./index.ts";
+import { BarramentoEmMemoria, criarVocabulario, ErroPermanente, RegistroDeConsumidores, validarEvento, VOCABULARIO_OBEDIENT, type ContextoPublicacao, type EventoBus } from "./index.ts";
 
 const vocab = criarVocabulario({
   fontes: ["motor", "nucleo"],
@@ -180,6 +180,20 @@ describe("vocabulário", () => {
     ];
     for (const r of ruins) assert.throws(() => criarVocabulario({ ...base, ...r }), /vocabulário inválido/, JSON.stringify(r));
     assert.throws(() => criarVocabulario({ ...base, entidadesInternas: ["y"], tipos: [] }), /fora da lista/);
+  });
+
+  it("mensagens: padrão neutro; o sistema pode dar o próprio nome e a referência do contrato", () => {
+    const e = { type: "nao.existe", entityType: "contact", entityExternalId: "1" };
+    assert.throws(() => validarEvento(e, vocab), (x: unknown) => x instanceof Error && x.message.endsWith('não existe no vocabulário de eventos'));
+    assert.throws(() => validarEvento({ ...e, type: "lead.created", payload: { telefone: "x" } }, vocab), /o barramento não guarda dado pessoal/);
+    const proprio = criarVocabulario({
+      fontes: ["a"], entidades: ["contact"], entidadesInternas: [], tipos: [{ tipo: "lead.created", entidades: ["contact"], descricao: "t" }],
+      mensagens: { quemNaoGuardaDadoPessoal: "o Sistema X", referenciaContrato: "docs/CONTRATO.md" },
+    });
+    assert.throws(() => validarEvento(e, proprio), /não existe no vocabulário de eventos \(docs\/CONTRATO\.md\)$/);
+    assert.throws(() => validarEvento({ ...e, type: "lead.created", payload: { telefone: "x" } }, proprio), /o Sistema X não guarda dado pessoal/);
+    assert.equal(proprio.problemaDoPadrao("nada.feito"), 'tipo "nada.feito" não existe no vocabulário (docs/CONTRATO.md)');
+    assert.equal(vocab.problemaDoPadrao("nada.feito"), 'tipo "nada.feito" não existe no vocabulário');
   });
 
   it("normaliza o legado e explica o padrão que não serve", () => {
