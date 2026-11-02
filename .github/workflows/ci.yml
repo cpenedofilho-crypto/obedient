@@ -37,7 +37,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      # Conta pessoal: a gitleaks-action não exige licença. Em organização, exige GITLEAKS_LICENSE.
-      - uses: gitleaks/gitleaks-action@v2
+      # Binário direto, e não a gitleaks-action: no primeiro push de um repositório a action monta o
+      # intervalo "<primeiro commit>^..<último>", e o primeiro commit não tem pai (falhou assim no run 1).
+      # Varre o histórico inteiro a cada execução; versão fixa e checksum conferido.
+      - name: gitleaks (histórico inteiro)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.24.3
+        run: |
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
+          arquivo="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$arquivo" "$base/$arquivo"
+          curl -sSfL -o checksums.txt "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt"
+          grep " $arquivo\$" checksums.txt | sha256sum -c -
+          tar xzf "$arquivo" gitleaks
+          ./gitleaks git --redact --verbose --exit-code 1 .
