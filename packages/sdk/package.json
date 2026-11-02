@@ -1,0 +1,9 @@
+{
+  "name": "@obedient/sdk",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Tipos de protocolo do OBEDIENT para integração por terceiros. Apache-2.0 de propósito: não importa nada dos pacotes AGPL.",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}
