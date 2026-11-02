@@ -20,3 +20,4 @@ documento.
 | D13 | 02/11/2026 | Quem usa os sistemas de origem não é titular deles | Registrado no instrumento de licença |
 | D14 | 02/11/2026 | A estrutura societária foi tratada no instrumento de licença (documento privado) | n/a |
 | D15 | 02/11/2026 | **Opção A:** o fundador continua autor e titular, e concede **licença exclusiva** à Casa de IA | `GOVERNANCE.md` §1; instrumento a ser redigido pelo advogado |
+| D16 | 02/11/2026 | O laço do run com banco (`executar.ts`, que grava cada passo) **fica no Growth OS**. O OBEDIENT mantém a `executarRodada` sem banco para quem usa o pacote puro | Etapa 6 encerrada sem trocar o laço; nada muda em produção. Reabrir só com um gancho por passo no `agent-orchestrator` e teste que compare o que fica gravado |
