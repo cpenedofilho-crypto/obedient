@@ -26,6 +26,10 @@ Antes do primeiro PR:
 É permitido. Declare no PR (checkbox) e no commit (`Assisted-by: <ferramenta>`). Você revisou e
 responde pelo que enviou. Detalhes em `docs/licensing/ai-contributions.md`.
 
+**O commit precisa estar no seu nome** (`git config user.name` e `user.email` da sua conta do
+GitHub), não no da ferramenta. O bot do CLA confere quem assina cada commit; commit no nome de uma
+ferramenta de IA não tem quem assine e trava o PR.
+
 ## Fluxo
 
 ```bash
