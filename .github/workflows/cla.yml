@@ -1,0 +1,28 @@
+# CLA obrigatório antes do primeiro PR externo (CLA.md). As assinaturas ficam no branch
+# cla-signatures deste repositório. O fundador e os bots ficam na allowlist.
+name: cla
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+jobs:
+  cla:
+    runs-on: ubuntu-latest
+    steps:
+      - if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'Li o CLA e concordo com os termos.') || github.event_name == 'pull_request_target'
+        uses: contributor-assistant/github-action@v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: signatures/cla-v0.json
+          path-to-document: https://github.com/${{ github.repository }}/blob/main/CLA.md
+          branch: cla-signatures
+          allowlist: cpenedofilho-crypto,dependabot[bot],github-actions[bot]
+          custom-pr-sign-comment: Li o CLA e concordo com os termos.
+          custom-notsigned-prcomment: Obrigado pela contribuição. Antes de revisar, precisamos que você aceite o CLA (CLA.md). Para aceitar, comente exatamente a frase abaixo.
