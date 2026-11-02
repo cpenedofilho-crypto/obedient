@@ -54,7 +54,7 @@ Tipos de autoria usados abaixo:
 | `packages/agent-orchestrator/src/governado.ts` | Novo | n/a | IA-R | Ligação com o Ethics Engine |
 | `packages/ethics-engine/src/approvals.ts` | Desenho de `ronda-app/lib/assistente/acoes.ts` (proposta e cartão, prazo de 30 min) e de `recupera-os/docs/migrations/60_aprovacoes_limites_servidor.sql` (quem pede não decide, prazo ≤ 72 h, hash) | n/a | IA-R | Nenhuma linha copiada; só o desenho |
 | `packages/ethics-engine/src/audit.ts` | Desenho da imutabilidade de `interacoes` no Recupera OS | n/a | IA-R | Código novo |
-| `packages/dots-adapter/src/index.ts` | Nomes de ferramenta conferidos em `recupera-mcp/src/agentic/tools/*.ts` e `motor-triagem-iga/mcp/tools/*` (todas READ/LOW) | n/a | IA-R | Nenhum código importado dos dois repositórios |
+| `packages/dots-adapter/src/index.ts` | Nomes de ferramenta conferidos em `recupera-mcp/src/agentic/tools/*.ts` e o repositório do Motor de Triagem (`mcp/tools/*`) (todas READ/LOW) | n/a | IA-R | Nenhum código importado dos dois repositórios |
 | Todos os demais arquivos | Criados em 02/11/2026 com assistência de IA | n/a | IA-R | Revisão do fundador em andamento; publicado como pré-alfa por decisão D12 |
 
 ## O que NÃO veio para cá, de propósito

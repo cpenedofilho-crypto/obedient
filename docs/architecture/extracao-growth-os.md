@@ -27,16 +27,21 @@ interface que o Growth OS implementa com Prisma e o OBEDIENT com o próprio banc
 | 3 | Event bus: tipos, regras, consumidores e produtores; vocabulário virou parâmetro (`criarVocabulario`); barramento em memória como contrato; vocabulário próprio do OBEDIENT | `@obedient/event-bus` | **Feito** | Testes de regra portados; contrato do barramento testado (idempotência, isolamento entre tenants, retry, dead letter, eventos derivados). A porta Postgres do Growth OS entra na etapa 6 |
 | 4 | Missões e equipes: tipos, máquina de estados (missão e tarefa), plano com dependências e camadas, subconjunto de JSON Schema, autonomia e delegação | `@obedient/mission-engine` | **Feito** | Casos portados; novo teste cruzado prova que a autonomia nunca libera mais que o Policy Engine. Contratos (zod), modelos de equipe e integração com os produtos ficaram no Growth OS: são do negócio dele |
 | 5 | Agent runtime: o laço do run (modelo, ferramentas, limites, retomada após aprovação) sem banco; roteamento de modelo; limpeza de dado pessoal no resultado de ferramenta; ligação com o Ethics Engine | `@obedient/agent-orchestrator` (+ `dado-pessoal` no `integration-gateway`) | **Feito** | Regras do `executar.ts` testadas com modelo roteirizado; aprovação executa uma vez com o payload exato; instrução injetada em resultado não vira ação. Ficaram no Growth OS: fila e reivindicação de runs (Postgres), orçamento por organização, ferramentas internas, delegação em equipe e o adaptador do SDK |
-| 6 | O Growth OS passa a importar os pacotes | PR no `casa-de-ia` | Próxima | `npm test`, `test:db` e harness do Growth OS verdes; nenhuma mudança de comportamento em produção |
+| 6 | O Growth OS passa a importar os pacotes, um PR por pacote | PRs no `casa-de-ia` | **Em andamento**: motor de políticas na `main` (casa-de-ia#164, teste diferencial com 20 000 casos, CI com harness verde); risco, segurança e dado pessoal em revisão (casa-de-ia#165, código idêntico); `event-bus`, `mission-engine` e `agent-orchestrator` a seguir, cada um com teste diferencial | `npm test`, `test:db` e harness do Growth OS verdes; nenhuma mudança de comportamento em produção |
 
-## Como o Growth OS vai consumir
+## Como o Growth OS consome (decidido na etapa 6)
 
-- **Agora:** dependência git apontando para uma tag do repositório `obedient`, por exemplo
-  `"@obedient/policy-engine": "github:cpenedofilho-crypto/obedient#v0.1.0"`, com o subcaminho do
-  pacote. Alternativa: publicar no npm quando houver release.
-- **Nomes:** o `integration-gateway` manteve os nomes em português, para que a troca no Growth OS
-  seja só de import. O `policy-engine` passou para inglês. Na etapa 6 entra um adaptador fino no
-  Growth OS (`decidir → decide`) com o teste original como prova.
+- **Cópia fixada e conferida ("vendoring").** O `casa-de-ia` guarda em `vendor/obedient/` os arquivos
+  de um commit exato da `main` do OBEDIENT, com um `MANIFEST.json` de hashes. Um teste do Growth OS
+  (`src/governanca/obedient-vendor.test.ts`) reprova qualquer edição local e qualquer arquivo fora do
+  manifesto. Para atualizar, roda-se `scripts/obedient-vendor.mjs <checkout> <sha>` no `casa-de-ia`.
+- **Por que não dependência npm:** o npm não instala subpacote de monorepo por git, e publicar num
+  registro exigiria token no build da Vercel. A cópia não tem rede no build, e o OBEDIENT continua sendo
+  a fonte única.
+- **Onde o código é idêntico** (`integration-gateway`), os arquivos do Growth OS viram reexportações.
+  **Onde mudou** (`policy-engine` em inglês, vocabulário parametrizado, laço sem banco), entra um
+  adaptador fino com **teste diferencial**: a implementação antiga do Growth OS fica guardada como
+  referência e é comparada com a nova em milhares de casos gerados.
 
 ## Efeito de licença (registrado)
 
