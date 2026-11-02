@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+# Dados de cliente nunca entram (ver CONTRIBUTING.md)
+*.csv
+*.xlsx
+*.xls
+*.pdf
+*.docx

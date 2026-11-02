@@ -1,0 +1,33 @@
+OBEDIENT
+Copyright (C) 2026 Cláudio Penedo.
+Licença exclusiva de exploração comercial à Casa de IA Educação e Consultoria Ltda
+(CNPJ 69.761.208/0001-20): em formalização.
+
+Este programa é software livre: você pode redistribuí-lo e/ou modificá-lo sob os termos da
+GNU Affero General Public License, versão 3 (AGPL-3.0-only), publicada pela Free Software
+Foundation. Ver LICENSE.
+
+O pacote packages/sdk é licenciado sob a Apache License 2.0 (packages/sdk/LICENSE).
+
+---------------------------------------------------------------------------------------
+Componentes de terceiros
+---------------------------------------------------------------------------------------
+
+Nesta versão, o código distribuído não inclui componente de terceiro em tempo de execução.
+As dependências de desenvolvimento (TypeScript, Apache-2.0; tsx, MIT; @types/node, MIT)
+não são distribuídas com o software.
+
+Quando um componente de terceiro entrar, ele é listado aqui com o copyright e a licença dele, e a
+obrigação correspondente é registrada em docs/licensing/excecoes.md. Exemplos já conhecidos nos
+projetos de origem: o modelo YuNet (MIT, Copyright (c) 2020 Shiqi Yu), as fontes OFL-1.1 e a
+libvips (LGPL-3.0, via sharp).
+
+---------------------------------------------------------------------------------------
+Textos de licença
+---------------------------------------------------------------------------------------
+
+Os textos de LICENSE (AGPL-3.0-only) e packages/sdk/LICENSE (Apache-2.0) vieram do repositório
+oficial de dados da SPDX (spdx/license-list-data, pasta text/) e foram conferidos contra o pacote
+npm spdx-license-list 6.12.0. Os dois coincidem depois de normalizar espaços. Antes da publicação,
+substituir pelo arquivo canônico de https://www.gnu.org/licenses/agpl-3.0.txt (mesmo conteúdo,
+quebras de linha diferentes). Ver docs/licensing/PROVENANCE.md.
