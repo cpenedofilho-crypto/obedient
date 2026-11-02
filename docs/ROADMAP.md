@@ -7,7 +7,7 @@
 | 2 | Repositório, CI com portões de licença, segredos, SBOM e CLA | **Feito.** Público por decisão D12 |
 | 3 | DOTS adapter só leitura | **Feito** (com cliente MCP falso nos testes; falta ligar aos servidores reais) |
 | 4 | Ethics Engine: grants, consentimento, aprovação, parada, auditoria | **Feito em memória** |
-| 4a | Extração do Growth OS (D7): policy-engine e integration-gateway feitos; event-bus, missões e runtime a seguir | **Em andamento** (`docs/architecture/extracao-growth-os.md`) |
+| 4a | Extração do Growth OS (D7): policy-engine, integration-gateway e event-bus feitos; missões e runtime a seguir | **Em andamento** (`docs/architecture/extracao-growth-os.md`) |
 | 4b | Persistência em Postgres com RLS, auditoria append-only, sessão autenticada | Próxima |
 | 5 | App mobile-first (PWA, padrão offline do Ronda) | Não iniciada |
 | 6 | Memória pessoal e motor de missões (Arts. 5º, 7º, 10 e 13) | Não iniciada |
