@@ -1,0 +1,25 @@
+{
+  "name": "obedient",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "OBEDIENT — agente pessoal open source governado por uma Constituição Ética verificável.",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test \"packages/*/src/**/*.test.ts\" \"tests/**/*.test.ts\"",
+    "licenses": "node scripts/check-licenses.mjs",
+    "check": "npm run typecheck && npm test && npm run licenses"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
