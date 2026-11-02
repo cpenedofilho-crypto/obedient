@@ -143,15 +143,15 @@ export function validarEvento(e: NovoEvento, vocab: Vocabulario, i = 0, fonte?: 
     if (valor == null) continue;
     if (Buffer.byteLength(JSON.stringify(valor), "utf8") > TAMANHO_MAXIMO_PAYLOAD) recusar(i, `${campo} maior que ${TAMANHO_MAXIMO_PAYLOAD} bytes`);
     const pessoal = chavePessoal(valor);
-    if (pessoal) recusar(i, `${campo} traz dado pessoal (${pessoal}); o barramento não guarda dado pessoal`);
+    if (pessoal) recusar(i, `${campo} traz dado pessoal (${pessoal}); ${vocab.mensagens.quemNaoGuardaDadoPessoal} não guarda dado pessoal`);
     // A mensagem cita o caminho e o tipo, nunca o valor: o log de recusa não pode vazar o dado.
     const pareceDado = valorPessoal(valor);
-    if (pareceDado) recusar(i, `${campo} traz dado pessoal (${pareceDado}); o barramento não guarda dado pessoal`);
+    if (pareceDado) recusar(i, `${campo} traz dado pessoal (${pareceDado}); ${vocab.mensagens.quemNaoGuardaDadoPessoal} não guarda dado pessoal`);
   }
   // Por último, o vocabulário: as recusas de formato acima dizem mais sobre o erro.
   const tipo = vocab.normalizarTipo(e.type);
   const def = vocab.definicaoDoTipo(tipo);
-  if (!def) recusar(i, `tipo "${e.type}" não existe no vocabulário de eventos`);
+  if (!def) recusar(i, `tipo "${e.type}" não existe no vocabulário de eventos${vocab.mensagens.referenciaContrato ? ` (${vocab.mensagens.referenciaContrato})` : ""}`);
   if (!def.entidades.includes(e.entityType)) {
     recusar(i, `tipo "${tipo}" não se aplica a entity_type "${e.entityType}" (aceita: ${def.entidades.join(", ")})`);
   }

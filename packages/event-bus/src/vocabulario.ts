@@ -36,6 +36,18 @@ export interface ConfigVocabulario {
   /** Entidades que só aceitam id interno (ex.: a própria organização). */
   somenteInternas?: readonly string[];
   tipos: readonly DefinicaoTipo[];
+  /**
+   * Como o sistema aparece nas mensagens de recusa (vão para quem publica). Padrão neutro; o Growth OS
+   * informa o dele para manter as mensagens que os produtores já conhecem.
+   */
+  mensagens?: MensagensVocabulario;
+}
+
+export interface MensagensVocabulario {
+  /** Sujeito de "... não guarda dado pessoal". Padrão: "o barramento". */
+  quemNaoGuardaDadoPessoal?: string;
+  /** Documento citado quando o tipo não existe (ex.: "docs/EVENT_CONTRACT.md"). Padrão: nenhum. */
+  referenciaContrato?: string;
 }
 
 export interface Vocabulario {
@@ -44,6 +56,7 @@ export interface Vocabulario {
   readonly entidadesInternas: readonly string[];
   readonly somenteInternas: readonly string[];
   readonly tipos: readonly DefinicaoTipo[];
+  readonly mensagens: Readonly<Required<Pick<MensagensVocabulario, "quemNaoGuardaDadoPessoal">> & Pick<MensagensVocabulario, "referenciaContrato">>;
   definicaoDoTipo(tipo: string): DefinicaoTipo | undefined;
   /** Traduz nome legado para o canônico; qualquer outro nome volta igual. */
   normalizarTipo(tipo: string): string;
@@ -81,12 +94,18 @@ export function criarVocabulario(cfg: ConfigVocabulario): Vocabulario {
     }
 
   const normalizarTipo = (tipo: string) => legado.get(tipo) ?? tipo;
+  const mensagens = Object.freeze({
+    quemNaoGuardaDadoPessoal: cfg.mensagens?.quemNaoGuardaDadoPessoal ?? "o barramento",
+    ...(cfg.mensagens?.referenciaContrato ? { referenciaContrato: cfg.mensagens.referenciaContrato } : {}),
+  });
+  const ref = mensagens.referenciaContrato ? ` (${mensagens.referenciaContrato})` : "";
   return Object.freeze({
     fontes: Object.freeze([...cfg.fontes]),
     entidades: Object.freeze([...cfg.entidades]),
     entidadesInternas: Object.freeze([...cfg.entidadesInternas]),
     somenteInternas: Object.freeze([...(cfg.somenteInternas ?? [])]),
     tipos: Object.freeze([...cfg.tipos]),
+    mensagens,
     definicaoDoTipo: (tipo: string) => porTipo.get(tipo),
     normalizarTipo,
     normalizarPadrao: (padrao: string) => (padrao.endsWith(".*") || padrao === "*" ? padrao : normalizarTipo(padrao)),
@@ -98,7 +117,7 @@ export function criarVocabulario(cfg: ConfigVocabulario): Vocabulario {
       }
       const canonico = normalizarTipo(padrao);
       if (canonico !== padrao) return `"${padrao}" é nome antigo; use "${canonico}"`;
-      return porTipo.has(padrao) ? null : `tipo "${padrao}" não existe no vocabulário`;
+      return porTipo.has(padrao) ? null : `tipo "${padrao}" não existe no vocabulário${ref}`;
     },
   });
 }
