@@ -44,6 +44,9 @@ Tipos de autoria usados abaixo:
 | `packages/event-bus/src/vocabulario.ts` | Mecanismo de `casa-de-ia/src/event-bus/vocabulario.ts` | `45ba448` | AD | Lista fixa virou `criarVocabulario()`; as conferências do teste do Growth OS rodam na construção |
 | `packages/event-bus/src/memoria.ts`, `vocabulario-obedient.ts` | Semântica de `despachar.ts`/`ingresso.ts` do Growth OS | `45ba448` | IA-R | Código novo; nenhuma linha copiada |
 | `packages/event-bus/src/regras.test.ts` | `casa-de-ia/src/event-bus/regras.test.ts` | `45ba448` | AD | Sem o contrato HTTP (zod); nomes de cliente trocados por genéricos |
+| `packages/mission-engine/src/transicoes.ts`, `plano.ts`, `esquema.ts`, `autonomia.ts` | `casa-de-ia/src/equipes/` (mesmos nomes) | `45ba448` (últimos commits nesses arquivos: Claude, 14 e 15/10/2026) | AD | Código idêntico; só os imports mudaram (`autonomia.ts` passa a importar do `integration-gateway`) |
+| `packages/mission-engine/src/tipos.ts` | `casa-de-ia/src/equipes/tipos.ts` | `45ba448` | AD | Só a parte genérica; as listas do negócio do Growth OS ficaram lá |
+| `packages/mission-engine/src/index.test.ts` | `casa-de-ia/src/equipes/equipes.test.ts` e `arquitetura.test.ts` | `45ba448` | AD | Sem os casos que leem migrations do Growth OS; teste cruzado com o Policy Engine é novo |
 | `packages/ethics-engine/src/approvals.ts` | Desenho de `ronda-app/lib/assistente/acoes.ts` (proposta e cartão, prazo de 30 min) e de `recupera-os/docs/migrations/60_aprovacoes_limites_servidor.sql` (quem pede não decide, prazo ≤ 72 h, hash) | n/a | IA-R | Nenhuma linha copiada; só o desenho |
 | `packages/ethics-engine/src/audit.ts` | Desenho da imutabilidade de `interacoes` no Recupera OS | n/a | IA-R | Código novo |
 | `packages/dots-adapter/src/index.ts` | Nomes de ferramenta conferidos em `recupera-mcp/src/agentic/tools/*.ts` e `motor-triagem-iga/mcp/tools/*` (todas READ/LOW) | n/a | IA-R | Nenhum código importado dos dois repositórios |
