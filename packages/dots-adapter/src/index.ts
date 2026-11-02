@@ -33,7 +33,7 @@ export const DOTS_AGENT_ID = "dots";
  *   recupera-mcp/src/agentic/tools/contexto.ts (minhas_capacidades, gerar_resumo_executivo),
  *   aprovacoes.ts (listar_decisoes_pendentes), dot.ts (dot_decisoes_recentes, dot_eventos_novos),
  *   planilha.ts (dot_retornos_pendentes), leitura.ts (listar_excecoes);
- *   motor-triagem-iga/mcp/tools/automation/index.ts (quem_sou_eu), management/index.ts
+ *   Motor de Triagem, mcp/tools/automation/index.ts (quem_sou_eu), management/index.ts
  *   (listar_excecoes, listar_leads_sla_estourado), events/index.ts (listar_eventos_desde).
  * Acrescentar uma é PR com teste e com a referência ao registro do servidor.
  */
