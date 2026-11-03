@@ -12,8 +12,11 @@
 //   • tudo o que toca dado do usuário roda em comoUsuario(): a RLS é a segunda barreira.
 
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
-import { type Database, type OpcoesMotor, Sessoes, comoUsuario, contestacoes, lerIdentificacao } from "@obedient/store-postgres";
+import { type Database, type OpcoesMotor, Sessoes, comoUsuario, contestacoes, lerIdentificacao, motorNaTransacao } from "@obedient/store-postgres";
 import { contexto } from "./contexto.ts";
+import { type ClienteOAuth, type Cofre, Conexoes, INTEGRACOES, STATE_TTL_MS } from "@obedient/integrations";
+import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
+import { conexoesNoPainel } from "./painel.ts";
 import { exportarDados } from "./exportar.ts";
 import { aplicarAcao, lerAcao } from "./acoes.ts";
 import { montarPainel } from "./painel.ts";
@@ -37,7 +40,11 @@ export interface Resposta {
 
 export interface ConfigApi extends ConfigPasskey {
   motor?: Omit<OpcoesMotor, "clock">;
+  /** Integrações com o Google. Sem isto, o app mostra que o servidor não tem integrações ligadas. */
+  google?: { cliente: ClienteOAuth; cofre: Cofre; fetch?: typeof fetch };
 }
+
+export const COOKIE_OAUTH = "__Host-obedient-oauth";
 
 const json = (status: number, dados: unknown, extra: Record<string, string> = {}): Resposta => ({
   status,
@@ -62,6 +69,11 @@ const cookieApagado = `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Ma
 export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemClock) {
   const sessoes = new Sessoes(db, clock);
   const passkeys = new Passkeys(db, cfg, clock);
+  const conexoes = cfg.google ? new Conexoes(db, cfg.google.cofre, cfg.google.cliente, cfg.google.fetch ?? fetch, clock) : null;
+  /** Revogar no Google o que entrou na fila (rede, depois do commit). Falha fica para a próxima vez. */
+  const revogarDepois = (userId: string) => {
+    if (conexoes) void conexoes.revogarPendentes(userId).catch((e) => console.error(JSON.stringify({ evento: "conexoes.revogar_falhou", erro: e instanceof Error ? e.message : String(e) })));
+  };
   // O servidor exige a identificação nas mensagens em nome da pessoa (Art. 5º).
   const opcoesMotor: OpcoesMotor = { ...cfg.motor, clock, exigirIdentificacao: true };
 
@@ -105,6 +117,29 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
       return json(200, { usuario: r.userId }, { "set-cookie": cookieDeSessao(r.token, 12 * 3600) });
     }
 
+    // O Google devolve a pessoa aqui. Sem a sessão (o cookie dela é SameSite=Strict e não vem num
+    // redirecionamento de outro site): quem prova o fluxo é o state no banco + o nonce no cookie Lax
+    // deste navegador. Sempre termina redirecionando para o app, com o desfecho na URL.
+    if (p.method === "GET" && caminho === "/api/conexoes/retorno") {
+      const q = new URLSearchParams(p.path.split("?")[1] ?? "");
+      const voltar = (status: "ok" | "erro", extra: Record<string, string>) => ({
+        status: 303,
+        headers: { location: `/?${new URLSearchParams({ conexao: status, ...extra }).toString()}`, "cache-control": "no-store", "set-cookie": `${COOKIE_OAUTH}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0` },
+        body: "",
+      });
+      if (!conexoes) return voltar("erro", { motivo: "integrações desligadas neste servidor" });
+      if (q.get("error")) return voltar("erro", { motivo: q.get("error") === "access_denied" ? "você não autorizou no Google" : "o Google recusou" });
+      try {
+        const r = await conexoes.concluir(q.get("state") ?? "", q.get("code") ?? "", lerCookie(p.headers.cookie, COOKIE_OAUTH));
+        await comoUsuario(db, r.userId, (tx) =>
+          motorNaTransacao(tx, opcoesMotor).audit.record({ userId: r.userId, actor: `user:${r.userId}`, event: "connection.added", outcome: "info", systemId: r.integracao, constitutionVersion: CONSTITUTION_VERSION }),
+        );
+        return voltar("ok", { integracao: r.integracao });
+      } catch (e) {
+        return voltar("erro", { motivo: e instanceof ObedientError ? e.message : "não deu para conectar" });
+      }
+    }
+
     // -------------------------------------------------------------- daqui para baixo, com sessão
     const atual = await sessaoDo(p);
     if (!atual) return erro(401, "sessao", "entre de novo com a sua passkey");
@@ -115,7 +150,9 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
         200,
         await comoUsuario(db, s.userId, async (tx) => {
           const c = contexto(tx, opcoesMotor, clock);
-          return montarPainel(c.motor, c.memoria, c.missoes, await contestacoes(tx, s.userId), await lerIdentificacao(tx, s.userId), s.userId, s.strongAuth, clock.now());
+          const conectadas = await tx.query<{ integracao: string; conectada_em: unknown }>("select integracao, conectada_em from obedient.connections where user_id = $1", [s.userId]);
+          const painel = await montarPainel(c.motor, c.memoria, c.missoes, await contestacoes(tx, s.userId), await lerIdentificacao(tx, s.userId), s.userId, s.strongAuth, clock.now());
+          return { ...painel, conexoes: conexoesNoPainel(conectadas.rows, !!conexoes) };
         }),
       );
 
@@ -131,6 +168,8 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
       if (Array.isArray(acao)) return erro(400, "acao", acao.join("; "));
       try {
         const r = await comoUsuario(db, s.userId, (tx) => aplicarAcao(contexto(tx, opcoesMotor, clock), s, acao));
+        // Parar, apagar e desconectar põem credenciais na fila; a revogação no Google vem agora, fora da transação.
+        if (["parar", "apagar_tudo", "desconectar"].includes(acao.tipo)) revogarDepois(s.userId);
         return json(200, r);
       } catch (e) {
         // Mesmo opId chegando duas vezes ao mesmo tempo: a segunda perde na chave única e lê o
@@ -141,6 +180,15 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
         }
         throw e;
       }
+    }
+
+    // A pessoa aperta "Conectar": o app vai para a URL do Google; o nonce fica num cookie Lax deste navegador.
+    if (p.method === "POST" && caminho === "/api/conexoes/iniciar") {
+      if (!conexoes) return erro(400, "conexoes", "este servidor não tem integrações ligadas");
+      const { integracao: id } = comCorpo(p) as { integracao?: string };
+      if (!INTEGRACOES.some((i) => i.id === id)) return erro(400, "conexoes", "integração desconhecida");
+      const { url, nonce } = await conexoes.iniciar(s.userId, id!);
+      return json(200, { url }, { "set-cookie": `${COOKIE_OAUTH}=${nonce}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${STATE_TTL_MS / 1000}` });
     }
 
     if (p.method === "POST" && caminho === "/api/reautenticar/opcoes") return json(200, await passkeys.opcoesDeReautenticacao(s.userId));

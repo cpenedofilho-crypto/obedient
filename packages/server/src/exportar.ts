@@ -36,6 +36,8 @@ export async function exportarDados(ctx: Contexto, userId: string, agora: Date) 
     contestacoes: await contestacoes(tx, userId),
     missoes: await missoes.listar(userId),
     identificacao: await lerIdentificacao(tx, userId),
+    // Só o que está conectado e com quais permissões; a credencial nunca sai do servidor.
+    conexoes: (await tx.query("select integracao, escopos, conectada_em from obedient.connections where user_id = $1 order by integracao", [userId])).rows,
     trilha,
     trilhaIntegra,
   };

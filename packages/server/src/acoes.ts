@@ -13,6 +13,7 @@
 import { ObedientError } from "@obedient/core";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { type Sessao, apagarMeusDados, contestar, gravarIdentificacao } from "@obedient/store-postgres";
+import { INTEGRACOES, tirarConexoes } from "@obedient/integrations";
 import type { Contexto } from "./contexto.ts";
 
 /** O agente que trabalha nas missões que a pessoa pede pelo app. */
@@ -32,7 +33,8 @@ export type Acao =
   | { opId: string; tipo: "criar_missao"; objetivo: string; tetoCentavos?: number }
   | { opId: string; tipo: "cancelar_missao"; missaoId: string }
   | { opId: string; tipo: "tentar_de_novo"; missaoId: string; novoTetoCentavos?: number }
-  | { opId: string; tipo: "identificacao"; texto: string };
+  | { opId: string; tipo: "identificacao"; texto: string }
+  | { opId: string; tipo: "desconectar"; integracao: string };
 
 export type ResultadoAcao = { ok: true; tipo: Acao["tipo"] } | { ok: false; tipo: Acao["tipo"]; codigo: string; mensagem: string };
 
@@ -85,6 +87,9 @@ export function lerAcao(corpo: unknown): Acao | string[] {
     case "identificacao":
       if (typeof o.texto !== "string" || o.texto.length > 400) erros.push("identificação inválida");
       break;
+    case "desconectar":
+      if (typeof o.integracao !== "string" || !INTEGRACOES.some((i) => i.id === o.integracao)) erros.push("integração desconhecida");
+      break;
     case "parar":
     case "liberar":
     case "apagar_tudo":
@@ -114,6 +119,7 @@ const MENSAGEM_POR_TIPO: Partial<Record<Acao["tipo"], Partial<Record<string, str
   esquecer: { PROPOSAL_NOT_FOUND: "Essa lição já tinha sido apagada." },
   contestar: { PROPOSAL_NOT_FOUND: "Essa entrada não existe na sua trilha." },
   cancelar_missao: { PROPOSAL_NOT_FOUND: "Essa missão não existe mais.", PROPOSAL_NOT_PENDING: "Essa missão já tinha terminado." },
+  desconectar: { GRANT_NOT_FOUND: "Essa conexão já tinha sido desfeita." },
   tentar_de_novo: { PROPOSAL_NOT_FOUND: "Essa missão não existe mais.", PROPOSAL_NOT_PENDING: "Essa missão não está parada esperando você." },
 };
 
@@ -164,8 +170,15 @@ async function executar(ctx: Contexto, s: Sessao, a: Acao): Promise<void> {
       await contestar(tx, m.audit, s.userId, a.seq, a.motivo, clock);
       return;
     case "apagar_tudo":
+      await tirarConexoes(tx, s.userId, "apagar o que o OBEDIENT sabe");
       await apagarMeusDados(tx, m.audit, s.userId, clock);
       return;
+    case "desconectar": {
+      const n = await tirarConexoes(tx, s.userId, "desconectada pela pessoa", a.integracao);
+      if (!n) throw new ObedientError("GRANT_NOT_FOUND", "não estava conectada");
+      await m.audit.record({ userId: s.userId, actor: `user:${s.userId}`, event: "connection.removed", outcome: "revoked", systemId: a.integracao, constitutionVersion: CONSTITUTION_VERSION });
+      return;
+    }
     case "criar_missao":
       await missoes.criar(s.userId, AGENTE_PADRAO, a.objetivo, a.tetoCentavos !== undefined ? { tetoCustoCentavos: a.tetoCentavos } : {});
       return;

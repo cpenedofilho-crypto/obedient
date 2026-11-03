@@ -8,6 +8,7 @@
 import type { AuditEntry, EthicsEngine, Grant, Proposal } from "@obedient/ethics-engine";
 import { CATEGORIAS_DE_APRENDIZADO, type Memoria } from "@obedient/memory";
 import { ABERTAS, type Missao, type Missoes } from "@obedient/missions";
+import { INTEGRACOES } from "@obedient/integrations";
 import type { Contestacao } from "@obedient/store-postgres";
 
 export interface CartaoPedido {
@@ -192,6 +193,8 @@ function nomeDaCategoria(razao: string | undefined): string {
   return id === "todas" ? "todas as categorias" : (NOMES_DE_CATEGORIA[id] ?? id);
 }
 
+const nomeDaIntegracao = (id: string | undefined) => INTEGRACOES.find((i) => i.id === id)?.nome ?? id ?? "uma integração";
+
 const CONTESTAVEIS = new Set(["action.authorize", "proposal.execute", "memory.learn", "mission.feito", "mission.nao_sei", "mission.nao_consegui", "mission.attempt_failed"]);
 
 const SITUACAO: Record<string, string> = {
@@ -287,6 +290,10 @@ export function textoDaAtividade(e: AuditEntry): Pick<ItemAtividade, "texto" | "
       return { texto: "Você mandou a missão tentar de novo", tom: "neutro" };
     case "mission.result_discarded:info":
       return { texto: "Um resultado chegou depois de a missão ser encerrada e foi descartado", tom: "neutro" };
+    case "connection.added:info":
+      return { texto: `Você conectou ${nomeDaIntegracao(e.systemId)}`, tom: "bom" };
+    case "connection.removed:revoked":
+      return { texto: `Você desconectou ${nomeDaIntegracao(e.systemId)}`, tom: "neutro" };
     case "user.data_erased:info":
       return { texto: `Você apagou o que o OBEDIENT sabia sobre você${motivo}`, tom: "neutro" };
     default:
@@ -333,4 +340,31 @@ export async function montarPainel(
     identificacao,
     geradoEm: agora.toISOString(),
   };
+}
+
+export interface ConexaoNoPainel {
+  id: string;
+  nome: string;
+  explicacao: string;
+  /** Servidor sem integração configurada: a pessoa vê o que existe, mas não conecta. */
+  disponivel: boolean;
+  conectada: boolean;
+  conectadaEm: string | null;
+  ferramentas: { nome: string; descricao: string; risco: string }[];
+}
+
+/** As integrações do catálogo, cada uma com o estado da pessoa. Nunca leva credencial. */
+export function conexoesNoPainel(conectadas: readonly { integracao: string; conectada_em: unknown }[], disponivel: boolean): ConexaoNoPainel[] {
+  return INTEGRACOES.map((i) => {
+    const c = conectadas.find((x) => x.integracao === i.id);
+    return {
+      id: i.id,
+      nome: i.nome,
+      explicacao: i.explicacao,
+      disponivel,
+      conectada: !!c,
+      conectadaEm: c ? new Date(c.conectada_em as string | Date).toISOString() : null,
+      ferramentas: i.ferramentas.map((f) => ({ nome: f.name, descricao: f.description, risco: riscoEmPortugues(f.category === "DESTRUCTIVE" || f.category === "FINANCIAL" || f.category === "LEGAL" ? "CRITICAL" : f.risk)! })),
+    };
+  });
 }
