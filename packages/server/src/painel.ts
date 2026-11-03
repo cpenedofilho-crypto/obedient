@@ -6,6 +6,8 @@
 // sessão: o painel de uma pessoa não tem como incluir nada de outra.
 
 import type { AuditEntry, EthicsEngine, Grant, Proposal } from "@obedient/ethics-engine";
+import { CATEGORIAS_DE_APRENDIZADO, type Memoria } from "@obedient/memory";
+import type { Contestacao } from "@obedient/store-postgres";
 
 export interface CartaoPedido {
   id: string;
@@ -42,6 +44,33 @@ export interface ItemAtividade {
   quando: string;
   texto: string;
   tom: "neutro" | "bom" | "atencao" | "barrado";
+  /** Ação de agente (ou sobre um pedido dele) que a pessoa pode contestar (Art. 13). */
+  contestavel: boolean;
+}
+
+export interface CategoriaNoPainel {
+  id: string;
+  nome: string;
+  sensivel: boolean;
+  ligada: boolean;
+}
+
+export interface LicaoNoPainel {
+  id: string;
+  categoria: string;
+  categoriaNome: string;
+  texto: string;
+  agente: string;
+  quando: string;
+}
+
+export interface ContestacaoNoPainel {
+  id: string;
+  seq: number;
+  motivo: string;
+  status: "aberta" | "respondida";
+  resposta: string | null;
+  quando: string;
 }
 
 export interface Painel {
@@ -51,6 +80,8 @@ export interface Painel {
   pedidos: CartaoPedido[];
   autorizacoes: Autorizacao[];
   atividade: ItemAtividade[];
+  aprendizado: { categorias: CategoriaNoPainel[]; licoes: LicaoNoPainel[] };
+  contestacoes: ContestacaoNoPainel[];
   geradoEm: string;
 }
 
@@ -132,6 +163,15 @@ function autorizacao(g: Grant): Autorizacao {
   };
 }
 
+const NOMES_DE_CATEGORIA: Record<string, string> = Object.fromEntries(CATEGORIAS_DE_APRENDIZADO.map((c) => [c.id, c.nome.toLowerCase()]));
+/** "categoria trabalho: 1 lição(ões)" → "trabalho e projetos". */
+function nomeDaCategoria(razao: string | undefined): string {
+  const id = razao?.match(/^categoria (\w+)/)?.[1] ?? "";
+  return id === "todas" ? "todas as categorias" : (NOMES_DE_CATEGORIA[id] ?? id);
+}
+
+const CONTESTAVEIS = new Set(["action.authorize", "proposal.execute", "memory.learn"]);
+
 /** Uma linha da trilha em português direto. O motivo técnico vem entre parênteses quando ajuda. */
 export function textoDaAtividade(e: AuditEntry): Pick<ItemAtividade, "texto" | "tom"> {
   const quem = e.actor.startsWith("agent:") ? agenteDe(e.actor) : e.actor.startsWith("user:") ? "Você" : e.actor;
@@ -162,12 +202,36 @@ export function textoDaAtividade(e: AuditEntry): Pick<ItemAtividade, "texto" | "
       return { texto: "Parada liberada", tom: "bom" };
     case "grant.revoke:revoked":
       return { texto: `Você tirou uma autorização${motivo}`, tom: "neutro" };
+    case "memory.opt_in:info":
+      return { texto: `Você deixou o agente aprender: ${nomeDaCategoria(e.reasons?.[0])}`, tom: "neutro" };
+    case "memory.opt_out:info":
+      return { texto: `Você desligou o aprendizado de ${nomeDaCategoria(e.reasons?.[0])} e apagou o que ele tinha aprendido`, tom: "neutro" };
+    case "memory.learn:info":
+      return { texto: `${quem} aprendeu algo sobre ${nomeDaCategoria(e.reasons?.[0])}`, tom: "neutro" };
+    case "memory.learn:denied":
+      return { texto: `${quem} tentou aprender sobre ${nomeDaCategoria(e.reasons?.[0])} sem a sua permissão e não guardou nada`, tom: "barrado" };
+    case "memory.forget:info":
+      return { texto: "Você apagou uma lição", tom: "neutro" };
+    case "memory.forget_all:info":
+      return { texto: "Você apagou tudo o que o agente aprendeu", tom: "neutro" };
+    case "action.contested:info":
+      return { texto: `Você contestou uma ação${motivo}`, tom: "atencao" };
+    case "user.data_erased:info":
+      return { texto: `Você apagou o que o OBEDIENT sabia sobre você${motivo}`, tom: "neutro" };
     default:
       return { texto: `${e.event} (${e.outcome})`, tom: "neutro" };
   }
 }
 
-export async function montarPainel(m: EthicsEngine, userId: string, reautenticado: boolean, agora: Date, limiteAtividade = 30): Promise<Painel> {
+export async function montarPainel(
+  m: EthicsEngine,
+  memoria: Memoria,
+  contestacoes: Contestacao[],
+  userId: string,
+  reautenticado: boolean,
+  agora: Date,
+  limiteAtividade = 30,
+): Promise<Painel> {
   const parada = await m.stop.blockingScope(userId);
   const pedidos = (await m.approvals.pending(userId)).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   const vigentes = (await m.grants.list(userId)).filter((g) => !g.revokedAt && g.expiresAt > agora);
@@ -181,7 +245,14 @@ export async function montarPainel(m: EthicsEngine, userId: string, reautenticad
     atividade: trilha
       .slice(-limiteAtividade)
       .reverse()
-      .map((e) => ({ seq: e.seq, quando: e.at, ...textoDaAtividade(e) })),
+      .map((e) => ({ seq: e.seq, quando: e.at, ...textoDaAtividade(e), contestavel: CONTESTAVEIS.has(e.event) && e.actor.startsWith("agent:") })),
+    aprendizado: {
+      categorias: (await memoria.categorias(userId)).map((c) => ({ id: c.id, nome: c.nome, sensivel: c.sensivel, ligada: c.ligada })),
+      licoes: (await memoria.listar(userId))
+        .sort((a, b) => b.aprendidaEm.getTime() - a.aprendidaEm.getTime())
+        .map((l) => ({ id: l.id, categoria: l.categoria, categoriaNome: CATEGORIAS_DE_APRENDIZADO.find((c) => c.id === l.categoria)?.nome ?? l.categoria, texto: l.texto, agente: l.agente, quando: l.aprendidaEm.toISOString() })),
+    },
+    contestacoes: contestacoes.map((c) => ({ id: c.id, seq: c.auditSeq, motivo: c.motivo, status: c.status, resposta: c.resposta, quando: c.criadaEm })),
     geradoEm: agora.toISOString(),
   };
 }

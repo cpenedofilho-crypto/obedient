@@ -11,7 +11,7 @@
 
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
+import { comoUsuario, memoriaNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 import { bancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { criarApi } from "./api.ts";
 import { servidorHttp } from "./http.ts";
@@ -23,6 +23,8 @@ export interface Dev {
   usuario: string;
   /** O agente pede uma ação (para o teste criar pedidos novos). */
   pedir(tool: string, risk: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL", category: string, args: Record<string, unknown>): Promise<string>;
+  /** O agente tenta aprender algo (só guarda se a pessoa ligou a categoria). */
+  lembrar(categoria: string, texto: string): Promise<"guardou" | "recusado">;
   fechar(): Promise<void>;
 }
 
@@ -63,6 +65,15 @@ export async function subirDev(porta = 3010, usuario = "ana.praca"): Promise<Dev
     convite: codigo,
     usuario,
     pedir,
+    lembrar: (categoria, texto) =>
+      comoUsuario(banco.db, usuario, async (tx) => {
+        try {
+          await memoriaNaTransacao(tx, motorNaTransacao(tx)).lembrar(usuario, "obedient", categoria, texto);
+          return "guardou" as const;
+        } catch {
+          return "recusado" as const;
+        }
+      }),
     fechar: async () => {
       await new Promise((ok) => srv.close(ok));
       await banco.fechar();
