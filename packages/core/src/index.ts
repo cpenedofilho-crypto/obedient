@@ -87,7 +87,8 @@ export type ErrorCode =
   | "ALREADY_EXECUTED"
   | "EMERGENCY_STOP"
   | "NOT_READ_ONLY"
-  | "AUDIT_TAMPERED";
+  | "AUDIT_TAMPERED"
+  | "UNAUTHENTICATED";
 
 export class ObedientError extends Error {
   constructor(

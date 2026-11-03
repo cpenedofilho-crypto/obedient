@@ -202,8 +202,14 @@ export class EthicsEngine {
       await this.audit.record({ userId: p.userId, actor: `${who.kind}:${who.id}`, event: "proposal.approve", outcome: "approved", proposalId, tool: p.payload.tool, systemId: p.payload.systemId, constitutionVersion: CONSTITUTION_VERSION });
       return p;
     } catch (e) {
-      const p = await this.approvals.get(proposalId);
-      await this.audit.record({ userId: p?.userId ?? "?", actor: `${who.kind}:${who.id}`, event: "proposal.approve", outcome: "denied", proposalId, reasons: [e instanceof Error ? e.message : String(e)] });
+      // A recusa fica na trilha do dono da proposta (ou de quem tentou, se a proposta não existe para
+      // ele). Se nem isso puder ser gravado, o erro que vale é o da aprovação, não o da trilha.
+      try {
+        const p = await this.approvals.get(proposalId);
+        await this.audit.record({ userId: p?.userId ?? who.id, actor: `${who.kind}:${who.id}`, event: "proposal.approve", outcome: "denied", proposalId, reasons: [e instanceof Error ? e.message : String(e)] });
+      } catch {
+        // segue para o throw abaixo
+      }
       throw e;
     }
   }
