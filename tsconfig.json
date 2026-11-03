@@ -10,9 +10,19 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "baseUrl": ".",
-    "paths": { "@obedient/*": ["packages/*/src/index.ts"] }
+    "paths": {
+      "@obedient/*": [
+        "packages/*/src/index.ts"
+      ]
+    }
   },
-  "include": ["packages/*/src/**/*.ts", "tests/**/*.ts"]
+  "include": [
+    "packages/*/src/**/*.ts",
+    "tests/**/*.ts",
+    "e2e/**/*.ts"
+  ]
 }

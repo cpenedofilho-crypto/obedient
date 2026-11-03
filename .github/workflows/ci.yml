@@ -55,6 +55,21 @@ jobs:
           OBEDIENT_TEST_DATABASE_URL: postgres://postgres:obedient-ci@localhost:5432/postgres
         run: node --import tsx --test "packages/store-postgres/src/**/*.test.ts" "packages/server/src/**/*.test.ts"
 
+  # O app num Chromium de celular: passkey pelo autenticador virtual, fila sem internet, service
+  # worker, texto do agente nunca virando HTML, alvo de toque e acessibilidade (axe).
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: app de ponta a ponta
+        run: npm run test:e2e
+
   secrets:
     runs-on: ubuntu-latest
     steps:

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1d3a8a" />
+    <meta name="description" content="Você decide o que os seus agentes fazem." />
+    <title>OBEDIENT</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icone.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icone-192.png" />
+    <link rel="stylesheet" href="/estilo.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="pular" href="#conteudo">Ir para o conteúdo</a>
+    <header class="topo">
+      <h1>OBEDIENT</h1>
+      <p id="conexao" class="conexao" role="status" aria-live="polite"></p>
+    </header>
+
+    <main id="conteudo" tabindex="-1">
+      <!-- Entrada -->
+      <section id="tela-entrada" class="tela" hidden aria-labelledby="t-entrada">
+        <h2 id="t-entrada">Entrar</h2>
+        <p>Use a passkey deste aparelho (digital, rosto ou o bloqueio da tela).</p>
+        <button id="b-entrar" class="botao principal" type="button">Entrar com passkey</button>
+        <details class="convite">
+          <summary>Tenho um convite</summary>
+          <form id="f-convite" class="formulario">
+            <label for="c-codigo">Código do convite</label>
+            <input id="c-codigo" name="codigo" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" inputmode="text" required minlength="8" maxlength="64" />
+            <button class="botao" type="submit">Cadastrar este aparelho</button>
+          </form>
+        </details>
+        <p id="erro-entrada" class="erro" role="alert"></p>
+      </section>
+
+      <!-- Painel -->
+      <section id="tela-painel" class="tela" hidden aria-labelledby="t-painel">
+        <h2 id="t-painel" class="visualmente-oculto">Painel</h2>
+
+        <div id="parada" class="parada" aria-live="assertive"></div>
+
+        <section aria-labelledby="t-pedidos">
+          <h3 id="t-pedidos">Esperando você</h3>
+          <ul id="pedidos" class="lista cartoes"></ul>
+          <p id="sem-pedidos" class="vazio" hidden>Nada esperando por você.</p>
+        </section>
+
+        <section aria-labelledby="t-autorizacoes">
+          <h3 id="t-autorizacoes">O que os agentes podem fazer</h3>
+          <ul id="autorizacoes" class="lista"></ul>
+          <p id="sem-autorizacoes" class="vazio" hidden>Nenhum agente pode agir por você agora.</p>
+        </section>
+
+        <section aria-labelledby="t-atividade">
+          <h3 id="t-atividade">O que aconteceu</h3>
+          <ol id="atividade" class="lista atividade"></ol>
+        </section>
+
+        <p class="rodape"><button id="b-sair" class="botao discreto" type="button">Sair deste aparelho</button></p>
+      </section>
+    </main>
+  </body>
+</html>

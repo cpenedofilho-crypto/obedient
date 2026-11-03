@@ -8,7 +8,10 @@ const ALLOWED = new Set(["MIT", "ISC", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clau
 const REVIEW = [/^LGPL-/, /^MPL-2\.0$/];
 
 // Exceções aprovadas: "nome@licença" → motivo. Manter em sincronia com docs/licensing/excecoes.md.
-const EXCEPTIONS = new Map([]);
+// Valem SÓ para dependência de desenvolvimento: se o pacote passar a ser de produção, reprova.
+const EXCEPTIONS = new Map([
+  ["axe-core@MPL-2.0", "só desenvolvimento: acessibilidade nos testes de ponta a ponta (e2e/), nunca distribuído"],
+]);
 
 function idOk(id) {
   return ALLOWED.has(id.replace(/^\(|\)$/g, "").trim());
@@ -32,7 +35,10 @@ for (const [path, meta] of Object.entries(lock.packages ?? {})) {
   let lic = meta.license;
   if (lic && typeof lic === "object") lic = lic.type;
   const key = `${name}@${lic ?? "UNKNOWN"}`;
-  if (EXCEPTIONS.has(key)) continue;
+  if (EXCEPTIONS.has(key)) {
+    if (!meta.dev) problems.push(`${name}@${meta.version}: exceção vale só para desenvolvimento, e o pacote virou de produção`);
+    continue;
+  }
   if (!lic) problems.push(`${name}@${meta.version}: sem licença declarada`);
   else if (REVIEW.some((r) => r.test(lic))) review.push(`${name}@${meta.version}: ${lic}`);
   else if (!evaluate(lic)) problems.push(`${name}@${meta.version}: ${lic}`);
