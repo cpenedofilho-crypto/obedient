@@ -59,22 +59,53 @@ export function summarize(p: ProposalPayload): string {
   return `${p.systemId}.${p.tool}(${shown}${keys.length > 6 ? ", …" : ""})`;
 }
 
-export class ApprovalGateway {
-  private readonly rows = new Map<string, Proposal>();
+/**
+ * Onde as propostas ficam. `transition` é a troca de estado ATÔMICA (compare-and-set): só grava se
+ * a proposta ainda estiver num dos estados `from`. É ela que garante, num banco com vários
+ * processos, que duas pessoas ou dois workers não aprovem nem executem a mesma proposta duas vezes.
+ */
+export interface ProposalStore {
+  insert(p: Proposal): Promise<void>;
+  get(id: string): Promise<Proposal | undefined>;
+  listByUser(userId: string): Promise<Proposal[]>;
+  transition(id: string, from: readonly ProposalStatus[], patch: Partial<Pick<Proposal, "status" | "decidedBy" | "decidedAt" | "executedAt">>): Promise<Proposal | null>;
+}
 
+export class InMemoryProposalStore implements ProposalStore {
+  private readonly rows = new Map<string, Proposal>();
+  async insert(p: Proposal): Promise<void> {
+    this.rows.set(p.id, structuredClone(p));
+  }
+  async get(id: string): Promise<Proposal | undefined> {
+    const p = this.rows.get(id);
+    return p ? structuredClone(p) : undefined;
+  }
+  async listByUser(userId: string): Promise<Proposal[]> {
+    return [...this.rows.values()].filter((p) => p.userId === userId).map((p) => structuredClone(p));
+  }
+  async transition(id: string, from: readonly ProposalStatus[], patch: Partial<Proposal>): Promise<Proposal | null> {
+    const p = this.rows.get(id);
+    if (!p || !from.includes(p.status)) return null;
+    Object.assign(p, patch);
+    return structuredClone(p);
+  }
+}
+
+export class ApprovalGateway {
   constructor(
     private readonly clock: Clock = systemClock,
     private readonly newId: IdFactory = uuid,
+    private readonly store: ProposalStore = new InMemoryProposalStore(),
   ) {}
 
-  propose(input: {
+  async propose(input: {
     userId: string;
     requestedBy: string;
     payload: ProposalPayload;
     decision: Decision;
     grantId: string | null;
     ttlMs?: number;
-  }): Proposal {
+  }): Promise<Proposal> {
     const approver = input.decision.approver;
     if (!approver) throw new ObedientError("INVALID_PAYLOAD", "decisão não exige aprovação");
     const ttl = Math.min(Math.max(input.ttlMs ?? DEFAULT_TTL_MS, 60_000), MAX_TTL_MS);
@@ -96,93 +127,96 @@ export class ApprovalGateway {
       decidedAt: null,
       executedAt: null,
     };
-    this.rows.set(p.id, p);
+    await this.store.insert(p);
     return structuredClone(p);
   }
 
-  get(id: string): Proposal | undefined {
-    const p = this.rows.get(id);
-    if (!p) return undefined;
-    this.expireIfDue(p);
-    return structuredClone(p);
+  async get(id: string): Promise<Proposal | undefined> {
+    const p = await this.store.get(id);
+    return p ? this.expireIfDue(p) : undefined;
   }
 
-  pending(userId: string): Proposal[] {
-    return [...this.rows.values()].filter((p) => (this.expireIfDue(p), p.userId === userId && p.status === "pending")).map((p) => structuredClone(p));
+  async pending(userId: string): Promise<Proposal[]> {
+    const out: Proposal[] = [];
+    for (const p of await this.store.listByUser(userId)) {
+      const q = await this.expireIfDue(p);
+      if (q.status === "pending") out.push(q);
+    }
+    return out;
   }
 
   /** Aprovar exige o hash que o cartão mostrou: aprova-se o que se viu, não o que mudou depois. */
-  approve(id: string, who: ApproverIdentity, shownHash: string): Proposal {
-    const p = this.mustPending(id);
+  async approve(id: string, who: ApproverIdentity, shownHash: string): Promise<Proposal> {
+    const p = await this.mustPending(id);
     if (who.kind !== "user") throw new ObedientError("APPROVER_NOT_HUMAN", "só pessoa aprova");
     if (who.id === p.requestedBy) throw new ObedientError("SELF_APPROVAL", "quem pede não aprova");
     if (who.id !== p.userId) throw new ObedientError("APPROVER_NOT_OWNER", "só o dono da instância aprova");
     if (p.approver === "user_strong_auth" && !who.strongAuth) throw new ObedientError("STRONG_AUTH_REQUIRED", "esta ação exige reautenticação");
     if (shownHash !== p.payloadHash) throw new ObedientError("PAYLOAD_MISMATCH", "o payload mudou depois do cartão");
-    p.status = "approved";
-    p.decidedBy = who.id;
-    p.decidedAt = this.clock.now();
-    return structuredClone(p);
+    return this.decide(id, "approved", who.id);
   }
 
-  reject(id: string, who: ApproverIdentity): Proposal {
-    const p = this.mustPending(id);
+  async reject(id: string, who: ApproverIdentity): Promise<Proposal> {
+    const p = await this.mustPending(id);
     if (who.kind !== "user" || who.id !== p.userId) throw new ObedientError("APPROVER_NOT_OWNER", "só o dono rejeita");
-    p.status = "rejected";
-    p.decidedBy = who.id;
-    p.decidedAt = this.clock.now();
-    return structuredClone(p);
+    return this.decide(id, "rejected", who.id);
   }
 
   /**
    * Reivindica a execução UMA vez. Quem executa recebe o payload aprovado e devolve o resultado
    * com `complete()`. Segunda chamada falha com ALREADY_EXECUTED (idempotência por construção).
    */
-  claim(id: string, hash: string): ProposalPayload {
-    const p = this.rows.get(id);
+  async claim(id: string, hash: string): Promise<ProposalPayload> {
+    const p = await this.store.get(id);
     if (!p) throw new ObedientError("PROPOSAL_NOT_FOUND", "proposta inexistente");
     if (p.status === "executing" || p.status === "executed" || p.status === "failed") throw new ObedientError("ALREADY_EXECUTED", "já executada");
     if (p.status !== "approved") throw new ObedientError("PROPOSAL_NOT_PENDING", `proposta em ${p.status}`);
     if (this.clock.now() >= p.expiresAt) {
-      p.status = "expired";
+      await this.store.transition(id, ["approved"], { status: "expired" });
       throw new ObedientError("PROPOSAL_EXPIRED", "prazo de execução vencido");
     }
     if (hash !== p.payloadHash) throw new ObedientError("PAYLOAD_MISMATCH", "payload diferente do aprovado");
-    p.status = "executing";
-    return structuredClone(p.payload);
+    // Só um chega aqui: o outro encontra a proposta já em "executing".
+    const won = await this.store.transition(id, ["approved"], { status: "executing" });
+    if (!won) throw new ObedientError("ALREADY_EXECUTED", "já executada");
+    return structuredClone(won.payload);
   }
 
-  complete(id: string, ok: boolean): Proposal {
-    const p = this.rows.get(id);
-    if (!p || p.status !== "executing") throw new ObedientError("PROPOSAL_NOT_PENDING", "nada em execução");
-    p.status = ok ? "executed" : "failed";
-    p.executedAt = this.clock.now();
-    return structuredClone(p);
+  async complete(id: string, ok: boolean): Promise<Proposal> {
+    const p = await this.store.transition(id, ["executing"], { status: ok ? "executed" : "failed", executedAt: this.clock.now() });
+    if (!p) throw new ObedientError("PROPOSAL_NOT_PENDING", "nada em execução");
+    return p;
   }
 
   /** Cancela tudo que está pendente/aprovado de um usuário (parada de emergência). */
-  cancelAll(userId: string): number {
+  async cancelAll(userId: string): Promise<number> {
     let n = 0;
-    for (const p of this.rows.values())
-      if (p.userId === userId && (p.status === "pending" || p.status === "approved")) {
-        p.status = "rejected";
-        p.decidedBy = "emergency-stop";
-        p.decidedAt = this.clock.now();
-        n++;
-      }
+    for (const p of await this.store.listByUser(userId))
+      if (p.status === "pending" || p.status === "approved")
+        if (await this.store.transition(p.id, ["pending", "approved"], { status: "rejected", decidedBy: "emergency-stop", decidedAt: this.clock.now() })) n++;
     return n;
   }
 
-  private mustPending(id: string): Proposal {
-    const p = this.rows.get(id);
+  private async decide(id: string, status: "approved" | "rejected", by: string): Promise<Proposal> {
+    const p = await this.store.transition(id, ["pending"], { status, decidedBy: by, decidedAt: this.clock.now() });
+    // Outra decisão chegou primeiro (ou a proposta venceu entre a leitura e a gravação).
+    if (!p) throw new ObedientError("PROPOSAL_NOT_PENDING", "a proposta já foi decidida");
+    return p;
+  }
+
+  private async mustPending(id: string): Promise<Proposal> {
+    const p = await this.get(id);
     if (!p) throw new ObedientError("PROPOSAL_NOT_FOUND", "proposta inexistente");
-    this.expireIfDue(p);
     if (p.status === "expired") throw new ObedientError("PROPOSAL_EXPIRED", "proposta vencida");
     if (p.status !== "pending") throw new ObedientError("PROPOSAL_NOT_PENDING", `proposta em ${p.status}`);
     return p;
   }
 
-  private expireIfDue(p: Proposal): void {
-    if ((p.status === "pending" || p.status === "approved") && this.clock.now() >= p.expiresAt) p.status = "expired";
+  private async expireIfDue(p: Proposal): Promise<Proposal> {
+    if ((p.status === "pending" || p.status === "approved") && this.clock.now() >= p.expiresAt) {
+      const q = await this.store.transition(p.id, ["pending", "approved"], { status: "expired" });
+      return q ?? ((await this.store.get(p.id)) as Proposal);
+    }
+    return p;
   }
 }

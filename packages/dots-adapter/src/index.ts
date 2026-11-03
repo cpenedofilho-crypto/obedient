@@ -94,7 +94,7 @@ export class DotsAdapter {
     if (!client) throw new ObedientError("NOT_READ_ONLY", `sem cliente configurado para ${system}`);
 
     // Trava 2: Ethics Engine.
-    const auth = this.opts.engine.authorize({
+    const auth = await this.opts.engine.authorize({
       userId,
       agentId: DOTS_AGENT_ID,
       systemId: system,

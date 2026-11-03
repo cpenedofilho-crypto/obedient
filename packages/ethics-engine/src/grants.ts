@@ -79,28 +79,32 @@ function validateSpec(spec: GrantSpec, now: Date): void {
   if (limits.maxAmount !== null && !(limits.maxAmount >= 0)) fail("maxAmount inválido");
 }
 
+/**
+ * Onde os grants ficam. Assíncrono para caber num banco (Postgres com RLS: @obedient/store-postgres).
+ * Toda leitura é POR USUÁRIO: o motor nunca pede a lista de todos, para que a RLS possa filtrar.
+ */
 export interface GrantStore {
-  insert(g: Grant): void;
-  get(id: string): Grant | undefined;
-  update(g: Grant): void;
-  all(): Iterable<Grant>;
+  insert(g: Grant): Promise<void>;
+  get(id: string): Promise<Grant | undefined>;
+  update(g: Grant): Promise<void>;
+  listByUser(userId: string): Promise<Grant[]>;
 }
 
 export class InMemoryGrantStore implements GrantStore {
   private readonly rows = new Map<string, Grant>();
-  insert(g: Grant): void {
+  async insert(g: Grant): Promise<void> {
     if (this.rows.has(g.id)) throw new ObedientError("INVALID_GRANT", "id repetido");
     this.rows.set(g.id, structuredClone(g));
   }
-  get(id: string): Grant | undefined {
+  async get(id: string): Promise<Grant | undefined> {
     const g = this.rows.get(id);
     return g ? structuredClone(g) : undefined;
   }
-  update(g: Grant): void {
+  async update(g: Grant): Promise<void> {
     this.rows.set(g.id, structuredClone(g));
   }
-  *all(): Iterable<Grant> {
-    for (const g of this.rows.values()) yield structuredClone(g);
+  async listByUser(userId: string): Promise<Grant[]> {
+    return [...this.rows.values()].filter((g) => g.userId === userId).map((g) => structuredClone(g));
   }
 }
 
@@ -112,7 +116,7 @@ export class GrantRegistry {
   ) {}
 
   /** Concessão direta pelo usuário. `grantedBy` precisa ser o próprio usuário. */
-  grant(spec: GrantSpec, grantedBy: string): Grant {
+  async grant(spec: GrantSpec, grantedBy: string): Promise<Grant> {
     if (grantedBy !== spec.userId) throw new ObedientError("INVALID_GRANT", "só o próprio usuário concede autoridade direta");
     validateSpec(spec, this.clock.now());
     return this.persist(spec, grantedBy, null);
@@ -122,9 +126,9 @@ export class GrantRegistry {
    * Subdelegação: um agente que tem `parentId` repassa PARTE da autoridade a outro agente.
    * Tudo no filho precisa caber no pai.
    */
-  delegate(parentId: string, child: Omit<GrantSpec, "userId">, delegatedBy: string): Grant {
+  async delegate(parentId: string, child: Omit<GrantSpec, "userId">, delegatedBy: string): Promise<Grant> {
     const now = this.clock.now();
-    const parent = this.store.get(parentId);
+    const parent = await this.store.get(parentId);
     if (!parent || !this.isActive(parent, now)) throw new ObedientError("GRANT_NOT_FOUND", "grant pai inexistente, revogado ou vencido");
     if (delegatedBy !== parent.agentId) throw new ObedientError("DELEGATION_EXCEEDS_PARENT", "só o titular do grant pai delega");
     const spec: GrantSpec = { ...child, userId: parent.userId };
@@ -147,27 +151,28 @@ export class GrantRegistry {
   }
 
   /** Revoga e desce em cascata para toda subdelegação. Só o usuário revoga. */
-  revoke(id: string, revokedBy: string): Grant[] {
-    const g = this.store.get(id);
+  async revoke(id: string, revokedBy: string): Promise<Grant[]> {
+    const g = await this.store.get(id);
     if (!g) throw new ObedientError("GRANT_NOT_FOUND", "grant inexistente");
     if (revokedBy !== g.userId) throw new ObedientError("INVALID_GRANT", "só o usuário revoga");
-    return this.revokeTree(g.id, revokedBy, this.clock.now());
+    return this.revokeTree(g.userId, g.id, revokedBy, this.clock.now());
   }
 
   /** Revoga todos os grants de um agente (usado pela parada de emergência). */
-  revokeAgent(userId: string, agentId: string, revokedBy: string): Grant[] {
+  async revokeAgent(userId: string, agentId: string, revokedBy: string): Promise<Grant[]> {
     const now = this.clock.now();
     const out: Grant[] = [];
-    for (const g of this.store.all()) if (g.userId === userId && g.agentId === agentId && !g.revokedAt) out.push(...this.revokeTree(g.id, revokedBy, now));
+    for (const g of await this.store.listByUser(userId))
+      if (g.agentId === agentId && !g.revokedAt) out.push(...(await this.revokeTree(g.userId, g.id, revokedBy, now)));
     return out;
   }
 
-  get(id: string): Grant | undefined {
+  get(id: string): Promise<Grant | undefined> {
     return this.store.get(id);
   }
 
-  list(userId: string): Grant[] {
-    return [...this.store.all()].filter((g) => g.userId === userId);
+  list(userId: string): Promise<Grant[]> {
+    return this.store.listByUser(userId);
   }
 
   /**
@@ -175,15 +180,17 @@ export class GrantRegistry {
    * então revogação vale na próxima (Art. 2º). Entre vários, o mais específico.
    * Um grant filho só vale se toda a cadeia de pais ainda estiver ativa.
    */
-  findCovering(userId: string, agentId: string, systemId: string, tool: string): Grant | null {
+  async findCovering(userId: string, agentId: string, systemId: string, tool: string): Promise<Grant | null> {
     const now = this.clock.now();
-    const candidates = [...this.store.all()].filter(
+    const doUsuario = await this.store.listByUser(userId);
+    const porId = new Map(doUsuario.map((g) => [g.id, g]));
+    const candidates = doUsuario.filter(
       (g) =>
         g.userId === userId &&
         g.agentId === agentId &&
         (g.systemId === null || g.systemId === systemId) &&
         capabilityMatches(g.capability, tool) &&
-        this.chainActive(g, now),
+        this.chainActive(g, now, porId),
     );
     candidates.sort((a, b) => b.capability.length - a.capability.length);
     return candidates[0] ?? null;
@@ -193,21 +200,22 @@ export class GrantRegistry {
     return !g.revokedAt && g.expiresAt > now;
   }
 
-  private chainActive(g: Grant, now: Date): boolean {
+  /** A cadeia de pais é toda do mesmo usuário, então a lista dele basta (e a RLS não esconde nada que importe). */
+  private chainActive(g: Grant, now: Date, porId: ReadonlyMap<string, Grant>): boolean {
     const seen = new Set<string>();
     let cur: Grant = g;
     for (;;) {
       if (seen.has(cur.id) || !this.isActive(cur, now)) return false;
       seen.add(cur.id);
       if (!cur.parentId) return true;
-      const parent = this.store.get(cur.parentId);
+      const parent = porId.get(cur.parentId);
       if (!parent) return false; // pai sumiu: o filho não vale sozinho
       cur = parent;
     }
   }
 
-  private revokeTree(rootId: string, by: string, now: Date): Grant[] {
-    const all = [...this.store.all()];
+  private async revokeTree(userId: string, rootId: string, by: string, now: Date): Promise<Grant[]> {
+    const all = await this.store.listByUser(userId);
     const out: Grant[] = [];
     const queue = [rootId];
     while (queue.length) {
@@ -217,7 +225,7 @@ export class GrantRegistry {
       if (!g.revokedAt) {
         g.revokedAt = now;
         g.revokedBy = by;
-        this.store.update(g);
+        await this.store.update(g);
         out.push(g);
       }
       for (const child of all) if (child.parentId === id) queue.push(child.id);
@@ -225,7 +233,7 @@ export class GrantRegistry {
     return out;
   }
 
-  private persist(spec: GrantSpec, by: string, parentId: string | null): Grant {
+  private async persist(spec: GrantSpec, by: string, parentId: string | null): Promise<Grant> {
     const g: Grant = {
       ...spec,
       capability: spec.capability.trim(),
@@ -238,7 +246,7 @@ export class GrantRegistry {
       parentId,
       constitutionVersion: CONSTITUTION_VERSION,
     };
-    this.store.insert(g);
+    await this.store.insert(g);
     return structuredClone(g);
   }
 }

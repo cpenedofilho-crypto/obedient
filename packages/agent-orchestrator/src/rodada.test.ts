@@ -164,10 +164,10 @@ describe("roteamento de modelo", () => {
 // ---- com o Ethics Engine ---------------------------------------------------------------------
 
 const T0 = new Date("2026-11-02T12:00:00Z");
-function governado() {
+async function governado() {
   const clock = new ManualClock(T0);
   const engine = new EthicsEngine({ clock });
-  engine.grants.grant(
+  await engine.grants.grant(
     {
       userId: "ana", agentId: "obedient", systemId: "mail", capability: "mail.*", purpose: "cuidar do e-mail de trabalho",
       limits: { maxRisk: "HIGH", autonomousUpTo: "MEDIUM", maxAmount: null, amountField: null }, expiresAt: new Date(T0.getTime() + 3_600_000),
@@ -192,23 +192,23 @@ function governado() {
 
 describe("com o Ethics Engine (Arts. 1º, 6º e 12)", () => {
   it("leitura com grant roda; envio vira proposta e o run espera a pessoa", async () => {
-    const { cat, chamar, executados, engine } = governado();
+    const { cat, chamar, executados, engine } = await governado();
     const { modelo } = roteiro([{ stop: "tool_use", content: [usa("u1", "listar"), usa("u2", "enviar", { para: "equipe", assunto: "status" })] }]);
     const r = await executarRodada(base(modelo, { catalogo: cat, chamarFerramenta: chamar }));
     assert.equal(r.status, "waiting_approval");
     assert.deepEqual(executados.map((e) => e.split(":")[0]), ["mail.list"]);
     assert.equal(r.pendente?.aguardando.length, 1);
-    assert.equal(engine.approvals.pending("ana").length, 1);
+    assert.equal((await engine.approvals.pending("ana")).length, 1);
     // o resultado da leitura ficou guardado para a retomada
     assert.equal(r.pendente?.resultados.length, 1);
   });
 
   it("aprovada: a retomada executa UMA vez e devolve tudo numa mensagem; segunda retomada não reexecuta", async () => {
-    const { cat, chamar, executados, engine } = governado();
+    const { cat, chamar, executados, engine } = await governado();
     const primeiro = await executarRodada(base(roteiro([{ stop: "tool_use", content: [usa("u1", "listar"), usa("u2", "enviar", { para: "equipe" })] }]).modelo, { catalogo: cat, chamarFerramenta: chamar }));
     const pid = primeiro.pendente!.aguardando[0]!.approvalId;
-    const proposta = engine.approvals.get(pid)!;
-    engine.approve(pid, { id: "ana", kind: "user", strongAuth: false }, proposta.payloadHash);
+    const proposta = (await engine.approvals.get(pid))!;
+    await engine.approve(pid, { id: "ana", kind: "user", strongAuth: false }, proposta.payloadHash);
 
     const { modelo, recebidos } = roteiro([{ stop: "end_turn", content: [texto("enviado")] }]);
     const r = await executarRodada(base(modelo, { catalogo: cat, chamarFerramenta: chamar, estado: primeiro.estado, pendente: primeiro.pendente!, situacaoAprovacao: situacaoPeloEthics(engine) }));
@@ -223,7 +223,7 @@ describe("com o Ethics Engine (Arts. 1º, 6º e 12)", () => {
   });
 
   it("recusada ou vencida: o modelo recebe a negativa e nada é executado", async () => {
-    const { cat, chamar, executados, engine, clock } = governado();
+    const { cat, chamar, executados, engine, clock } = await governado();
     const primeiro = await executarRodada(base(roteiro([{ stop: "tool_use", content: [usa("u2", "enviar", { para: "x" })] }]).modelo, { catalogo: cat, chamarFerramenta: chamar }));
     clock.advance(31 * 60 * 1000); // passou o prazo do cartão
     const { modelo, recebidos } = roteiro([{ stop: "end_turn" }]);
@@ -234,10 +234,10 @@ describe("com o Ethics Engine (Arts. 1º, 6º e 12)", () => {
   });
 
   it("aprovação com argumento trocado depois do cartão é recusada (o hash não bate)", async () => {
-    const { cat, chamar, executados, engine } = governado();
+    const { cat, chamar, executados, engine } = await governado();
     const primeiro = await executarRodada(base(roteiro([{ stop: "tool_use", content: [usa("u2", "enviar", { para: "equipe" })] }]).modelo, { catalogo: cat, chamarFerramenta: chamar }));
     const pid = primeiro.pendente!.aguardando[0]!.approvalId;
-    engine.approve(pid, { id: "ana", kind: "user", strongAuth: false }, engine.approvals.get(pid)!.payloadHash);
+    await engine.approve(pid, { id: "ana", kind: "user", strongAuth: false }, (await engine.approvals.get(pid))!.payloadHash);
     const adulterado = structuredClone(primeiro.pendente!);
     adulterado.aguardando[0]!.argumentos = { para: "todos-os-contatos" };
     const { modelo, recebidos } = roteiro([{ stop: "end_turn" }]);
@@ -248,7 +248,7 @@ describe("com o Ethics Engine (Arts. 1º, 6º e 12)", () => {
   });
 
   it("instrução escondida num resultado não vira ação: o pedido de apagar ainda passa pela política", async () => {
-    const { cat, chamar, executados, engine } = governado();
+    const { cat, chamar, executados, engine } = await governado();
     // O modelo "obedece" ao texto injetado e tenta apagar tudo.
     const { modelo, recebidos } = roteiro([
       { stop: "tool_use", content: [usa("u1", "listar")] },
@@ -258,7 +258,7 @@ describe("com o Ethics Engine (Arts. 1º, 6º e 12)", () => {
     const r = await executarRodada(base(modelo, { catalogo: cat, chamarFerramenta: chamar }));
     // DESTRUCTIVE conta como CRITICAL, acima do maxRisk HIGH do grant: negado, sem nem virar proposta.
     assert.equal(executados.filter((e) => e.startsWith("mail.delete_all")).length, 0);
-    assert.equal(engine.approvals.pending("ana").length, 0);
+    assert.equal((await engine.approvals.pending("ana")).length, 0);
     assert.equal(r.status, "completed");
     // e o texto injetado chegou ao modelo marcado como conteúdo externo
     const [leitura] = recebidos[1]!.messages.at(-1)!.content as { content: string }[];
@@ -266,7 +266,7 @@ describe("com o Ethics Engine (Arts. 1º, 6º e 12)", () => {
   });
 
   it("parada de emergência no meio: a ferramenta seguinte é negada", async () => {
-    const { cat, chamar, executados, engine } = governado();
+    const { cat, chamar, executados, engine } = await governado();
     let volta = 0;
     const modelo: ModeloAgente = {
       async responder() {
@@ -282,7 +282,7 @@ describe("com o Ethics Engine (Arts. 1º, 6º e 12)", () => {
   });
 
   it("ferramenta sem registro de risco nunca roda", async () => {
-    const { engine } = governado();
+    const { engine } = await governado();
     const chamar = chamarComEthics(engine, { userId: "ana", agentId: "obedient" }, async () => {
       throw new Error("não devia executar");
     });
