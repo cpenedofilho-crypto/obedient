@@ -10,6 +10,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { ManualClock } from "@obedient/core";
 import { CONSTITUTION_VERSION, ENFORCED_ARTICLES, EthicsEngine, type GrantSpec } from "@obedient/ethics-engine";
+import { InMemoryMemoryStore, Memoria } from "@obedient/memory";
+import { InMemoryMissionStore, Missoes } from "@obedient/missions";
 
 const T0 = new Date("2026-11-02T12:00:00Z");
 const H = 3_600_000;
@@ -132,5 +134,70 @@ describe(`Constituição ${CONSTITUTION_VERSION}`, () => {
         "obedient",
       ),
     );
+  });
+});
+
+// ---- Fase 6: Arts. 5º, 7º, 10 (o Art. 13 precisa do banco e do servidor:
+// packages/store-postgres/src/direitos.test.ts e packages/server/src/api.test.ts) ----------------
+
+describe(`Constituição ${CONSTITUTION_VERSION}, Fase 6`, () => {
+  it("Art. 5º — mensagem em nome da pessoa só sai com a identificação que ela configurou", async () => {
+    const clock = new ManualClock(T0);
+    let identificacao: string | null = null;
+    const engine = new EthicsEngine({ clock, identificacaoDe: () => identificacao });
+    await engine.grants.grant(
+      { userId: "ana", agentId: "obedient", systemId: "mail", capability: "mail.*", purpose: "responder e-mails de trabalho", limits: { maxRisk: "HIGH", autonomousUpTo: "HIGH", maxAmount: null, amountField: null }, expiresAt: new Date(T0.getTime() + H) },
+      "ana",
+    );
+    const enviar = async (args: Record<string, unknown>) => (await engine.authorize({ userId: "ana", agentId: "obedient", systemId: "mail", tool: "mail.send", risk: "MEDIUM", category: "COMMUNICATION", args })).outcome;
+    assert.equal(await enviar({ para: "x@exemplo.org" }), "denied", "sem identificação configurada, não sai");
+    identificacao = "Enviada pelo assistente da Ana";
+    assert.equal(await enviar({ para: "x@exemplo.org" }), "denied", "sem a identificação na mensagem, não sai");
+    assert.equal(await enviar({ para: "x@exemplo.org", identificacao: "Ana" }), "denied", "identificação diferente, não sai");
+    assert.equal(await enviar({ para: "x@exemplo.org", identificacao }), "allowed");
+  });
+
+  it("Art. 5º — 'não sei' e 'não consegui' são desfechos registrados", async () => {
+    const engine = new EthicsEngine({ clock: new ManualClock(T0) });
+    const missoes = new Missoes(new InMemoryMissionStore(), engine, new ManualClock(T0));
+    const m = await missoes.criar("ana", "obedient", "Descobrir o horário do dentista");
+    const fim = await missoes.avancar(m.id, async () => ({ tipo: "nao_sei", explicacao: "Não encontrei em lugar nenhum.", custoCentavos: 1 }));
+    assert.equal(fim.desfecho?.tipo, "nao_sei");
+    assert.ok((await engine.audit.forUser("ana")).some((e) => e.event === "mission.nao_sei"));
+  });
+
+  it("Art. 7º — tentativa tem teto e intervalo crescente; bloqueio vira impedimento explicado; há teto de custo", async () => {
+    const clock = new ManualClock(T0);
+    const engine = new EthicsEngine({ clock });
+    const missoes = new Missoes(new InMemoryMissionStore(), engine, clock);
+    let chamadas = 0;
+    const falha = async () => (chamadas++, { tipo: "falha_temporaria" as const, erro: "fora do ar", custoCentavos: 1 });
+    const m = await missoes.criar("ana", "obedient", "x", { maxTentativas: 2 });
+    await missoes.avancar(m.id, falha);
+    await missoes.avancar(m.id, falha);
+    assert.equal(chamadas, 1, "espera o intervalo");
+    clock.advance(30_000);
+    const fim = await missoes.avancar(m.id, falha);
+    assert.equal(fim.estado, "blocked");
+    assert.ok(fim.impedimento && fim.impedimento.length > 20);
+    clock.advance(24 * H);
+    await missoes.avancar(m.id, falha);
+    assert.equal(chamadas, 2, "impedida não tenta sozinha");
+    const caro = await missoes.criar("ana", "obedient", "y", { tetoCustoCentavos: 10, maxTentativas: 5 });
+    const r = await missoes.avancar(caro.id, async () => ({ tipo: "falha_temporaria", erro: "x", custoCentavos: 50 }));
+    assert.equal(r.estado, "blocked");
+    assert.match(r.impedimento!, /teto de custo/);
+  });
+
+  it("Art. 10 — aprender é opt-in por assunto; toda lição pode ser apagada; treinar terceiro exige consentimento separado", async () => {
+    const clock = new ManualClock(T0);
+    const engine = new EthicsEngine({ clock });
+    const memoria = new Memoria(new InMemoryMemoryStore(), engine.consent, engine.audit, clock);
+    await assert.rejects(memoria.lembrar("ana", "obedient", "agenda", "academia às 7h"));
+    await memoria.ligar("ana", "agenda");
+    const l = await memoria.lembrar("ana", "obedient", "agenda", "academia às 7h");
+    assert.equal(await memoria.esquecer("ana", l.id), true);
+    assert.deepEqual(await memoria.listar("ana"), []);
+    assert.equal(await memoria.podeTreinarModeloDeTerceiro("ana"), false);
   });
 });

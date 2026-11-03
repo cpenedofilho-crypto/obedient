@@ -7,6 +7,7 @@
 
 import type { AuditEntry, EthicsEngine, Grant, Proposal } from "@obedient/ethics-engine";
 import { CATEGORIAS_DE_APRENDIZADO, type Memoria } from "@obedient/memory";
+import { ABERTAS, type Missao, type Missoes } from "@obedient/missions";
 import type { Contestacao } from "@obedient/store-postgres";
 
 export interface CartaoPedido {
@@ -73,6 +74,24 @@ export interface ContestacaoNoPainel {
   quando: string;
 }
 
+export interface MissaoNoPainel {
+  id: string;
+  objetivo: string;
+  agente: string;
+  estado: string;
+  /** Em português, para a pessoa: "trabalhando", "esperando você", "parada", … */
+  situacao: string;
+  impedimento: string | null;
+  desfecho: { tipo: "feito" | "nao_sei" | "nao_consegui"; explicacao: string } | null;
+  tentativas: number;
+  maxTentativas: number;
+  proximaTentativaEm: string | null;
+  custo: string;
+  teto: string;
+  tetoCentavos: number;
+  criadaEm: string;
+}
+
 export interface Painel {
   usuario: string;
   reautenticado: boolean;
@@ -82,6 +101,9 @@ export interface Painel {
   atividade: ItemAtividade[];
   aprendizado: { categorias: CategoriaNoPainel[]; licoes: LicaoNoPainel[] };
   contestacoes: ContestacaoNoPainel[];
+  missoes: MissaoNoPainel[];
+  /** Art. 5º: como as mensagens enviadas em nome da pessoa se identificam (null = não configurada). */
+  identificacao: string | null;
   geradoEm: string;
 }
 
@@ -170,7 +192,36 @@ function nomeDaCategoria(razao: string | undefined): string {
   return id === "todas" ? "todas as categorias" : (NOMES_DE_CATEGORIA[id] ?? id);
 }
 
-const CONTESTAVEIS = new Set(["action.authorize", "proposal.execute", "memory.learn"]);
+const CONTESTAVEIS = new Set(["action.authorize", "proposal.execute", "memory.learn", "mission.feito", "mission.nao_sei", "mission.nao_consegui", "mission.attempt_failed"]);
+
+const SITUACAO: Record<string, string> = {
+  running: "Trabalhando nisso",
+  waiting_approval: "Esperando a sua aprovação",
+  blocked: "Parou e precisa de você",
+  completed: "Terminou",
+  failed: "Não conseguiu",
+  cancelled: "Cancelada",
+};
+const reais = (centavos: number) => (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+function missaoNoPainel(m: Missao): MissaoNoPainel {
+  return {
+    id: m.id,
+    objetivo: m.objetivo,
+    agente: m.agente,
+    estado: m.estado,
+    situacao: m.desfecho?.tipo === "nao_sei" ? "Não soube responder" : (SITUACAO[m.estado] ?? m.estado),
+    impedimento: m.impedimento,
+    desfecho: m.desfecho,
+    tentativas: m.tentativas,
+    maxTentativas: m.maxTentativas,
+    proximaTentativaEm: m.proximaTentativaEm?.toISOString() ?? null,
+    custo: reais(m.custoCentavos),
+    teto: reais(m.tetoCustoCentavos),
+    tetoCentavos: m.tetoCustoCentavos,
+    criadaEm: m.criadaEm.toISOString(),
+  };
+}
 
 /** Uma linha da trilha em português direto. O motivo técnico vem entre parênteses quando ajuda. */
 export function textoDaAtividade(e: AuditEntry): Pick<ItemAtividade, "texto" | "tom"> {
@@ -216,6 +267,26 @@ export function textoDaAtividade(e: AuditEntry): Pick<ItemAtividade, "texto" | "
       return { texto: "Você apagou tudo o que o agente aprendeu", tom: "neutro" };
     case "action.contested:info":
       return { texto: `Você contestou uma ação${motivo}`, tom: "atencao" };
+    case "mission.created:info":
+      return { texto: `Você pediu uma missão (${curto(e.reasons?.[0] ?? "", 80)})`, tom: "neutro" };
+    case "mission.feito:executed":
+      return { texto: `${quem} terminou uma missão`, tom: "bom" };
+    case "mission.nao_sei:info":
+      return { texto: `${quem} disse que não sabe responder uma missão`, tom: "atencao" };
+    case "mission.nao_consegui:failed":
+      return { texto: `${quem} disse que não conseguiu fazer uma missão`, tom: "atencao" };
+    case "mission.attempt_failed:failed":
+      return { texto: `${quem} tentou uma missão e não conseguiu (${curto(e.reasons?.[0] ?? "", 60)})`, tom: "atencao" };
+    case "mission.blocked:info":
+      return { texto: `Uma missão parou e precisa de você${motivo}`, tom: "atencao" };
+    case "mission.waiting_approval:approval_required":
+      return { texto: `Uma missão espera a sua aprovação`, tom: "atencao" };
+    case "mission.cancelled:info":
+      return { texto: `Missão cancelada${motivo}`, tom: "neutro" };
+    case "mission.retry:info":
+      return { texto: "Você mandou a missão tentar de novo", tom: "neutro" };
+    case "mission.result_discarded:info":
+      return { texto: "Um resultado chegou depois de a missão ser encerrada e foi descartado", tom: "neutro" };
     case "user.data_erased:info":
       return { texto: `Você apagou o que o OBEDIENT sabia sobre você${motivo}`, tom: "neutro" };
     default:
@@ -226,7 +297,9 @@ export function textoDaAtividade(e: AuditEntry): Pick<ItemAtividade, "texto" | "
 export async function montarPainel(
   m: EthicsEngine,
   memoria: Memoria,
+  missoes: Missoes,
   contestacoes: Contestacao[],
+  identificacao: string | null,
   userId: string,
   reautenticado: boolean,
   agora: Date,
@@ -236,6 +309,8 @@ export async function montarPainel(
   const pedidos = (await m.approvals.pending(userId)).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   const vigentes = (await m.grants.list(userId)).filter((g) => !g.revokedAt && g.expiresAt > agora);
   const trilha = await m.audit.forUser(userId);
+  const todas = (await missoes.listar(userId)).sort((a, b) => b.criadaEm.getTime() - a.criadaEm.getTime());
+  const listaDeMissoes = [...todas.filter((x) => ABERTAS.includes(x.estado)), ...todas.filter((x) => !ABERTAS.includes(x.estado)).slice(0, 10)].map(missaoNoPainel);
   return {
     usuario: userId,
     reautenticado,
@@ -253,6 +328,9 @@ export async function montarPainel(
         .map((l) => ({ id: l.id, categoria: l.categoria, categoriaNome: CATEGORIAS_DE_APRENDIZADO.find((c) => c.id === l.categoria)?.nome ?? l.categoria, texto: l.texto, agente: l.agente, quando: l.aprendidaEm.toISOString() })),
     },
     contestacoes: contestacoes.map((c) => ({ id: c.id, seq: c.auditSeq, motivo: c.motivo, status: c.status, resposta: c.resposta, quando: c.criadaEm })),
+    // Abertas primeiro; das encerradas, só as 10 mais recentes (o resto está em "Baixar meus dados").
+    missoes: listaDeMissoes,
+    identificacao,
     geradoEm: agora.toISOString(),
   };
 }

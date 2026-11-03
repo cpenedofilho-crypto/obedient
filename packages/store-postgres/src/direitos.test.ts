@@ -96,7 +96,7 @@ describe("apagar o que o OBEDIENT sabe (Art. 13)", () => {
     const ana = usuario("ana");
     const { g, proposta } = await preparar(ana);
     const r = await como(ana, (m, tx) => apagarMeusDados(tx, m.audit, ana, clock));
-    assert.deepEqual(r, { memorias: 1, pedidos: 1, autorizacoes: 1, consentimentos_revogados: 1, acoes_do_aparelho: 0 });
+    assert.deepEqual(r, { memorias: 1, pedidos: 1, autorizacoes: 1, consentimentos_revogados: 1, acoes_do_aparelho: 0, missoes: 0 });
 
     assert.deepEqual(await memoria(ana, (mem) => mem.listar(ana)), []);
     const p = await como(ana, (m) => m.approvals.get(proposta.id));

@@ -53,6 +53,13 @@ export interface EthicsEngineDeps {
   clock?: Clock;
   /** Políticas do usuário (dados). Lidas a cada chamada. */
   policiesFor?: (userId: string) => readonly Policy[];
+  /**
+   * Art. 5º: a identificação que a pessoa configurou para mensagens enviadas em nome dela. Com esta
+   * função, ferramenta de categoria COMMUNICATION só passa se `args.identificacao` for exatamente
+   * esse texto; sem identificação configurada, não passa. Sem a função, a regra fica desligada (uso
+   * do motor fora do servidor).
+   */
+  identificacaoDe?: (userId: string) => Promise<string | null> | string | null;
   defaultsFor?: (userId: string) => Defaults;
 }
 
@@ -88,6 +95,7 @@ export class EthicsEngine {
   private readonly clock: Clock;
   private readonly policiesFor: (userId: string) => readonly Policy[];
   private readonly defaultsFor: (userId: string) => Defaults;
+  private readonly identificacaoDe: EthicsEngineDeps["identificacaoDe"];
 
   constructor(deps: EthicsEngineDeps = {}) {
     this.clock = deps.clock ?? systemClock;
@@ -98,6 +106,7 @@ export class EthicsEngine {
     this.audit = deps.audit ?? new AuditTrail(undefined, this.clock);
     this.policiesFor = deps.policiesFor ?? (() => []);
     this.defaultsFor = deps.defaultsFor ?? (() => SYSTEM_DEFAULTS);
+    this.identificacaoDe = deps.identificacaoDe;
 
     // Parada de emergência cancela o que estava esperando aprovação e fica registrada.
     this.stop.onEngage(async (scope, state) => {
@@ -147,6 +156,13 @@ export class EthicsEngine {
         const v = amountOf(req.args, grant.limits.amountField);
         if (v === null) return deny([`valor ilegível em ${grant.limits.amountField}: sem valor, sem limite conferível`], null, grant.id);
         if (v > grant.limits.maxAmount) return deny([`valor ${v} acima do limite do grant (${grant.limits.maxAmount})`], null, grant.id);
+      }
+
+      // Art. 5º: mensagem em nome da pessoa leva a identificação que ela configurou, exatamente.
+      if (req.category === "COMMUNICATION" && this.identificacaoDe) {
+        const id = await this.identificacaoDe(req.userId);
+        if (!id) return deny(["configure como as mensagens enviadas em seu nome se identificam (Art. 5º)"], null, grant.id);
+        if (req.args.identificacao !== id) return deny(["mensagem sem a identificação que você configurou (Art. 5º)"], null, grant.id);
       }
 
       if (req.dataCategories?.length) {

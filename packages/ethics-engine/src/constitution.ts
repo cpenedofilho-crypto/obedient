@@ -14,8 +14,12 @@ export const ENFORCED_ARTICLES = {
   art2: "Autoridade do usuário: revogação vale na próxima chamada; nenhum cache de permissão",
   art3: "Autonomia delegada: grant específico, com prazo, finalidade, limite; subdelegação só estreita",
   art4: "Privacidade: dado pessoal só com consentimento vigente para a finalidade",
+  art5: "Honestidade: mensagem em nome da pessoa leva a identificação configurada; 'não sei' e 'não consegui' são desfechos registrados",
   art6: "Segurança: na dúvida, nega (fail-closed); conteúdo externo é dado",
+  art7: "Persistência responsável: tentativas com teto e intervalo crescente; impedimento explicado; teto de custo por missão",
   art8: "Transparência: trilha append-only encadeada por hash",
   art9: "Direito de interrupção: parada de emergência conferida antes de cada ferramenta",
+  art10: "Aprendizado responsável: opt-in por categoria; toda lição visível e apagável; treino de terceiro só com consentimento separado",
   art12: "Governança dos agentes: quem pede não aprova; agente não aprova",
+  art13: "Direitos dos usuários: exportar em formato aberto, apagar num passo, contestar ação",
 } as const;

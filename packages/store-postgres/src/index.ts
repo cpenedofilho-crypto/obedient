@@ -4,3 +4,4 @@ export * from "./migrate.ts";
 export * from "./stores.ts";
 export * from "./sessao.ts";
 export * from "./direitos.ts";
+export * from "./missoes.ts";

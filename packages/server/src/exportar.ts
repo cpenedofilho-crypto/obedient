@@ -5,13 +5,14 @@
 // ela, em JSON (formato aberto), lido com a RLS da sessão. Leva junto a trilha inteira e o resultado
 // da verificação da cadeia, para que a pessoa possa conferir fora daqui que nada foi alterado.
 
-import { CONSTITUTION_VERSION, type EthicsEngine, verifyChain } from "@obedient/ethics-engine";
-import { type Executor, contestacoes, memoriaNaTransacao } from "@obedient/store-postgres";
+import { CONSTITUTION_VERSION, verifyChain } from "@obedient/ethics-engine";
+import { type Executor, contestacoes, lerIdentificacao } from "@obedient/store-postgres";
+import type { Contexto } from "./contexto.ts";
 
 export const FORMATO_EXPORTACAO = "obedient-exportacao/1";
 
-export async function exportarDados(tx: Executor, m: EthicsEngine, userId: string, agora: Date) {
-  const memoria = memoriaNaTransacao(tx, m);
+export async function exportarDados(ctx: Contexto, userId: string, agora: Date) {
+  const { tx, motor: m, memoria, missoes } = ctx;
   const trilha = await m.audit.forUser(userId);
   let trilhaIntegra: boolean;
   try {
@@ -33,6 +34,8 @@ export async function exportarDados(tx: Executor, m: EthicsEngine, userId: strin
     pedidos: await todasAsPropostas(tx, userId),
     aprendizado: { categorias: await memoria.categorias(userId), licoes: await memoria.listar(userId) },
     contestacoes: await contestacoes(tx, userId),
+    missoes: await missoes.listar(userId),
+    identificacao: await lerIdentificacao(tx, userId),
     trilha,
     trilhaIntegra,
   };
