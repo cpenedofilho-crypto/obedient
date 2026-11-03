@@ -100,9 +100,9 @@ export class EthicsEngine {
     this.defaultsFor = deps.defaultsFor ?? (() => SYSTEM_DEFAULTS);
 
     // Parada de emergência cancela o que estava esperando aprovação e fica registrada.
-    this.stop.onEngage((scope, state) => {
-      if (scope.kind === "user") this.approvals.cancelAll(scope.userId);
-      this.audit.record({
+    this.stop.onEngage(async (scope, state) => {
+      if (scope.kind === "user") await this.approvals.cancelAll(scope.userId);
+      await this.audit.record({
         userId: scope.kind === "user" ? scope.userId : "*",
         actor: state.engagedBy,
         event: "emergency_stop.engaged",
@@ -113,7 +113,7 @@ export class EthicsEngine {
     });
   }
 
-  authorize(req: ActionRequest): Authorization {
+  async authorize(req: ActionRequest): Promise<Authorization> {
     const inputHash = safeHash(req);
     const base = {
       userId: req.userId,
@@ -125,18 +125,18 @@ export class EthicsEngine {
       constitutionVersion: CONSTITUTION_VERSION,
       ...(req.correlationId ? { correlationId: req.correlationId } : {}),
     };
-    const deny = (reasons: string[], decision: Decision | null, grantId: string | null): Authorization => {
-      this.audit.record({ ...base, outcome: "denied", reasons, grantId, policyId: decision?.policyId ?? null });
+    const deny = async (reasons: string[], decision: Decision | null, grantId: string | null): Promise<Authorization> => {
+      await this.audit.record({ ...base, outcome: "denied", reasons, grantId, policyId: decision?.policyId ?? null });
       return { outcome: "denied", reasons, decision, grantId };
     };
 
     try {
       if (req.agentId === req.userId) return deny(["o agente não pode se apresentar como o usuário"], null, null);
 
-      const stopped = this.stop.blocking(req.userId);
+      const stopped = await this.stop.blocking(req.userId);
       if (stopped) return deny([`parada de emergência acionada: ${stopped.reason}`], null, null);
 
-      const grant = this.grants.findCovering(req.userId, req.agentId, req.systemId, req.tool);
+      const grant = await this.grants.findCovering(req.userId, req.agentId, req.systemId, req.tool);
       if (!grant) return deny(["nenhum grant vigente cobre esta ferramenta (Art. 3º)"], null, null);
 
       const risk = effectiveRisk(req.risk, req.category);
@@ -151,7 +151,7 @@ export class EthicsEngine {
 
       if (req.dataCategories?.length) {
         if (!req.purpose) return deny(["ação toca dado pessoal sem finalidade declarada (Art. 4º)"], null, grant.id);
-        const c = this.consent.check(req.userId, req.purpose, req.dataCategories);
+        const c = await this.consent.check(req.userId, req.purpose, req.dataCategories);
         if (!c.ok) return deny([`sem consentimento para: ${c.missing.join(", ")} (finalidade ${req.purpose})`], null, grant.id);
       }
 
@@ -171,18 +171,18 @@ export class EthicsEngine {
       if (decision.effect === "deny") return deny([decision.reason], decision, grant.id);
 
       if (decision.effect === "allow") {
-        this.audit.record({ ...base, outcome: "allowed", grantId: grant.id, policyId: decision.policyId, reasons: [decision.reason] });
+        await this.audit.record({ ...base, outcome: "allowed", grantId: grant.id, policyId: decision.policyId, reasons: [decision.reason] });
         return { outcome: "allowed", grantId: grant.id, decision, inputHash };
       }
 
-      const proposal = this.approvals.propose({
+      const proposal = await this.approvals.propose({
         userId: req.userId,
         requestedBy: `agent:${req.agentId}`,
         payload: { systemId: req.systemId, tool: req.tool, args: req.args },
         decision,
         grantId: grant.id,
       });
-      this.audit.record({
+      await this.audit.record({
         ...base,
         outcome: "approval_required",
         grantId: grant.id,
@@ -196,21 +196,21 @@ export class EthicsEngine {
     }
   }
 
-  approve(proposalId: string, who: ApproverIdentity, shownHash: string): Proposal {
+  async approve(proposalId: string, who: ApproverIdentity, shownHash: string): Promise<Proposal> {
     try {
-      const p = this.approvals.approve(proposalId, who, shownHash);
-      this.audit.record({ userId: p.userId, actor: `${who.kind}:${who.id}`, event: "proposal.approve", outcome: "approved", proposalId, tool: p.payload.tool, systemId: p.payload.systemId, constitutionVersion: CONSTITUTION_VERSION });
+      const p = await this.approvals.approve(proposalId, who, shownHash);
+      await this.audit.record({ userId: p.userId, actor: `${who.kind}:${who.id}`, event: "proposal.approve", outcome: "approved", proposalId, tool: p.payload.tool, systemId: p.payload.systemId, constitutionVersion: CONSTITUTION_VERSION });
       return p;
     } catch (e) {
-      const p = this.approvals.get(proposalId);
-      this.audit.record({ userId: p?.userId ?? "?", actor: `${who.kind}:${who.id}`, event: "proposal.approve", outcome: "denied", proposalId, reasons: [e instanceof Error ? e.message : String(e)] });
+      const p = await this.approvals.get(proposalId);
+      await this.audit.record({ userId: p?.userId ?? "?", actor: `${who.kind}:${who.id}`, event: "proposal.approve", outcome: "denied", proposalId, reasons: [e instanceof Error ? e.message : String(e)] });
       throw e;
     }
   }
 
-  reject(proposalId: string, who: ApproverIdentity): Proposal {
-    const p = this.approvals.reject(proposalId, who);
-    this.audit.record({ userId: p.userId, actor: `${who.kind}:${who.id}`, event: "proposal.reject", outcome: "rejected", proposalId });
+  async reject(proposalId: string, who: ApproverIdentity): Promise<Proposal> {
+    const p = await this.approvals.reject(proposalId, who);
+    await this.audit.record({ userId: p.userId, actor: `${who.kind}:${who.id}`, event: "proposal.reject", outcome: "rejected", proposalId });
     return p;
   }
 
@@ -219,35 +219,36 @@ export class EthicsEngine {
    * e o grant: revogar depois de aprovar ainda impede a execução (Art. 2º).
    */
   async executeApproved<T>(proposalId: string, hash: string, executor: (payload: ProposalPayload) => Promise<T>): Promise<T> {
-    const p = this.approvals.get(proposalId);
+    const p = await this.approvals.get(proposalId);
     if (!p) throw new ObedientError("PROPOSAL_NOT_FOUND", "proposta inexistente");
-    const audit = (outcome: "executed" | "failed" | "denied", reasons?: string[]) =>
+    const audit = async (outcome: "executed" | "failed" | "denied", reasons?: string[]) =>
       this.audit.record({ userId: p.userId, actor: p.requestedBy, event: "proposal.execute", outcome, proposalId, grantId: p.grantId, systemId: p.payload.systemId, tool: p.payload.tool, inputHash: hash, constitutionVersion: CONSTITUTION_VERSION, ...(reasons ? { reasons } : {}) });
-    const stopped = this.stop.blocking(p.userId);
+    const stopped = await this.stop.blocking(p.userId);
     if (stopped) {
-      audit("denied", ["parada de emergência acionada"]);
+      await audit("denied", ["parada de emergência acionada"]);
       throw new ObedientError("EMERGENCY_STOP", stopped.reason);
     }
     if (p.grantId) {
-      const g = this.grants.get(p.grantId);
+      const g = await this.grants.get(p.grantId);
       const agentId = p.requestedBy.replace(/^agent:/, "");
-      const still = this.grants.findCovering(p.userId, agentId, p.payload.systemId, p.payload.tool);
+      const still = await this.grants.findCovering(p.userId, agentId, p.payload.systemId, p.payload.tool);
       if (!g || !still) {
-        audit("denied", ["grant revogado ou vencido depois da aprovação"]);
+        await audit("denied", ["grant revogado ou vencido depois da aprovação"]);
         throw new ObedientError("GRANT_NOT_FOUND", "grant revogado ou vencido depois da aprovação");
       }
     }
-    const payload = this.approvals.claim(proposalId, hash);
+    const payload = await this.approvals.claim(proposalId, hash);
+    let out: T;
     try {
-      const out = await executor(payload);
-      this.approvals.complete(proposalId, true);
-      audit("executed");
-      return out;
+      out = await executor(payload);
     } catch (e) {
-      this.approvals.complete(proposalId, false);
-      audit("failed", [e instanceof Error ? e.message : String(e)]);
+      await this.approvals.complete(proposalId, false);
+      await audit("failed", [e instanceof Error ? e.message : String(e)]);
       throw e;
     }
+    await this.approvals.complete(proposalId, true);
+    await audit("executed");
+    return out;
   }
 }
 

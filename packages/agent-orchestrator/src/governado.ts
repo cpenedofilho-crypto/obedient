@@ -48,7 +48,7 @@ export function chamarComEthics(engine: EthicsEngine, quem: Quem, executor: Exec
     if (!ehGovernado(item)) return { status: "denied", motivo: "ferramenta_sem_registro_de_risco", approvalId: null, resultado: null };
 
     if (approvalId) {
-      const p = engine.approvals.get(approvalId);
+      const p = await engine.approvals.get(approvalId);
       if (!p || p.userId !== quem.userId) return { status: "denied", motivo: "aprovacao_inexistente", approvalId, resultado: null };
       // O id certo não basta: o payload tem de ser o que a pessoa viu.
       if (payloadHash({ systemId: item.sistema, tool: item.ferramenta, args: argumentos }) !== p.payloadHash)
@@ -62,7 +62,7 @@ export function chamarComEthics(engine: EthicsEngine, quem: Quem, executor: Exec
       }
     }
 
-    const a = engine.authorize({
+    const a = await engine.authorize({
       userId: quem.userId,
       agentId: quem.agentId,
       systemId: item.sistema,
@@ -87,7 +87,7 @@ export function chamarComEthics(engine: EthicsEngine, quem: Quem, executor: Exec
 /** Porta situacaoAprovacao da rodada, lida das propostas do Ethics Engine. */
 export function situacaoPeloEthics(engine: EthicsEngine) {
   return async (approvalId: string): Promise<SituacaoAprovacao> => {
-    const p = engine.approvals.get(approvalId);
+    const p = await engine.approvals.get(approvalId);
     if (!p) return { tipo: "negada", motivo: "aprovacao_inexistente" };
     if (p.status === "approved") return { tipo: "executar" };
     // Já executada numa retomada que não salvou o estado: nunca executa de novo.

@@ -18,15 +18,37 @@ export interface StopState {
 
 export type StopListener = (scope: StopScope, state: StopState) => void | Promise<void>;
 
-export class EmergencyStop {
+/** Onde o estado da parada fica. Num banco, a parada vale para todos os processos ao mesmo tempo. */
+export interface StopStore {
+  get(scope: StopScope): Promise<StopState | null>;
+  set(scope: StopScope, state: StopState): Promise<void>;
+  clear(scope: StopScope): Promise<void>;
+}
+
+export class InMemoryStopStore implements StopStore {
   private global: StopState | null = null;
   private readonly users = new Map<string, StopState>();
+  async get(scope: StopScope): Promise<StopState | null> {
+    return scope.kind === "global" ? this.global : (this.users.get(scope.userId) ?? null);
+  }
+  async set(scope: StopScope, state: StopState): Promise<void> {
+    if (scope.kind === "global") this.global = state;
+    else this.users.set(scope.userId, state);
+  }
+  async clear(scope: StopScope): Promise<void> {
+    if (scope.kind === "global") this.global = null;
+    else this.users.delete(scope.userId);
+  }
+}
+
+export class EmergencyStop {
   private readonly listeners: StopListener[] = [];
 
   constructor(
     private readonly clock: Clock = systemClock,
     /** Ids com poder de liberar o escopo global (operadores do serviço). */
     private readonly operators: ReadonlySet<string> = new Set(),
+    private readonly store: StopStore = new InMemoryStopStore(),
   ) {}
 
   onEngage(l: StopListener): void {
@@ -35,26 +57,22 @@ export class EmergencyStop {
 
   async engage(scope: StopScope, by: string, reason: string): Promise<StopState> {
     const state: StopState = { engagedAt: this.clock.now(), engagedBy: by, reason };
-    if (scope.kind === "global") this.global = state;
-    else this.users.set(scope.userId, state);
+    await this.store.set(scope, state);
     // Ouvinte com erro não impede os outros nem desfaz a parada.
     await Promise.allSettled(this.listeners.map(async (l) => l(scope, state)));
     return state;
   }
 
-  release(scope: StopScope, by: string, byKind: "user" | "agent" | "operator"): void {
+  async release(scope: StopScope, by: string, byKind: "user" | "agent" | "operator"): Promise<void> {
     if (byKind === "agent") throw new ObedientError("EMERGENCY_STOP", "agente não libera parada de emergência");
     if (scope.kind === "global") {
       if (byKind !== "operator" || !this.operators.has(by)) throw new ObedientError("EMERGENCY_STOP", "só operador libera a parada global");
-      this.global = null;
-      return;
-    }
-    if (byKind !== "user" || by !== scope.userId) throw new ObedientError("EMERGENCY_STOP", "só o próprio usuário libera a parada dele");
-    this.users.delete(scope.userId);
+    } else if (byKind !== "user" || by !== scope.userId) throw new ObedientError("EMERGENCY_STOP", "só o próprio usuário libera a parada dele");
+    await this.store.clear(scope);
   }
 
   /** Estado que bloqueia este usuário agora (global vence). */
-  blocking(userId: string): StopState | null {
-    return this.global ?? this.users.get(userId) ?? null;
+  async blocking(userId: string): Promise<StopState | null> {
+    return (await this.store.get({ kind: "global" })) ?? (await this.store.get({ kind: "user", userId }));
   }
 }

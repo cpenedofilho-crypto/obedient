@@ -64,7 +64,7 @@ describe("DOTS adapter", () => {
     const { adapter, recupera, engine } = setup();
     await assert.rejects(adapter.read("u1", "recupera", "recupera.registrar_pagamento"), /não está na lista de leitura/);
     assert.equal(recupera.calls.length, 0);
-    assert.equal(engine.audit.all().length, 0);
+    assert.equal((await engine.audit.forUser("u1")).length, 0);
   });
 
   it("without a user grant the read is denied and audited, and the network is not called", async () => {
@@ -72,12 +72,12 @@ describe("DOTS adapter", () => {
     const r = await adapter.read("u1", "recupera", "recupera.listar_decisoes_pendentes");
     assert.equal(r.ok, false);
     assert.equal(recupera.calls.length, 0);
-    assert.equal(engine.audit.all()[0]?.outcome, "denied");
+    assert.equal((await engine.audit.forUser("u1"))[0]?.outcome, "denied");
   });
 
   it("with a grant the read goes through and comes back marked as untrusted data", async () => {
     const { adapter, recupera, grantRead } = setup();
-    grantRead();
+    await grantRead();
     const r = await adapter.read("u1", "recupera", "recupera.listar_decisoes_pendentes");
     assert.equal(r.ok, true);
     if (!r.ok) return;
@@ -87,7 +87,7 @@ describe("DOTS adapter", () => {
 
   it("emergency stop blocks DOTS and asks the target server to revoke its token", async () => {
     const { adapter, engine, recupera, revoked, grantRead } = setup();
-    grantRead();
+    await grantRead();
     await engine.stop.engage({ kind: "user", userId: "u1" }, "u1", "parar tudo");
     const r = await adapter.read("u1", "recupera", "recupera.minhas_capacidades");
     assert.equal(r.ok, false);

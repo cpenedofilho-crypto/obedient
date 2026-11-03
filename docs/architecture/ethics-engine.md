@@ -37,16 +37,21 @@ Qualquer exceção vira `denied` (fail-closed).
 | Policy Versioning | `CONSTITUTION_VERSION` gravado em cada grant e cada decisão | Novo |
 | Policy Test Suite | `tests/constitution/constitution.test.ts` | Padrão das suítes SQL do Ronda |
 
-## O que ainda é memória (e precisa virar banco)
+## Armazenamento (Fase 4b)
 
-Grants, consentimentos, propostas e auditoria têm implementação em memória, atrás de interfaces
-(`GrantStore`, `AuditSink`). A Fase 4b troca isso por Postgres:
+O motor é assíncrono e cada componente lê e grava por uma porta: `GrantStore`, `ConsentStore`,
+`ProposalStore`, `StopStore` e `AuditSink`. As implementações em memória são o padrão e servem aos
+testes; o Postgres entra pelas mesmas portas (`@obedient/store-postgres`).
 
-- **RLS por usuário.**
-- **Auditoria append-only:** sem UPDATE nem DELETE concedidos, como as `interacoes` do Recupera.
-- **Reivindicação da proposta atômica:** `UPDATE … WHERE status='approved' RETURNING`.
-
-O comportamento é fixado pelos testes, que são o contrato da troca.
+- **Toda leitura é por usuário** (`listByUser`), nunca "todos os registros", para que a RLS do banco
+  possa filtrar sem esconder nada de que o motor precise.
+- **A cadeia de auditoria é por usuário:** `seq` e `prevHash` contam dentro do usuário, e
+  `verify(userId)` confere a trilha de uma pessoa sem ler a das outras. O que não é de ninguém
+  (parada global) fica na cadeia `"*"`. `AuditSink.append` recebe a cabeça atual da cadeia e grava
+  sem que outra gravação do mesmo usuário passe no meio.
+- **A troca de estado da proposta é atômica** (`ProposalStore.transition`, compare-and-set): aprovar,
+  rejeitar, reivindicar a execução e concluir só gravam se a proposta ainda estiver no estado
+  esperado. É o que impede, com vários processos, duas aprovações ou duas execuções.
 
 ## Limites conhecidos (registrados, não escondidos)
 

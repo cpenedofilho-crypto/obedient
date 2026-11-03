@@ -8,11 +8,12 @@
 // cada categoria naquela finalidade. Revogar vale imediatamente. Categoria sensível (LGPD art. 5º,
 // II) exige consentimento marcado como específico.
 
-import { type Clock, systemClock } from "@obedient/core";
+import { type Clock, type IdFactory, systemClock, uuid } from "@obedient/core";
 
 export const SENSITIVE_CATEGORIES = ["health", "biometric", "religion", "politics", "sex_life", "ethnicity", "union", "genetic"] as const;
 
 export interface ConsentRecord {
+  id: string;
   userId: string;
   purpose: string;
   category: string;
@@ -28,12 +29,43 @@ export interface ConsentCheck {
   missing: string[];
 }
 
-export class ConsentManager {
-  private readonly records: ConsentRecord[] = [];
-  constructor(private readonly clock: Clock = systemClock) {}
+/** Onde os consentimentos ficam. Leitura sempre por usuário (cabe na RLS). */
+export interface ConsentStore {
+  insert(r: ConsentRecord): Promise<void>;
+  listByUser(userId: string): Promise<ConsentRecord[]>;
+  /** Marca como revogados os registros ainda vigentes que casam; devolve quantos. */
+  revokeWhere(userId: string, purpose: string, category: string | null, at: Date): Promise<number>;
+}
 
-  give(userId: string, purpose: string, category: string, opts: { specific?: boolean; expiresAt?: Date | null } = {}): ConsentRecord {
+export class InMemoryConsentStore implements ConsentStore {
+  private readonly rows: ConsentRecord[] = [];
+  async insert(r: ConsentRecord): Promise<void> {
+    this.rows.push({ ...r });
+  }
+  async listByUser(userId: string): Promise<ConsentRecord[]> {
+    return this.rows.filter((r) => r.userId === userId).map((r) => ({ ...r }));
+  }
+  async revokeWhere(userId: string, purpose: string, category: string | null, at: Date): Promise<number> {
+    let n = 0;
+    for (const r of this.rows)
+      if (r.userId === userId && r.purpose === purpose && (category === null || r.category === category) && !r.revokedAt) {
+        r.revokedAt = at;
+        n++;
+      }
+    return n;
+  }
+}
+
+export class ConsentManager {
+  constructor(
+    private readonly clock: Clock = systemClock,
+    private readonly store: ConsentStore = new InMemoryConsentStore(),
+    private readonly newId: IdFactory = uuid,
+  ) {}
+
+  async give(userId: string, purpose: string, category: string, opts: { specific?: boolean; expiresAt?: Date | null } = {}): Promise<ConsentRecord> {
     const r: ConsentRecord = {
+      id: this.newId(),
       userId,
       purpose,
       category,
@@ -42,38 +74,25 @@ export class ConsentManager {
       expiresAt: opts.expiresAt ?? null,
       revokedAt: null,
     };
-    this.records.push(r);
+    await this.store.insert(r);
     return { ...r };
   }
 
-  revoke(userId: string, purpose: string, category: string): number {
-    const now = this.clock.now();
-    let n = 0;
-    for (const r of this.records)
-      if (r.userId === userId && r.purpose === purpose && r.category === category && !r.revokedAt) {
-        r.revokedAt = now;
-        n++;
-      }
-    return n;
+  revoke(userId: string, purpose: string, category: string): Promise<number> {
+    return this.store.revokeWhere(userId, purpose, category, this.clock.now());
   }
 
   /** Revoga tudo de uma finalidade (ex.: o usuário desliga "aprendizado"). */
-  revokePurpose(userId: string, purpose: string): number {
-    const now = this.clock.now();
-    let n = 0;
-    for (const r of this.records)
-      if (r.userId === userId && r.purpose === purpose && !r.revokedAt) {
-        r.revokedAt = now;
-        n++;
-      }
-    return n;
+  revokePurpose(userId: string, purpose: string): Promise<number> {
+    return this.store.revokeWhere(userId, purpose, null, this.clock.now());
   }
 
-  check(userId: string, purpose: string, categories: readonly string[]): ConsentCheck {
+  async check(userId: string, purpose: string, categories: readonly string[]): Promise<ConsentCheck> {
     const now = this.clock.now();
+    const records = await this.store.listByUser(userId);
     const missing = categories.filter((category) => {
       const sensitive = (SENSITIVE_CATEGORIES as readonly string[]).includes(category);
-      return !this.records.some(
+      return !records.some(
         (r) =>
           r.userId === userId &&
           r.purpose === purpose &&
@@ -87,7 +106,7 @@ export class ConsentManager {
   }
 
   /** Exportação para o titular (LGPD art. 18). */
-  export(userId: string): ConsentRecord[] {
-    return this.records.filter((r) => r.userId === userId).map((r) => ({ ...r }));
+  export(userId: string): Promise<ConsentRecord[]> {
+    return this.store.listByUser(userId);
   }
 }
