@@ -28,7 +28,18 @@ export class GoogleFalso {
     return { state: u.searchParams.get("state")!, code };
   }
 
+  /** Chamadas às APIs (Agenda, Gmail, Drive), com o token usado, para o teste conferir. */
+  api: { metodo: string; url: string; auth: string | null; corpo: string }[] = [];
+  /** Resposta das APIs; o padrão devolve um objeto vazio com id. */
+  responderApi: (url: URL, metodo: string) => { status?: number; json?: unknown } = () => ({ json: { id: "x" } });
+
   fetch = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const alvo = new URL(String(url));
+    if (/googleapis\.com$/.test(alvo.hostname) && alvo.hostname !== "oauth2.googleapis.com") {
+      this.api.push({ metodo: init?.method ?? "GET", url: alvo.toString(), auth: new Headers(init?.headers).get("authorization"), corpo: String(init?.body ?? "") });
+      const r = this.responderApi(alvo, init?.method ?? "GET");
+      return r.status === 204 ? new Response(null, { status: 204 }) : new Response(JSON.stringify(r.json ?? {}), { status: r.status ?? 200, headers: { "content-type": "application/json" } });
+    }
     const corpo = new URLSearchParams(String(init?.body ?? ""));
     this.chamadas.push({ url: String(url), corpo });
     const json = (s: number, j: unknown) => new Response(JSON.stringify(j), { status: s, headers: { "content-type": "application/json" } });

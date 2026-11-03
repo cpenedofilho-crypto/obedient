@@ -145,10 +145,13 @@ export function motivoParaPessoa(m: string): string {
   return m;
 }
 
-/** "email.*" em email → "qualquer ação em email"; "agenda.ler_*" → "as ações agenda.ler_…". */
-export function escopoParaPessoa(capacidade: string, sistema: string | null): string {
-  const onde = sistema ? ` em ${sistema}` : "";
-  if (sistema && capacidade === `${sistema}.*`) return `qualquer ação em ${sistema}`;
+/**
+ * "email.*" em email → "qualquer ação em email"; com o nome da integração ("Google Agenda") → "as
+ * ações de Google Agenda que essa conexão permite"; "agenda.ler_*" → "as ações que começam com …".
+ */
+export function escopoParaPessoa(capacidade: string, sistema: string | null, nomeDoSistema?: string): string {
+  const onde = sistema ? ` em ${nomeDoSistema ?? sistema}` : "";
+  if (sistema && capacidade === `${sistema}.*`) return nomeDoSistema ? `as ações de ${nomeDoSistema} que essa conexão permite` : `qualquer ação em ${sistema}`;
   if (capacidade.endsWith("*")) return `as ações que começam com ${capacidade.slice(0, -1)}${onde}`;
   return `${capacidade}${onde}`;
 }
@@ -176,7 +179,7 @@ function autorizacao(g: Grant): Autorizacao {
     agente: g.agentId,
     sistema: g.systemId,
     capacidade: g.capability,
-    escopo: escopoParaPessoa(g.capability, g.systemId),
+    escopo: escopoParaPessoa(g.capability, g.systemId, INTEGRACOES.find((i) => i.id === g.systemId)?.nome),
     finalidade: g.purpose,
     riscoMaximo: riscoEmPortugues(g.limits.maxRisk)!,
     semPerguntarAte: riscoEmPortugues(g.limits.autonomousUpTo),

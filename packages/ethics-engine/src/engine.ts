@@ -241,13 +241,29 @@ export class EthicsEngine {
    * e o grant: revogar depois de aprovar ainda impede a execução (Art. 2º).
    */
   async executeApproved<T>(proposalId: string, hash: string, executor: (payload: ProposalPayload) => Promise<T>): Promise<T> {
+    const payload = await this.claimApproved(proposalId, hash);
+    let out: T;
+    try {
+      out = await executor(payload);
+    } catch (e) {
+      await this.completeApproved(proposalId, hash, false, e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+    await this.completeApproved(proposalId, hash, true);
+    return out;
+  }
+
+  /**
+   * Primeira metade de executeApproved: confere a parada e o grant DE NOVO e reivindica a execução
+   * (uma vez só). Separada para quem precisa executar FORA da transação do banco (o servidor: a
+   * chamada ao sistema de destino pode demorar) e concluir noutra transação.
+   */
+  async claimApproved(proposalId: string, hash: string): Promise<ProposalPayload> {
     const p = await this.approvals.get(proposalId);
     if (!p) throw new ObedientError("PROPOSAL_NOT_FOUND", "proposta inexistente");
-    const audit = async (outcome: "executed" | "failed" | "denied", reasons?: string[]) =>
-      this.audit.record({ userId: p.userId, actor: p.requestedBy, event: "proposal.execute", outcome, proposalId, grantId: p.grantId, systemId: p.payload.systemId, tool: p.payload.tool, inputHash: hash, constitutionVersion: CONSTITUTION_VERSION, ...(reasons ? { reasons } : {}) });
     const stopped = await this.stop.blocking(p.userId);
     if (stopped) {
-      await audit("denied", ["parada de emergência acionada"]);
+      await this.auditExecution(p, hash, "denied", ["parada de emergência acionada"]);
       throw new ObedientError("EMERGENCY_STOP", stopped.reason);
     }
     if (p.grantId) {
@@ -255,23 +271,23 @@ export class EthicsEngine {
       const agentId = p.requestedBy.replace(/^agent:/, "");
       const still = await this.grants.findCovering(p.userId, agentId, p.payload.systemId, p.payload.tool);
       if (!g || !still) {
-        await audit("denied", ["grant revogado ou vencido depois da aprovação"]);
+        await this.auditExecution(p, hash, "denied", ["grant revogado ou vencido depois da aprovação"]);
         throw new ObedientError("GRANT_NOT_FOUND", "grant revogado ou vencido depois da aprovação");
       }
     }
-    const payload = await this.approvals.claim(proposalId, hash);
-    let out: T;
-    try {
-      out = await executor(payload);
-    } catch (e) {
-      await this.approvals.complete(proposalId, false);
-      await audit("failed", [e instanceof Error ? e.message : String(e)]);
-      throw e;
-    }
-    await this.approvals.complete(proposalId, true);
-    await audit("executed");
-    return out;
+    return this.approvals.claim(proposalId, hash);
   }
+
+  /** Segunda metade: registra o desfecho da execução reivindicada. */
+  async completeApproved(proposalId: string, hash: string, ok: boolean, erro?: string): Promise<void> {
+    const p = await this.approvals.complete(proposalId, ok);
+    await this.auditExecution(p, hash, ok ? "executed" : "failed", ok ? undefined : [erro ?? "falhou"]);
+  }
+
+  private auditExecution(p: Proposal, hash: string, outcome: "executed" | "failed" | "denied", reasons?: string[]) {
+    return this.audit.record({ userId: p.userId, actor: p.requestedBy, event: "proposal.execute", outcome, proposalId: p.id, grantId: p.grantId, systemId: p.payload.systemId, tool: p.payload.tool, inputHash: hash, constitutionVersion: CONSTITUTION_VERSION, ...(reasons ? { reasons } : {}) });
+  }
+
 }
 
 function safeHash(req: ActionRequest): string {

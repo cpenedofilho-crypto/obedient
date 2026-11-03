@@ -14,7 +14,7 @@
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
 import { type Database, type OpcoesMotor, Sessoes, comoUsuario, contestacoes, lerIdentificacao, motorNaTransacao } from "@obedient/store-postgres";
 import { contexto } from "./contexto.ts";
-import { type ClienteOAuth, type Cofre, Conexoes, INTEGRACOES, STATE_TTL_MS } from "@obedient/integrations";
+import { type ClienteOAuth, type Cofre, Conexoes, INTEGRACOES, STATE_TTL_MS, concederAoConectar } from "@obedient/integrations";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { conexoesNoPainel } from "./painel.ts";
 import { exportarDados } from "./exportar.ts";
@@ -131,9 +131,12 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
       if (q.get("error")) return voltar("erro", { motivo: q.get("error") === "access_denied" ? "você não autorizou no Google" : "o Google recusou" });
       try {
         const r = await conexoes.concluir(q.get("state") ?? "", q.get("code") ?? "", lerCookie(p.headers.cookie, COOKIE_OAUTH));
-        await comoUsuario(db, r.userId, (tx) =>
-          motorNaTransacao(tx, opcoesMotor).audit.record({ userId: r.userId, actor: `user:${r.userId}`, event: "connection.added", outcome: "info", systemId: r.integracao, constitutionVersion: CONSTITUTION_VERSION }),
-        );
+        // Conectar concede ao agente a autoridade daquela integração (grant e consentimento), visível e revogável no app.
+        await comoUsuario(db, r.userId, async (tx) => {
+          const m = motorNaTransacao(tx, opcoesMotor);
+          await concederAoConectar(m, r.userId, r.integracao, clock.now());
+          await m.audit.record({ userId: r.userId, actor: `user:${r.userId}`, event: "connection.added", outcome: "info", systemId: r.integracao, constitutionVersion: CONSTITUTION_VERSION });
+        });
         return voltar("ok", { integracao: r.integracao });
       } catch (e) {
         return voltar("erro", { motivo: e instanceof ObedientError ? e.message : "não deu para conectar" });

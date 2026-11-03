@@ -543,11 +543,15 @@ describe("conexões com o Google pelo app (Fase 7)", () => {
     const { token } = await cadastrar(u);
     await conectarPeloApp(a, token, "google_agenda");
     await conectarPeloApp(a, token, "google_drive");
+    const autorizacoes = async () => corpo<{ autorizacoes: { escopo: string; finalidade: string }[] }>(await a(get("/api/painel", token))).autorizacoes;
+    assert.deepEqual((await autorizacoes()).map((x) => x.escopo).sort(), ["as ações de Google Agenda que essa conexão permite", "as ações de Google Drive que essa conexão permite"]);
     const antes = google.revogados.length;
     assert.equal((await acaoG(a, token, { tipo: "desconectar", integracao: "google_drive" })).ok, true);
+    assert.deepEqual((await autorizacoes()).map((x) => x.escopo), ["as ações de Google Agenda que essa conexão permite"], "desconectar tira a autorização");
     assert.equal((await acaoG(a, token, { tipo: "desconectar", integracao: "google_drive" })).mensagem, "Essa conexão já tinha sido desfeita.");
     await acaoG(a, token, { tipo: "parar" });
     assert.ok((await conexoesDo(a, token)).every((x) => !x.conectada), "parar tira todas");
+    assert.deepEqual(await autorizacoes(), [], "e as autorizações delas");
     await new Promise((ok) => setTimeout(ok, 50)); // a revogação roda depois do commit
     assert.equal(google.revogados.length - antes, 2);
   });
