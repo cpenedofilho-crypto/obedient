@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { ManualClock } from "@obedient/core";
-import { comoOperador, comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
+import { comoOperador, comoUsuario, memoriaNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { AutenticadorDeTeste } from "./autenticador-de-teste.ts";
 import { COOKIE, criarApi, lerCookie, type Pedido } from "./api.ts";
@@ -261,7 +261,7 @@ describe("painel e ações", () => {
 
   it("ação malformada é recusada antes do banco", async () => {
     const { token } = await cadastrar(usuario("ana"));
-    for (const a of [{ tipo: "parar" }, { opId: "curto", tipo: "parar" }, { opId: opId(), tipo: "apagar_tudo" }, { opId: opId(), tipo: "aprovar", propostaId: "x", hash: "nao-e-hash" }])
+    for (const a of [{ tipo: "parar" }, { opId: "curto", tipo: "parar" }, { opId: opId(), tipo: "dar_acesso_total" }, { opId: opId(), tipo: "aprovar", propostaId: "x", hash: "nao-e-hash" }])
       assert.equal((await api(post("/api/acoes", a, token))).status, 400, JSON.stringify(a));
   });
 });
@@ -301,5 +301,101 @@ describe("servidor HTTP", () => {
     } finally {
       srv.close();
     }
+  });
+});
+
+describe("memória e direitos pelo app (Arts. 10 e 13)", () => {
+  const acao = (token: string, a: Record<string, unknown>) => api(post("/api/acoes", { opId: opId(), ...a }, token)).then((r) => corpo<{ resultado: { ok: boolean; codigo?: string; mensagem?: string } }>(r).resultado);
+  const painel = (token: string) =>
+    api(get("/api/painel", token)).then((r) =>
+      corpo<{
+        aprendizado: { categorias: { id: string; ligada: boolean }[]; licoes: { id: string; texto: string; categoriaNome: string }[] };
+        contestacoes: { seq: number; status: string }[];
+        atividade: { seq: number; texto: string; contestavel: boolean }[];
+        autorizacoes: unknown[];
+        pedidos: unknown[];
+      }>(r),
+    );
+  const memoriaDe = <T>(u: string, fn: (mem: ReturnType<typeof memoriaNaTransacao>) => Promise<T>) =>
+    comoUsuario(banco.db, u, (tx) => fn(memoriaNaTransacao(tx, motorNaTransacao(tx, { clock }), clock)));
+
+  it("ligar, ver o que foi aprendido, apagar uma lição, desligar", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    assert.ok((await painel(token)).aprendizado.categorias.every((c) => !c.ligada), "tudo nasce desligado");
+    assert.equal((await acao(token, { tipo: "ligar_aprendizado", categoria: "agenda" })).ok, true);
+    await memoriaDe(u, (m) => m.lembrar(u, "obedient", "agenda", "academia às 7h"));
+    await memoriaDe(u, (m) => m.lembrar(u, "obedient", "agenda", "almoço às 12h"));
+    const p = await painel(token);
+    assert.deepEqual(p.aprendizado.licoes.map((l) => l.categoriaNome), ["Rotina e agenda", "Rotina e agenda"]);
+    assert.match(p.atividade.map((a) => a.texto).join("\n"), /obedient aprendeu algo sobre rotina e agenda/);
+    assert.equal((await acao(token, { tipo: "esquecer", licaoId: p.aprendizado.licoes[0]!.id })).ok, true);
+    const de_novo = await acao(token, { tipo: "esquecer", licaoId: p.aprendizado.licoes[0]!.id });
+    assert.equal(de_novo.mensagem, "Essa lição já tinha sido apagada.");
+    assert.equal((await acao(token, { tipo: "desligar_aprendizado", categoria: "agenda" })).ok, true);
+    assert.deepEqual((await painel(token)).aprendizado.licoes, []);
+  });
+
+  it("categoria sensível só com consentimento específico; categoria inventada é recusada", async () => {
+    const { token } = await cadastrar(usuario("ana"));
+    assert.equal((await acao(token, { tipo: "ligar_aprendizado", categoria: "health" })).ok, false);
+    assert.equal((await acao(token, { tipo: "ligar_aprendizado", categoria: "health", especifico: true })).ok, true);
+    assert.equal((await acao(token, { tipo: "ligar_aprendizado", categoria: "astrologia" })).ok, false);
+  });
+
+  it("contestar uma ação do agente; só a própria trilha", async () => {
+    const ana = usuario("ana");
+    const bia = usuario("bia");
+    const { token } = await cadastrar(ana);
+    const { token: daBia } = await cadastrar(bia);
+    await grantEPedidos(ana);
+    const p = await painel(token);
+    const alvo = p.atividade.find((a) => a.contestavel)!;
+    assert.ok(alvo);
+    assert.equal(p.atividade.filter((a) => !a.contestavel).length, 0, "nada aqui é ação da própria pessoa");
+    assert.equal((await acao(token, { tipo: "contestar", seq: alvo.seq, motivo: "não reconheço este pedido" })).ok, true);
+    assert.deepEqual((await painel(token)).contestacoes.map((c) => [c.seq, c.status]), [[alvo.seq, "aberta"]]);
+    // A Bia aponta para o mesmo número de entrada: na trilha dela, a entrada não existe (ou é dela).
+    const r = await acao(daBia, { tipo: "contestar", seq: 999, motivo: "x" });
+    assert.equal(r.mensagem, "Essa entrada não existe na sua trilha.");
+  });
+
+  it("baixar meus dados: um arquivo aberto com tudo, a trilha íntegra, nada de outra pessoa", async () => {
+    const ana = usuario("ana");
+    const bia = usuario("bia");
+    const { token } = await cadastrar(ana);
+    await cadastrar(bia);
+    await grantEPedidos(ana);
+    await grantEPedidos(bia);
+    await acao(token, { tipo: "ligar_aprendizado", categoria: "trabalho" });
+    await memoriaDe(ana, (m) => m.lembrar(ana, "obedient", "trabalho", "fornecedor é a Taberna Ipê"));
+    const r = await api(get("/api/meus-dados", token));
+    assert.equal(r.status, 200);
+    assert.match(r.headers["content-disposition"] ?? "", /^attachment; filename="obedient-ana-\d+-\d{4}-\d{2}-\d{2}\.json"$/);
+    const d = corpo<{ formato: string; usuario: string; trilhaIntegra: boolean; trilha: { userId: string }[]; pedidos: unknown[]; aprendizado: { licoes: { texto: string }[] }; consentimentos: unknown[] }>(r);
+    assert.equal(d.formato, "obedient-exportacao/1");
+    assert.equal(d.trilhaIntegra, true);
+    assert.ok(d.trilha.every((e) => e.userId === ana));
+    assert.equal(d.pedidos.length, 2);
+    assert.deepEqual(d.aprendizado.licoes.map((l) => l.texto), ["fornecedor é a Taberna Ipê"]);
+    assert.doesNotMatch(r.body, new RegExp(bia));
+    assert.equal((await api(get("/api/meus-dados"))).status, 401);
+  });
+
+  it("apagar tudo: um passo, e o painel e a exportação mostram o resultado", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    await grantEPedidos(u);
+    await acao(token, { tipo: "ligar_aprendizado", categoria: "preferencias" });
+    await memoriaDe(u, (m) => m.lembrar(u, "obedient", "preferencias", "gosta de resumo curto"));
+    assert.equal((await acao(token, { tipo: "apagar_tudo" })).ok, true);
+    const p = await painel(token);
+    assert.deepEqual([p.pedidos.length, p.autorizacoes.length, p.aprendizado.licoes.length], [0, 0, 0]);
+    assert.ok(p.aprendizado.categorias.every((c) => !c.ligada));
+    assert.match(p.atividade[0]!.texto, /Você apagou o que o OBEDIENT sabia sobre você/);
+    const d = corpo<{ trilhaIntegra: boolean; pedidos: { payload: unknown }[] }>(await api(get("/api/meus-dados", token)));
+    assert.equal(d.trilhaIntegra, true);
+    assert.ok(d.pedidos.every((x) => JSON.stringify(x.payload) === "{}"));
+    assert.doesNotMatch(JSON.stringify(d), /resumo curto|Resumo da semana/);
   });
 });

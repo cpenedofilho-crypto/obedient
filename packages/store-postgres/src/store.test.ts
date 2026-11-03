@@ -290,7 +290,10 @@ describe("store-postgres: auditoria só de inclusão (Art. 8º)", () => {
     // Conexão do dono (a que rodou a migration), sem papel de app: o gatilho recusa.
     await assert.rejects(banco.db.query("update obedient.audit_log set entry = '{}'::jsonb where user_id = $1", [ana]), /só de inclusão/);
     await assert.rejects(banco.db.query("delete from obedient.audit_log where user_id = $1", [ana]), /só de inclusão/);
-    await assert.rejects(banco.db.query("truncate obedient.audit_log"), /só de inclusão/);
+    // Recusado pelo gatilho ou, antes dele, pela chave estrangeira das contestações (0003).
+    await assert.rejects(banco.db.query("truncate obedient.audit_log"), /só de inclusão|foreign key/);
+    // Com CASCADE a chave não segura: quem segura é o gatilho.
+    await assert.rejects(banco.db.query("truncate obedient.audit_log cascade"), /só de inclusão/);
     assert.equal(await como(ana, (m) => m.audit.verify(ana)), true);
   });
 

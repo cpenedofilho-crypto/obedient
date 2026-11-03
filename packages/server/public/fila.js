@@ -12,7 +12,12 @@
 // A lógica não conhece o IndexedDB: recebe um armazém com quatro métodos. No navegador é o
 // IndexedDB (armazem-idb.js); nos testes, um Map.
 
-/** @typedef {{ tipo: "aprovar", propostaId: string, hash: string } | { tipo: "recusar", propostaId: string } | { tipo: "parar" } | { tipo: "liberar" } | { tipo: "revogar", autorizacaoId: string }} Acao */
+/**
+ * @typedef {{ tipo: "aprovar", propostaId: string, hash: string } | { tipo: "recusar", propostaId: string } | { tipo: "parar" } | { tipo: "liberar" }
+ *   | { tipo: "revogar", autorizacaoId: string } | { tipo: "ligar_aprendizado", categoria: string, especifico?: boolean }
+ *   | { tipo: "desligar_aprendizado", categoria: string } | { tipo: "esquecer", licaoId: string }
+ *   | { tipo: "contestar", seq: number, motivo: string } | { tipo: "apagar_tudo" }} Acao
+ */
 /** @typedef {{ ok: true, tipo: string } | { ok: false, tipo: string, codigo: string, mensagem: string }} Resultado */
 /**
  * @typedef {{
@@ -29,7 +34,19 @@
 /** @typedef {{ tipo: "resultado", resultado: Resultado } | { tipo: "temporaria" } | { tipo: "sessao" }} Envio */
 
 /** @type {Record<Acao["tipo"], number>} */
-export const PRIORIDADE = { parar: 0, liberar: 0, aprovar: 1, recusar: 1, revogar: 1 };
+export const PRIORIDADE = {
+  parar: 0,
+  liberar: 0,
+  // Tirar poder do agente vem antes de dar: desligar, apagar e revogar passam na frente.
+  revogar: 1,
+  desligar_aprendizado: 1,
+  esquecer: 1,
+  apagar_tudo: 1,
+  aprovar: 2,
+  recusar: 2,
+  contestar: 2,
+  ligar_aprendizado: 2,
+};
 
 /** Id da ação, gerado no aparelho: 22 caracteres base64url (128 bits). */
 export function novoOpId() {

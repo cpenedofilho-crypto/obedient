@@ -287,3 +287,44 @@ a:focus-visible {
     animation: none !important;
   }
 }
+
+h4 {
+  margin: 20px 0 8px;
+  font-size: 17px;
+}
+
+.botao.perigo {
+  background: var(--perigo);
+  border-color: var(--perigo);
+  color: var(--perigo-texto);
+}
+
+.atividade .item .botao.pequeno,
+.atividade .item .selo,
+.atividade .item form {
+  grid-column: 2;
+  justify-self: start;
+}
+.selo {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--atencao);
+}
+.formulario textarea {
+  min-height: 72px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 2px solid var(--suave);
+  background: var(--superficie);
+  color: var(--texto);
+  font: inherit;
+}
+.formulario textarea:focus-visible {
+  outline: 3px solid var(--foco);
+  outline-offset: 3px;
+}
+a.botao {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}

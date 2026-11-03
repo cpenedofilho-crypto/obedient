@@ -59,6 +59,25 @@
           <ol id="atividade" class="lista atividade"></ol>
         </section>
 
+        <section aria-labelledby="t-aprendizado">
+          <h3 id="t-aprendizado">O que o agente aprende sobre você</h3>
+          <p class="ajuda">Ele só aprende o assunto que você deixar. Parar de deixar apaga o que ele tinha aprendido sobre aquilo.</p>
+          <ul id="categorias" class="lista"></ul>
+          <h4 id="t-licoes">O que ele já aprendeu</h4>
+          <ul id="licoes" class="lista" aria-labelledby="t-licoes"></ul>
+          <p id="sem-licoes" class="vazio" hidden>Ele ainda não aprendeu nada sobre você.</p>
+        </section>
+
+        <section aria-labelledby="t-dados">
+          <h3 id="t-dados">Seus dados</h3>
+          <p><a id="baixar" class="botao" href="/api/meus-dados" download>Baixar meus dados</a></p>
+          <p class="ajuda">Um arquivo com tudo o que o OBEDIENT guarda sobre você, inclusive o registro do que aconteceu.</p>
+          <div id="apagar"></div>
+          <h4 id="t-contestacoes">Suas contestações</h4>
+          <ul id="contestacoes" class="lista" aria-labelledby="t-contestacoes"></ul>
+          <p id="sem-contestacoes" class="vazio" hidden>Você não contestou nada. Para contestar, use "Contestar" em "O que aconteceu".</p>
+        </section>
+
         <p class="rodape"><button id="b-sair" class="botao discreto" type="button">Sair deste aparelho</button></p>
       </section>
     </main>

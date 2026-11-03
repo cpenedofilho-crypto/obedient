@@ -12,14 +12,20 @@
 
 import { type Clock, ObedientError } from "@obedient/core";
 import { CONSTITUTION_VERSION, type EthicsEngine } from "@obedient/ethics-engine";
-import type { Executor, Sessao } from "@obedient/store-postgres";
+import type { Memoria } from "@obedient/memory";
+import { type Executor, type Sessao, apagarMeusDados, contestar } from "@obedient/store-postgres";
 
 export type Acao =
   | { opId: string; tipo: "aprovar"; propostaId: string; hash: string }
   | { opId: string; tipo: "recusar"; propostaId: string }
   | { opId: string; tipo: "parar" }
   | { opId: string; tipo: "liberar" }
-  | { opId: string; tipo: "revogar"; autorizacaoId: string };
+  | { opId: string; tipo: "revogar"; autorizacaoId: string }
+  | { opId: string; tipo: "ligar_aprendizado"; categoria: string; especifico?: boolean }
+  | { opId: string; tipo: "desligar_aprendizado"; categoria: string }
+  | { opId: string; tipo: "esquecer"; licaoId: string }
+  | { opId: string; tipo: "contestar"; seq: number; motivo: string }
+  | { opId: string; tipo: "apagar_tudo" };
 
 export type ResultadoAcao = { ok: true; tipo: Acao["tipo"] } | { ok: false; tipo: Acao["tipo"]; codigo: string; mensagem: string };
 
@@ -46,8 +52,21 @@ export function lerAcao(corpo: unknown): Acao | string[] {
     case "revogar":
       id("autorizacaoId");
       break;
+    case "ligar_aprendizado":
+    case "desligar_aprendizado":
+      if (typeof o.categoria !== "string" || !/^[a-z_]{2,32}$/.test(o.categoria)) erros.push("categoria inválida");
+      if (o.especifico !== undefined && typeof o.especifico !== "boolean") erros.push("especifico inválido");
+      break;
+    case "esquecer":
+      id("licaoId");
+      break;
+    case "contestar":
+      if (!Number.isInteger(o.seq) || (o.seq as number) < 1) erros.push("seq inválido");
+      if (typeof o.motivo !== "string" || !o.motivo.trim() || o.motivo.length > 1000) erros.push("motivo inválido");
+      break;
     case "parar":
     case "liberar":
+    case "apagar_tudo":
       break;
     default:
       erros.push("tipo desconhecido");
@@ -64,10 +83,18 @@ const MENSAGEM: Partial<Record<string, string>> = {
   PAYLOAD_MISMATCH: "O pedido mudou depois que você o viu. Abra de novo para conferir.",
   STRONG_AUTH_REQUIRED: "Esta ação é sensível: confirme que é você com a passkey e aprove de novo.",
   GRANT_NOT_FOUND: "Essa autorização não existe mais.",
+  CONSENT_REQUIRED: "Para isso é preciso ligar o aprendizado dessa categoria.",
   EMERGENCY_STOP: "A parada geral do serviço só pode ser liberada pelo operador.",
+  INVALID_PAYLOAD: "Não deu para fazer isso. Confira e tente de novo.",
 };
 
-async function executar(m: EthicsEngine, s: Sessao, a: Acao): Promise<void> {
+/** Quando a mesma recusa quer dizer outra coisa conforme a ação. */
+const MENSAGEM_POR_TIPO: Partial<Record<Acao["tipo"], Partial<Record<string, string>>>> = {
+  esquecer: { PROPOSAL_NOT_FOUND: "Essa lição já tinha sido apagada." },
+  contestar: { PROPOSAL_NOT_FOUND: "Essa entrada não existe na sua trilha." },
+};
+
+async function executar(tx: Executor, m: EthicsEngine, memoria: Memoria, s: Sessao, a: Acao, clock: Clock): Promise<void> {
   const eu = { id: s.userId, kind: "user" as const, strongAuth: s.strongAuth };
   switch (a.tipo) {
     case "aprovar":
@@ -100,6 +127,21 @@ async function executar(m: EthicsEngine, s: Sessao, a: Acao): Promise<void> {
       });
       return;
     }
+    case "ligar_aprendizado":
+      await memoria.ligar(s.userId, a.categoria, { especifico: a.especifico === true });
+      return;
+    case "desligar_aprendizado":
+      await memoria.desligar(s.userId, a.categoria);
+      return;
+    case "esquecer":
+      if (!(await memoria.esquecer(s.userId, a.licaoId))) throw new ObedientError("PROPOSAL_NOT_FOUND", "lição inexistente");
+      return;
+    case "contestar":
+      await contestar(tx, m.audit, s.userId, a.seq, a.motivo, clock);
+      return;
+    case "apagar_tudo":
+      await apagarMeusDados(tx, m.audit, s.userId, clock);
+      return;
   }
 }
 
@@ -107,17 +149,17 @@ async function executar(m: EthicsEngine, s: Sessao, a: Acao): Promise<void> {
  * Faz a ação uma vez só. Roda dentro da transação do usuário: a ação, a trilha e o registro do
  * resultado entram juntos no commit.
  */
-export async function aplicarAcao(tx: Executor, m: EthicsEngine, s: Sessao, a: Acao, clock: Clock): Promise<{ resultado: ResultadoAcao; repetida: boolean }> {
+export async function aplicarAcao(tx: Executor, m: EthicsEngine, memoria: Memoria, s: Sessao, a: Acao, clock: Clock): Promise<{ resultado: ResultadoAcao; repetida: boolean }> {
   const ja = await tx.query<{ result: ResultadoAcao }>("select result from obedient.client_ops where user_id = $1 and op_id = $2", [s.userId, a.opId]);
   if (ja.rows[0]) return { resultado: ja.rows[0].result, repetida: true };
 
   let resultado: ResultadoAcao;
   try {
-    await executar(m, s, a);
+    await executar(tx, m, memoria, s, a, clock);
     resultado = { ok: true, tipo: a.tipo };
   } catch (e) {
     if (!(e instanceof ObedientError)) throw e; // infraestrutura: rollback, o aparelho tenta de novo
-    resultado = { ok: false, tipo: a.tipo, codigo: e.code, mensagem: MENSAGEM[e.code] ?? e.message };
+    resultado = { ok: false, tipo: a.tipo, codigo: e.code, mensagem: MENSAGEM_POR_TIPO[a.tipo]?.[e.code] ?? MENSAGEM[e.code] ?? e.message };
   }
   await tx.query("insert into obedient.client_ops (user_id, op_id, kind, result, created_at) values ($1, $2, $3, $4::jsonb, $5)", [
     s.userId,

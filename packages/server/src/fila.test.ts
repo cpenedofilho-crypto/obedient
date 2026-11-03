@@ -34,14 +34,15 @@ describe("fila do aparelho", () => {
     for (const id of ids) assert.match(id, /^[A-Za-z0-9_-]{22}$/);
   });
 
-  it("parar e liberar saem antes de tudo; o resto, do mais antigo para o mais novo", async () => {
+  it("parar e liberar saem antes de tudo; depois, tirar poder do agente; depois, o resto; empate pelo mais antigo", async () => {
     const { fila, enviados } = montar(ok);
     await fila.registrar({ tipo: "aprovar", propostaId: "p1", hash: "a".repeat(64) });
     await fila.registrar({ tipo: "revogar", autorizacaoId: "g1" });
     await fila.registrar({ tipo: "parar" });
     await fila.registrar({ tipo: "recusar", propostaId: "p2" });
+    await fila.registrar({ tipo: "esquecer", licaoId: "l1" });
     await fila.drenar();
-    assert.deepEqual(enviados.map((e) => e.tipo), ["parar", "aprovar", "revogar", "recusar"]);
+    assert.deepEqual(enviados.map((e) => e.tipo), ["parar", "revogar", "esquecer", "aprovar", "recusar"]);
     assert.equal((await fila.pendentes()).length, 0);
   });
 

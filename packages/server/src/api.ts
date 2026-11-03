@@ -12,7 +12,8 @@
 //   • tudo o que toca dado do usuário roda em comoUsuario(): a RLS é a segunda barreira.
 
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
-import { type Database, type OpcoesMotor, Sessoes, comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
+import { type Database, type OpcoesMotor, Sessoes, comoUsuario, contestacoes, memoriaNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
+import { exportarDados } from "./exportar.ts";
 import { aplicarAcao, lerAcao } from "./acoes.ts";
 import { montarPainel } from "./painel.ts";
 import { type ConfigPasskey, Passkeys } from "./passkeys.ts";
@@ -108,13 +109,29 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
     const { s, token } = atual;
 
     if (p.method === "GET" && caminho === "/api/painel")
-      return json(200, await comoUsuario(db, s.userId, (tx) => montarPainel(motorNaTransacao(tx, opcoesMotor), s.userId, s.strongAuth, clock.now())));
+      return json(
+        200,
+        await comoUsuario(db, s.userId, async (tx) => {
+          const m = motorNaTransacao(tx, opcoesMotor);
+          return montarPainel(m, memoriaNaTransacao(tx, m, clock), await contestacoes(tx, s.userId), s.userId, s.strongAuth, clock.now());
+        }),
+      );
+
+    // Art. 13: tudo o que o OBEDIENT tem sobre a pessoa, num arquivo aberto (JSON).
+    if (p.method === "GET" && caminho === "/api/meus-dados") {
+      const dados = await comoUsuario(db, s.userId, (tx) => exportarDados(tx, motorNaTransacao(tx, opcoesMotor), s.userId, clock.now()));
+      const dia = clock.now().toISOString().slice(0, 10);
+      return json(200, dados, { "content-disposition": `attachment; filename="obedient-${s.userId.replace(/[^A-Za-z0-9._-]/g, "_")}-${dia}.json"` });
+    }
 
     if (p.method === "POST" && caminho === "/api/acoes") {
       const acao = lerAcao(comCorpo(p));
       if (Array.isArray(acao)) return erro(400, "acao", acao.join("; "));
       try {
-        const r = await comoUsuario(db, s.userId, (tx) => aplicarAcao(tx, motorNaTransacao(tx, opcoesMotor), s, acao, clock));
+        const r = await comoUsuario(db, s.userId, (tx) => {
+          const m = motorNaTransacao(tx, opcoesMotor);
+          return aplicarAcao(tx, m, memoriaNaTransacao(tx, m, clock), s, acao, clock);
+        });
         return json(200, r);
       } catch (e) {
         // Mesmo opId chegando duas vezes ao mesmo tempo: a segunda perde na chave única e lê o

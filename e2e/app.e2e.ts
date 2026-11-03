@@ -162,6 +162,58 @@ describe("app de ponta a ponta", { concurrency: false }, () => {
     assert.equal(await dev.pedir("agenda.ler_semana", "LOW", "READ", {}), "denied");
   });
 
+  it("aprendizado: só com o assunto ligado; a lição aparece e se apaga com um toque", async () => {
+    assert.equal(await dev.lembrar("agenda", "academia às 7h"), "recusado");
+    await p.getByRole("button", { name: "Deixar aprender sobre Rotina e agenda" }).click();
+    await p.getByRole("button", { name: "Parar de aprender sobre Rotina e agenda" }).waitFor();
+    assert.equal(await dev.lembrar("agenda", "academia às 7h"), "guardou");
+    await p.reload();
+    await p.getByText("academia às 7h").waitFor();
+    assert.deepEqual(await axe(p), []);
+    await p.getByRole("button", { name: "Apagar: academia às 7h" }).click();
+    await p.getByText("Ele ainda não aprendeu nada sobre você.").waitFor();
+  });
+
+  it("assunto sensível pede confirmação explícita", async () => {
+    await p.getByRole("button", { name: "Deixar aprender sobre Saúde" }).click();
+    await p.getByText("É um dado sensível.").waitFor();
+    await p.getByRole("button", { name: "Sim, pode aprender" }).click();
+    await p.getByRole("button", { name: "Parar de aprender sobre Saúde" }).waitFor();
+    assert.equal(await dev.lembrar("health", "consulta toda terça"), "guardou");
+  });
+
+  it("contestar uma ação do agente", async () => {
+    await p.reload();
+    const botao = p.getByRole("button", { name: /^Contestar: obedient/ }).first();
+    await botao.click();
+    await p.getByLabel("O que está errado?").fill("Eu não pedi para ler minha agenda nesse horário.");
+    assert.deepEqual(await axe(p), []);
+    await p.getByRole("button", { name: "Enviar contestação" }).click();
+    await p.getByText("Contestada").first().waitFor();
+    await p.getByText("Eu não pedi para ler minha agenda nesse horário.").waitFor();
+  });
+
+  it("baixar meus dados: um arquivo JSON com a trilha íntegra", async () => {
+    const [arquivo] = await Promise.all([p.waitForEvent("download"), p.getByRole("link", { name: "Baixar meus dados" }).click()]);
+    assert.match(arquivo.suggestedFilename(), /^obedient-ana\.praca-\d{4}-\d{2}-\d{2}\.json$/);
+    const caminho = await arquivo.path();
+    const d = JSON.parse(readFileSync(caminho, "utf8")) as { trilhaIntegra: boolean; aprendizado: { licoes: { texto: string }[] }; contestacoes: unknown[] };
+    assert.equal(d.trilhaIntegra, true);
+    assert.deepEqual(d.aprendizado.licoes.map((l) => l.texto), ["consulta toda terça"]);
+    assert.equal(d.contestacoes.length, 1);
+  });
+
+  it("apagar o que o OBEDIENT sabe: confirmação, um passo, e o painel mostra o resultado", async () => {
+    await p.getByRole("button", { name: "Apagar o que o OBEDIENT sabe sobre mim" }).click();
+    await p.getByText("Não dá para desfazer.", { exact: false }).waitFor();
+    await p.getByRole("button", { name: "Sim, apagar tudo" }).click();
+    await p.getByText("Você apagou o que o OBEDIENT sabia sobre você", { exact: false }).waitFor();
+    await p.getByText("Ele ainda não aprendeu nada sobre você.").waitFor();
+    await p.getByText("Nenhum agente pode agir por você agora.").waitFor();
+    assert.equal(await dev.pedir("email.enviar", "HIGH", "COMMUNICATION", { assunto: "x" }), "denied");
+    assert.equal(await dev.lembrar("health", "outra coisa"), "recusado");
+  });
+
   it("sair e entrar de novo com a mesma passkey, sem convite", async () => {
     await p.getByRole("button", { name: "Sair deste aparelho" }).click();
     await p.getByRole("button", { name: "Entrar com passkey" }).click();

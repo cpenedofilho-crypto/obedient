@@ -83,8 +83,14 @@ let painel = null;
 /** @type {number | null} */
 let painelDe = null; // hora da cópia local, quando o painel não veio agora do servidor
 let online = navigator.onLine;
-/** ids de pedido com "confirmar liberar" aberto */
+/** "confirmar liberar" aberto */
 let confirmandoLiberar = false;
+/** categoria sensível esperando a confirmação explícita */
+let confirmandoSensivel = /** @type {string | null} */ (null);
+/** "apagar tudo" esperando confirmação */
+let confirmandoApagar = false;
+/** entrada da trilha com o formulário de contestação aberto */
+let contestando = /** @type {number | null} */ (null);
 
 function mostrar(/** @type {"entrada" | "painel"} */ tela) {
   $("tela-entrada").hidden = tela !== "entrada";
@@ -117,9 +123,113 @@ async function render() {
   auts.replaceChildren(...painel.autorizacoes.map((/** @type {any} */ a) => autorizacao(a, daAutorizacao(a.id))));
   $("sem-autorizacoes").hidden = painel.autorizacoes.length > 0;
 
-  $("atividade").replaceChildren(
-    ...painel.atividade.map((/** @type {any} */ a) => el("li", { classe: `item ${a.tom}` }, [el("time", { texto: hora(a.quando), atributos: { datetime: a.quando } }), el("span", { texto: a.texto })])),
+  const contestadas = new Set(painel.contestacoes.map((/** @type {any} */ c) => c.seq));
+  $("atividade").replaceChildren(...painel.atividade.map((/** @type {any} */ a) => itemAtividade(a, contestadas.has(a.seq))));
+
+  renderAprendizado(ops);
+  renderDados(ops);
+}
+
+/** @param {any} a @param {boolean} jaContestada */
+function itemAtividade(a, jaContestada) {
+  /** @type {Node[]} */
+  const filhos = [el("time", { texto: hora(a.quando), atributos: { datetime: a.quando } }), el("span", { texto: a.texto })];
+  if (jaContestada) filhos.push(el("span", { classe: "selo", texto: "Contestada" }));
+  else if (a.contestavel && contestando === a.seq) {
+    const caixa = /** @type {HTMLTextAreaElement} */ (el("textarea", { atributos: { id: `motivo-${a.seq}`, maxlength: "1000", rows: "3", required: "" } }));
+    const form = el("form", { classe: "formulario contestar" }, [
+      el("label", { texto: "O que está errado?", atributos: { for: `motivo-${a.seq}` } }),
+      caixa,
+      el("div", { classe: "acoes" }, [
+        el("button", { classe: "botao principal", texto: "Enviar contestação", atributos: { type: "submit" } }),
+        botao("Cancelar", () => ((contestando = null), render()), "botao discreto"),
+      ]),
+    ]);
+    form.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const motivo = caixa.value.trim();
+      if (!motivo) return;
+      contestando = null;
+      void agir({ tipo: "contestar", seq: a.seq, motivo });
+    });
+    filhos.push(form);
+    queueMicrotask(() => caixa.focus());
+  } else if (a.contestavel) filhos.push(botao("Contestar", () => ((contestando = a.seq), render()), "botao discreto pequeno", `Contestar: ${a.texto}`));
+  return el("li", { classe: `item ${a.tom}` }, filhos);
+}
+
+/** @param {Op[]} ops */
+function renderAprendizado(ops) {
+  const pendente = (/** @type {(o: Op) => boolean} */ f) => ops.some((o) => o.estado === "pendente" && f(o));
+  $("categorias").replaceChildren(
+    ...painel.aprendizado.categorias.map((/** @type {any} */ c) => {
+      const enviando = pendente((o) => (o.acao.tipo === "ligar_aprendizado" || o.acao.tipo === "desligar_aprendizado") && o.acao.categoria === c.id);
+      const nome = el("p", {}, [el("strong", { texto: c.nome }), c.sensivel ? document.createTextNode(" (dado sensível)") : null]);
+      const estado = el("p", { classe: "meta", texto: enviando ? "Enviando…" : c.ligada ? "Ele pode aprender sobre isso." : "Ele não aprende sobre isso." });
+      /** @type {Node} */
+      let controle;
+      if (enviando) controle = el("span");
+      else if (c.ligada) controle = botao("Parar de aprender", () => agir({ tipo: "desligar_aprendizado", categoria: c.id }), "botao", `Parar de aprender sobre ${c.nome}`);
+      else if (c.sensivel && confirmandoSensivel === c.id)
+        controle = el("div", {}, [
+          el("p", { classe: "ajuda", texto: `É um dado sensível. Confirme que o agente pode aprender sobre ${c.nome.toLowerCase()}.` }),
+          el("div", { classe: "acoes" }, [
+            botao("Sim, pode aprender", () => ((confirmandoSensivel = null), agir({ tipo: "ligar_aprendizado", categoria: c.id, especifico: true })), "botao principal"),
+            botao("Não", () => ((confirmandoSensivel = null), render()), "botao discreto"),
+          ]),
+        ]);
+      else
+        controle = botao(
+          "Deixar aprender",
+          () => (c.sensivel ? ((confirmandoSensivel = c.id), render()) : agir({ tipo: "ligar_aprendizado", categoria: c.id })),
+          "botao",
+          `Deixar aprender sobre ${c.nome}`,
+        );
+      return el("li", { classe: "autorizacao" }, [nome, estado, controle]);
+    }),
   );
+  const apagando = new Set(ops.filter((o) => o.estado === "pendente" && o.acao.tipo === "esquecer").map((o) => /** @type {any} */ (o.acao).licaoId));
+  const licoes = painel.aprendizado.licoes.filter((/** @type {any} */ l) => !apagando.has(l.id));
+  $("licoes").replaceChildren(
+    ...licoes.map((/** @type {any} */ l) =>
+      el("li", { classe: "autorizacao" }, [
+        el("p", { texto: l.texto }),
+        el("p", { classe: "meta", texto: `${l.categoriaNome} · aprendido por ${l.agente} em ${new Date(l.quando).toLocaleDateString("pt-BR")}` }),
+        botao("Apagar", () => agir({ tipo: "esquecer", licaoId: l.id }), "botao", `Apagar: ${l.texto}`),
+      ]),
+    ),
+  );
+  $("sem-licoes").hidden = licoes.length > 0;
+}
+
+/** @param {Op[]} ops */
+function renderDados(ops) {
+  const apagandoTudo = ops.some((o) => o.estado === "pendente" && o.acao.tipo === "apagar_tudo");
+  /** @type {Node[]} */
+  let apagar;
+  if (apagandoTudo) apagar = [el("p", { classe: "estado", texto: "Apagando…" })];
+  else if (confirmandoApagar)
+    apagar = [
+      el("p", { texto: "Isto apaga o que o agente aprendeu, esvazia o conteúdo dos pedidos, tira todas as autorizações e desliga todo o aprendizado. Não dá para desfazer." }),
+      el("p", { classe: "ajuda", texto: "Fica guardado: o registro do que aconteceu (sem o conteúdo), o registro de que você tinha dado permissão e as suas contestações." }),
+      el("div", { classe: "acoes" }, [
+        botao("Sim, apagar tudo", () => ((confirmandoApagar = false), agir({ tipo: "apagar_tudo" })), "botao perigo"),
+        botao("Não apagar", () => ((confirmandoApagar = false), render()), "botao discreto"),
+      ]),
+    ];
+  else apagar = [botao("Apagar o que o OBEDIENT sabe sobre mim", () => ((confirmandoApagar = true), render()), "botao")];
+  $("apagar").replaceChildren(...apagar);
+
+  $("contestacoes").replaceChildren(
+    ...painel.contestacoes.map((/** @type {any} */ c) =>
+      el("li", { classe: "autorizacao" }, [
+        el("p", { texto: c.motivo }),
+        el("p", { classe: "meta", texto: `${c.status === "aberta" ? "Aberta" : "Respondida"} · ${new Date(c.quando).toLocaleDateString("pt-BR")}` }),
+        c.resposta ? el("p", { texto: `Resposta: ${c.resposta}` }) : null,
+      ]),
+    ),
+  );
+  $("sem-contestacoes").hidden = painel.contestacoes.length > 0;
 }
 
 function renderParada(/** @type {Op[]} */ ops) {

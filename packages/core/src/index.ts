@@ -88,7 +88,8 @@ export type ErrorCode =
   | "EMERGENCY_STOP"
   | "NOT_READ_ONLY"
   | "AUDIT_TAMPERED"
-  | "UNAUTHENTICATED";
+  | "UNAUTHENTICATED"
+  | "CONSENT_REQUIRED";
 
 export class ObedientError extends Error {
   constructor(
