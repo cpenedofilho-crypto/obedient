@@ -12,16 +12,19 @@
     "node": ">=22"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.app.json",
     "test": "node --import tsx --test \"packages/*/src/**/*.test.ts\" \"tests/**/*.test.ts\"",
     "licenses": "node scripts/check-licenses.mjs",
-    "check": "npm run typecheck && npm test && npm run licenses"
+    "check": "npm run typecheck && npm test && npm run licenses",
+    "test:e2e": "node --import tsx --test --test-timeout=120000 \"e2e/**/*.e2e.ts\""
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.10",
     "@types/node": "^22.20.5",
     "@types/pg": "8.23.1",
+    "axe-core": "4.10.3",
     "pg": "8.23.1",
+    "playwright": "1.63.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   }

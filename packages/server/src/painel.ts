@@ -27,6 +27,8 @@ export interface Autorizacao {
   agente: string;
   sistema: string | null;
   capacidade: string;
+  /** A capacidade como a pessoa lê ("qualquer ação em email"). */
+  escopo: string;
   finalidade: string;
   riscoMaximo: string;
   semPerguntarAte: string | null;
@@ -59,6 +61,45 @@ const curto = (v: unknown, max = 80): string => {
 
 const agenteDe = (quem: string) => quem.replace(/^agent:/, "");
 
+const RISCO: Record<string, string> = { LOW: "baixo", MEDIUM: "médio", HIGH: "alto", CRITICAL: "crítico" };
+const CATEGORIA: Record<string, string> = { FINANCIAL: "financeira", LEGAL: "jurídica", DESTRUCTIVE: "destrutiva", COMMUNICATION: "de comunicação", WRITE: "de escrita", READ: "de leitura" };
+export const riscoEmPortugues = (r: string | null) => (r ? (RISCO[r] ?? r) : null);
+
+/**
+ * O motivo que o motor de políticas dá (em inglês: é API) em português direto para a pessoa. Motivo
+ * que já vem em português (os do Ethics Engine) passa como está.
+ */
+export function motivoParaPessoa(m: string): string {
+  const passkey = "precisa da sua confirmação com passkey";
+  let x: RegExpMatchArray | null;
+  if ((x = m.match(/^risk (\w+): default is (\w+)$/))) {
+    const r = riscoEmPortugues(x[1]!);
+    if (x[2] === "require_privileged_approval") return `Ação de risco ${r}: ${passkey}.`;
+    if (x[2] === "require_approval") return `Ação de risco ${r}: precisa da sua aprovação.`;
+    if (x[2] === "deny") return `Ação de risco ${r}: você não deixa o agente fazer.`;
+    return `Ação de risco ${r}: liberada.`;
+  }
+  if ((x = m.match(/^category (\w+) counts as CRITICAL/))) return `Ação ${CATEGORIA[x[1]!] ?? x[1]!.toLowerCase()}: sempre ${passkey}.`;
+  if (/^risk CRITICAL always requires privileged approval/.test(m)) return `Ação crítica: sempre ${passkey}.`;
+  if ((x = m.match(/^policy (\S+) requires (privileged approval|approval)(?: \(amount in (\S+) above ([\d.]+)\))?$/))) {
+    const oque = x[2] === "approval" ? "pede a sua aprovação" : `pede ${passkey.replace("precisa da ", "a ")}`;
+    const valor = x[3] ? `, porque o valor em ${x[3]} passa de ${Number(x[4]).toLocaleString("pt-BR")}` : "";
+    return `Uma regra sua (${x[1]}) ${oque}${valor}.`;
+  }
+  if ((x = m.match(/^policy (\S+) (?:denies|blocks)/))) return `Uma regra sua (${x[1]}) não deixa o agente fazer isto.`;
+  if ((x = m.match(/^policy (\S+) allows autonomous execution$/))) return `Uma regra sua (${x[1]}) deixa o agente fazer sozinho.`;
+  return m;
+}
+
+/** "email.*" em email → "qualquer ação em email"; "agenda.ler_*" → "as ações agenda.ler_…". */
+export function escopoParaPessoa(capacidade: string, sistema: string | null): string {
+  const onde = sistema ? ` em ${sistema}` : "";
+  if (sistema && capacidade === `${sistema}.*`) return `qualquer ação em ${sistema}`;
+  if (capacidade.endsWith("*")) return `as ações que começam com ${capacidade.slice(0, -1)}${onde}`;
+  return `${capacidade}${onde}`;
+}
+
+
 function cartao(p: Proposal): CartaoPedido {
   const chaves = Object.keys(p.payload.args).sort();
   return {
@@ -67,7 +108,7 @@ function cartao(p: Proposal): CartaoPedido {
     sistema: p.payload.systemId,
     acao: p.payload.tool,
     detalhes: chaves.slice(0, 8).map((k) => ({ campo: k, valor: curto(p.payload.args[k]) })),
-    motivo: p.reason,
+    motivo: motivoParaPessoa(p.reason),
     criadoEm: p.createdAt.toISOString(),
     venceEm: p.expiresAt.toISOString(),
     exigeReautenticacao: p.approver === "user_strong_auth",
@@ -81,9 +122,10 @@ function autorizacao(g: Grant): Autorizacao {
     agente: g.agentId,
     sistema: g.systemId,
     capacidade: g.capability,
+    escopo: escopoParaPessoa(g.capability, g.systemId),
     finalidade: g.purpose,
-    riscoMaximo: g.limits.maxRisk,
-    semPerguntarAte: g.limits.autonomousUpTo,
+    riscoMaximo: riscoEmPortugues(g.limits.maxRisk)!,
+    semPerguntarAte: riscoEmPortugues(g.limits.autonomousUpTo),
     limiteDeValor: g.limits.maxAmount,
     venceEm: g.expiresAt.toISOString(),
     delegadaPor: g.parentId ? g.grantedBy : null,
@@ -94,7 +136,7 @@ function autorizacao(g: Grant): Autorizacao {
 export function textoDaAtividade(e: AuditEntry): Pick<ItemAtividade, "texto" | "tom"> {
   const quem = e.actor.startsWith("agent:") ? agenteDe(e.actor) : e.actor.startsWith("user:") ? "Você" : e.actor;
   const acao = e.tool ? `${e.tool}${e.systemId ? ` em ${e.systemId}` : ""}` : "";
-  const motivo = e.reasons?.[0] ? ` (${curto(e.reasons[0], 120)})` : "";
+  const motivo = e.reasons?.[0] ? ` (${curto(motivoParaPessoa(e.reasons[0]), 140)})` : "";
   switch (`${e.event}:${e.outcome}`) {
     case "action.authorize:allowed":
       return { texto: `${quem} pôde fazer ${acao}`, tom: "neutro" };

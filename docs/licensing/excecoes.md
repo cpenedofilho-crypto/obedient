@@ -16,4 +16,4 @@ Expressões `A OR B` passam se pelo menos um lado for permitido; nesse caso, reg
 
 | Pacote | Licença | Motivo | Obrigação | Decisão |
 |---|---|---|---|---|
-| nenhuma | | | | |
+| `axe-core` (só desenvolvimento) | MPL-2.0 | Verificação automática de acessibilidade nos testes de ponta a ponta do app (`e2e/`) | Nenhuma enquanto não for distribuído: é carregado só pelo teste, no navegador do teste, e não entra no app, no servidor nem na SBOM de produção (`npm sbom --omit dev`). Se um dia for distribuído, o código do axe modificado fica disponível sob MPL-2.0 | Registrado em 03/11/2026, Fase 5 |
