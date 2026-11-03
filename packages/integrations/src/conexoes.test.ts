@@ -123,7 +123,7 @@ describe("conexões OAuth (Fase 7)", () => {
     await conectar(c, ana, "google_agenda");
     await conectar(c, ana, "google_drive");
     const tiradas = await comoUsuario(banco.db, ana, (tx) => tirarConexoes(tx, ana, "parada de emergência"));
-    assert.equal(tiradas, 2);
+    assert.deepEqual(tiradas.sort(), ["google_agenda", "google_drive"]);
     assert.deepEqual(await c.conexoes.listar(ana), []);
     await assert.rejects(c.conexoes.tokenDeAcesso(ana, "google_agenda"), (e) => codigo(e) === "GRANT_NOT_FOUND");
     assert.deepEqual(await c.conexoes.revogarPendentes(ana), { revogadas: 2, pendentes: 0 });

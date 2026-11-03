@@ -7,7 +7,7 @@
 // parada são registrados aqui.
 
 import type { Clock } from "@obedient/core";
-import { tirarConexoes } from "@obedient/integrations";
+import { retirarAutoridade, tirarConexoes } from "@obedient/integrations";
 import { type Executor, type OpcoesMotor, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 
 export function contexto(tx: Executor, opcoesMotor: OpcoesMotor, clock: Clock) {
@@ -19,7 +19,7 @@ export function contexto(tx: Executor, opcoesMotor: OpcoesMotor, clock: Clock) {
     if (scope.kind !== "user") return;
     await tx.query("savepoint conexoes_na_parada");
     try {
-      await tirarConexoes(tx, scope.userId, "parada de emergência");
+      for (const id of await tirarConexoes(tx, scope.userId, "parada de emergência")) await retirarAutoridade(motor, scope.userId, id);
       await tx.query("release savepoint conexoes_na_parada");
     } catch (e) {
       await tx.query("rollback to savepoint conexoes_na_parada");

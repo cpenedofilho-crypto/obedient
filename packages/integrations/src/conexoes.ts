@@ -154,9 +154,9 @@ export class Conexoes {
   /** A pessoa desconecta: sai da conexão e entra na fila de revogação; depois revoga no Google. */
   async desconectar(userId: string, integracaoId: string): Promise<boolean> {
     const i = integracao(integracaoId);
-    const n = await comoUsuario(this.db, userId, (tx) => tirarConexoes(tx, userId, "desconectada pela pessoa", i.id));
+    const tiradas = await comoUsuario(this.db, userId, (tx) => tirarConexoes(tx, userId, "desconectada pela pessoa", i.id));
     await this.revogarPendentes(userId);
-    return n > 0;
+    return tiradas.length > 0;
   }
 
   /** Chama a revogação no Google para o que está na fila. Falha de rede: fica para a próxima vez. */
@@ -240,7 +240,7 @@ export class Conexoes {
  * Tira as conexões da pessoa (todas, ou uma) e põe as credenciais na fila de revogação, na
  * transação de quem chama. Usada ao desconectar, ao apertar parar (Art. 9º) e ao apagar tudo.
  */
-export async function tirarConexoes(tx: Executor, userId: string, motivo: string, integracaoId?: string): Promise<number> {
+export async function tirarConexoes(tx: Executor, userId: string, motivo: string, integracaoId?: string): Promise<string[]> {
   const { rows } = await tx.query<{ integracao: string; cifra: Buffer; chave_id: string }>(
     "delete from obedient.connections where user_id = $1 and ($2::text is null or integracao = $2) returning integracao, cifra, chave_id",
     [userId, integracaoId ?? null],
@@ -254,5 +254,5 @@ export async function tirarConexoes(tx: Executor, userId: string, motivo: string
       r.chave_id,
       motivo,
     ]);
-  return rows.length;
+  return rows.map((r) => r.integracao);
 }

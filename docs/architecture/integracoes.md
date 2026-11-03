@@ -1,8 +1,11 @@
 # Integrações (Fase 7)
 
-Pacote `@obedient/integrations`; migration 0005. Esta parte (7.1) trata das **conexões**: como a
-pessoa liga o Google ao OBEDIENT e como a credencial é guardada, usada e revogada. As ferramentas
-que usam essas conexões (7.2) e o executor das missões (7.3) vêm nos próximos PRs.
+Pacote `@obedient/integrations`; migration 0005.
+
+- **7.1, conexões:** como a pessoa liga o Google ao OBEDIENT e como a credencial é guardada, usada e
+  revogada.
+- **7.2, ferramentas:** o que o agente faz com essas conexões, sempre pelo Ethics Engine.
+- **7.3, executor das missões:** vem no próximo PR.
 
 ## Catálogo e escopo mínimo
 
@@ -63,6 +66,53 @@ app: "Conectar" ─► POST /api/conexoes/iniciar
 - **Na parada,** a retirada das conexões roda num `SAVEPOINT`: um erro nela não pode impedir a parada
   de ser gravada.
 
+## Ferramentas (7.2)
+
+| Ferramenta | Categoria e risco | O que faz e o que não faz |
+|---|---|---|
+| `google_agenda.listar_eventos` | READ, baixo | Período em UTC; devolve título, horário, local e número de participantes, nunca a descrição |
+| `google_agenda.criar_evento` | WRITE, médio | **Sem convidados e com `sendUpdates=none`:** criar compromisso não manda nada a ninguém (convidar seria comunicação) |
+| `google_agenda.apagar_evento` | DESTRUCTIVE, crítico | Pede passkey; o id é validado antes de virar URL |
+| `google_gmail.buscar_mensagens` | READ, baixo | Até 10 mensagens; corpo em texto, cortado em 4.000 caracteres |
+| `google_gmail.enviar_mensagem` | COMMUNICATION, alto | **Um** destinatário; a assinatura da pessoa vai sempre no fim; cabeçalho com quebra de linha é recusado (sem `Bcc` injetado); sempre pede aprovação |
+| `google_drive.listar_arquivos` | READ, baixo | Só o que o app criou (`drive.file`) |
+| `google_drive.criar_documento` | WRITE, médio | Cria um Google Docs a partir de texto |
+
+- **Argumentos:** cada ferramenta tem esquema com `additionalProperties: false`. Argumento fora do
+  esquema, tipo errado, data inválida ou texto longo demais é recusado **antes da rede**.
+- **Resultado:** volta curto e marcado como conteúdo externo. É dado, nunca instrução.
+
+### O que conectar concede (e desconectar retira)
+
+Conectar é o ato da pessoa, depois de ler a explicação da integração. Ele cria duas coisas, as duas
+visíveis e revogáveis no app:
+
+- **um grant** para o agente, só com as ferramentas daquela integração (`google_agenda.*`), com a
+  explicação como finalidade, prazo de 30 dias e autonomia só até risco baixo. Reconectar substitui
+  o grant anterior;
+- **o consentimento** para as categorias de dado que as ferramentas declaram, com a finalidade
+  `integracao:<id>`.
+
+**Desconectar, parar e apagar retiram os dois.** Com isso:
+
+- ler a agenda roda sozinho;
+- criar compromisso roda sozinho (risco médio, padrão do sistema);
+- mandar e-mail pede aprovação;
+- apagar compromisso pede passkey.
+
+### Fora do banco
+
+O Google pode demorar. Por isso o servidor usa `chamarComEthicsEmEtapas`, e cada etapa de banco é uma
+transação curta:
+
+1. autorizar;
+2. reivindicar a aprovação, se houver (`claimApproved`, uma vez só);
+3. chamar o Google, **fora** de qualquer transação;
+4. concluir (`completeApproved`).
+
+O teste roda no PGlite, que tem uma conexão só: se alguma etapa abrisse transação dentro de outra,
+ele travaria.
+
 ## Configuração do servidor
 
 | Variável | Para quê |
@@ -109,5 +159,17 @@ Para uso pessoal, o modo de teste basta.
   - servidor sem integração.
 - **`e2e/app.e2e.ts`** (1 novo): conectar e desconectar no navegador. A "tela do Google" é
   interceptada e redireciona de volta como o Google faria. O axe não acusou violações.
-- **Prova de mutação:** tirar a conferência do nonce no retorno reprova o teste "só no navegador que
-  começou".
+- **`packages/integrations/src/ferramentas.test.ts`** (8): contrato de cada ferramenta com a API do
+  Google (método, URL, token, corpo, leitura da resposta), injeção de cabeçalho, limites e esquema.
+- **`packages/integrations/src/governadas.test.ts`** (7): as ferramentas pelo Ethics Engine com o
+  banco e o Google falso:
+  - sem conexão, nada;
+  - conectar a Agenda não abre o Gmail;
+  - apagar pede passkey e executa uma vez com o payload aprovado;
+  - e-mail só com a assinatura certa e aprovação;
+  - desconectar tira grant e consentimento;
+  - reconectar não acumula grant.
+- **Prova de mutação:**
+  - tirar a conferência do nonce no retorno reprova o teste "só no navegador que começou";
+  - tirar a conferência do payload na aprovação reprova os testes de payload trocado. Mesmo sem
+    ela, o que executaria é o payload guardado: a conferência dá a recusa clara.

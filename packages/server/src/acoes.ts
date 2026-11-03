@@ -13,7 +13,7 @@
 import { ObedientError } from "@obedient/core";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { type Sessao, apagarMeusDados, contestar, gravarIdentificacao } from "@obedient/store-postgres";
-import { INTEGRACOES, tirarConexoes } from "@obedient/integrations";
+import { INTEGRACOES, retirarAutoridade, tirarConexoes } from "@obedient/integrations";
 import type { Contexto } from "./contexto.ts";
 
 /** O agente que trabalha nas missões que a pessoa pede pelo app. */
@@ -170,12 +170,13 @@ async function executar(ctx: Contexto, s: Sessao, a: Acao): Promise<void> {
       await contestar(tx, m.audit, s.userId, a.seq, a.motivo, clock);
       return;
     case "apagar_tudo":
-      await tirarConexoes(tx, s.userId, "apagar o que o OBEDIENT sabe");
+      await tirarConexoes(tx, s.userId, "apagar o que o OBEDIENT sabe"); // grants e consentimentos: a função de apagar revoga todos
       await apagarMeusDados(tx, m.audit, s.userId, clock);
       return;
     case "desconectar": {
-      const n = await tirarConexoes(tx, s.userId, "desconectada pela pessoa", a.integracao);
-      if (!n) throw new ObedientError("GRANT_NOT_FOUND", "não estava conectada");
+      const tiradas = await tirarConexoes(tx, s.userId, "desconectada pela pessoa", a.integracao);
+      if (!tiradas.length) throw new ObedientError("GRANT_NOT_FOUND", "não estava conectada");
+      await retirarAutoridade(m, s.userId, a.integracao);
       await m.audit.record({ userId: s.userId, actor: `user:${s.userId}`, event: "connection.removed", outcome: "revoked", systemId: a.integracao, constitutionVersion: CONSTITUTION_VERSION });
       return;
     }
