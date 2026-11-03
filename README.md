@@ -19,9 +19,10 @@ propõe, o backend decide e a pessoa autoriza o que é sensível.
 | `@obedient/mission-engine` | AGPL-3.0-only | Máquina de estados de missão e tarefa, plano com dependências em camadas, autonomia por níveis que só restringe e delegação por interseção (extraído do Growth OS, D7) |
 | `@obedient/agent-orchestrator` | AGPL-3.0-only | O laço do agente: modelo propõe, cada ferramenta passa pelo Ethics Engine, o que exige pessoa para o run até a aprovação e executa uma vez; limites de passos, tokens, prazo, laço e ferramenta inválida (extraído do Growth OS, D7) |
 | `@obedient/dots-adapter` | AGPL-3.0-only | O DOTS como agente subordinado, **só leitura**, por MCP |
+| `@obedient/store-postgres` | AGPL-3.0-only | O Ethics Engine em Postgres: RLS forçada por usuário, auditoria só de inclusão com a cadeia conferida pelo banco, execução única da proposta e sessão autenticada (`docs/architecture/persistencia.md`) |
 | `@obedient/sdk` | **Apache-2.0** | Contrato de protocolo para integradores, sem dependência do núcleo AGPL |
 
-O que **ainda não existe** (sem stub, sem pasta vazia): app mobile, memória, persistência em banco. A ordem está em `docs/ROADMAP.md` e a extração do Growth OS em
+O que **ainda não existe** (sem stub, sem pasta vazia): app mobile, memória pessoal, provedor de identidade e servidor HTTP. A ordem está em `docs/ROADMAP.md` e a extração do Growth OS em
 `docs/architecture/extracao-growth-os.md`.
 
 ## Rodar

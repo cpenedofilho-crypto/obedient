@@ -18,7 +18,10 @@
     "check": "npm run typecheck && npm test && npm run licenses"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
     "@types/node": "^22.20.5",
+    "@types/pg": "8.23.1",
+    "pg": "8.23.1",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   }

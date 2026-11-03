@@ -31,6 +31,30 @@ jobs:
           name: sbom
           path: sbom.*.json
 
+  # A mesma suíte do store, contra um Postgres de verdade (no job "check" ela roda no PGlite). Aqui as
+  # transações concorrem de fato: execução única da proposta e cadeia de auditoria sob disputa.
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: obedient-ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: store-postgres contra Postgres 17
+        env:
+          OBEDIENT_TEST_DATABASE_URL: postgres://postgres:obedient-ci@localhost:5432/postgres
+        run: node --import tsx --test "packages/store-postgres/src/**/*.test.ts"
+
   secrets:
     runs-on: ubuntu-latest
     steps:
