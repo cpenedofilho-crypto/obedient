@@ -17,13 +17,55 @@
 //   OBEDIENT_GOOGLE_CLIENT_ID     } cliente OAuth do Google (opcional: sem eles, as integrações ficam desligadas).
 //   OBEDIENT_GOOGLE_CLIENT_SECRET }   Redirect cadastrado no Google: <OBEDIENT_ORIGIN>/api/conexoes/retorno
 //   OBEDIENT_CHAVES_COFRE        chaves do cofre de credenciais, "id:base64,…" (gere com: cli.ts chave)
+//   OBEDIENT_AGENTE              "ligado" para o servidor executar as missões com o modelo (padrão: desligado).
+//                                A credencial da Anthropic vem do ambiente, como o SDK lê (ANTHROPIC_API_KEY).
+//   OBEDIENT_MODELO              modelo (padrão claude-opus-5-5; precisa estar na tabela de preços)
+//   OBEDIENT_ESFORCO             low | medium | high | xhigh | max (padrão high)
+//   OBEDIENT_FALLBACK            "desligado" para não refazer no servidor o que os classificadores recusarem
+//   OBEDIENT_CENTAVOS_POR_DOLAR  câmbio para o teto de custo das missões (padrão 600, isto é, R$ 6,00: a mais)
+//   OBEDIENT_FUSO                fuso das pessoas (padrão America/Sao_Paulo)
 
 import pg from "pg";
+import Anthropic from "@anthropic-ai/sdk";
+import { systemClock } from "@obedient/core";
+import type { Esforco } from "@obedient/agent-orchestrator";
+import { ModeloAnthropic } from "@obedient/modelo-anthropic";
 import { fromPgPool, migrate } from "@obedient/store-postgres";
+import { agendarMissoes } from "./agendador.ts";
+import { executorDeMissoes } from "./executor.ts";
 import { criarApi } from "./api.ts";
 import { servidorHttp } from "./http.ts";
 import { Passkeys } from "./passkeys.ts";
-import { Cofre, lerChaves } from "@obedient/integrations";
+import { Cofre, Conexoes, lerChaves } from "@obedient/integrations";
+
+const ESFORCOS: readonly Esforco[] = ["low", "medium", "high", "xhigh", "max"];
+
+/** O executor das missões, se o dono ligou. Erro de configuração para o servidor na subida, não depois. */
+function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null) {
+  if (env("OBEDIENT_AGENTE") !== "ligado") {
+    console.log("executor das missões desligado (OBEDIENT_AGENTE=ligado para ligar)");
+    return;
+  }
+  const esforco = (env("OBEDIENT_ESFORCO") ?? "high") as Esforco;
+  if (!ESFORCOS.includes(esforco)) throw new Error(`OBEDIENT_ESFORCO precisa ser ${ESFORCOS.join(" | ")}`);
+  const centavosPorDolar = Number(env("OBEDIENT_CENTAVOS_POR_DOLAR") ?? 600);
+  if (!Number.isFinite(centavosPorDolar) || centavosPorDolar <= 0) throw new Error("OBEDIENT_CENTAVOS_POR_DOLAR precisa ser um número positivo");
+  const cliente = new Anthropic();
+  const modelo = env("OBEDIENT_MODELO");
+  const fallbacks = env("OBEDIENT_FALLBACK") !== "desligado";
+  // Confere o modelo agora (sem preço conhecido, não sobe).
+  const teste = new ModeloAnthropic({ cliente, ...(modelo ? { modelo } : {}), esforco, fallbacks });
+  const executar = executorDeMissoes({
+    db,
+    conexoes,
+    novoModelo: () => new ModeloAnthropic({ cliente, modelo: teste.modelo, esforco, fallbacks }),
+    centavosPorDolar,
+    clock: systemClock,
+    ...(env("OBEDIENT_FUSO") ? { fuso: env("OBEDIENT_FUSO")! } : {}),
+  });
+  agendarMissoes({ db, executar, clock: systemClock });
+  console.log(`executor das missões ligado (${teste.modelo}, esforço ${esforco}${fallbacks ? ", com fallback" : ""})`);
+}
 
 const env = (k: string) => process.env[k]?.trim() || undefined;
 
@@ -70,6 +112,7 @@ async function main(argv: string[]) {
         ? { cliente: { clientId: idGoogle, clientSecret: segredoGoogle, redirectUri: `${origin}/api/conexoes/retorno` }, cofre: new Cofre(lerChaves(env("OBEDIENT_CHAVES_COFRE"))) }
         : undefined;
     if (!google) console.log("integrações com o Google desligadas (sem OBEDIENT_GOOGLE_CLIENT_ID/SECRET)");
+    agente(db, google ? new Conexoes(db, google.cofre, google.cliente, fetch, systemClock) : null);
     servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(google ? { google } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
     return;
   }

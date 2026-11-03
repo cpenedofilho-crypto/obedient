@@ -6,9 +6,9 @@
 // curta. Assim, uma tentativa longa não segura trava no banco, e apertar parar no meio dela vale:
 // a conclusão encontra a missão cancelada e descarta o resultado.
 //
-// Quem executa é a porta `Executor` (@obedient/missions). O laço do agente com modelo e
-// ferramentas governadas (agent-orchestrator + Ethics Engine) entra com as integrações (Fase 7);
-// até lá o servidor não tem executor configurado e não processa missões sozinho.
+// Quem executa é a porta `Executor` (@obedient/missions): no servidor, executorDeMissoes()
+// (executor.ts), o laço do agente com o modelo e as ferramentas governadas. Quem chama isto de tempos
+// em tempos é o agendador (agendador.ts).
 
 import type { Clock } from "@obedient/core";
 import type { Executor as ExecutorDeMissao, Missao } from "@obedient/missions";

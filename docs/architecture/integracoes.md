@@ -5,7 +5,8 @@ Pacote `@obedient/integrations`; migration 0005.
 - **7.1, conexões:** como a pessoa liga o Google ao OBEDIENT e como a credencial é guardada, usada e
   revogada.
 - **7.2, ferramentas:** o que o agente faz com essas conexões, sempre pelo Ethics Engine.
-- **7.3, executor das missões:** vem no próximo PR.
+- **7.3, executor das missões:** o laço do agente com o modelo e estas ferramentas, em
+  [`executor.md`](./executor.md).
 
 ## Catálogo e escopo mínimo
 

@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ManualClock } from "@obedient/core";
 import { AuditTrail, EthicsEngine, InMemoryAuditSink } from "@obedient/ethics-engine";
-import { type Executor, InMemoryMissionStore, Missoes, type ResultadoTentativa, intervaloDepois } from "./index.ts";
+import { type Executor, InMemoryMissionStore, type Missao, Missoes, type ResultadoTentativa, intervaloDepois } from "./index.ts";
 
 const T0 = new Date("2026-11-03T12:00:00Z");
 
@@ -138,12 +138,21 @@ describe("missões: aprovação e parada", () => {
       return a.proposal;
     };
     const p1 = await pedir();
-    const m = await missoes.criar("ana", "obedient", "Mandar o resumo");
-    const exec = roteiro({ tipo: "aguardando_aprovacao", propostaId: p1.id, custoCentavos: 5 }, { tipo: "feito", explicacao: "enviado", custoCentavos: 5 });
-    assert.equal((await missoes.avancar(m.id, exec)).estado, "waiting_approval");
+    // Uma tentativa só: continuar depois da aprovação é a MESMA tentativa, e não estoura o teto.
+    const m = await missoes.criar("ana", "obedient", "Mandar o resumo", { maxTentativas: 1 });
+    const vistas: unknown[] = [];
+    const roteirizado = roteiro({ tipo: "aguardando_aprovacao", propostaId: p1.id, custoCentavos: 5, rodada: { ondeParou: "pedido de envio" } }, { tipo: "feito", explicacao: "enviado", custoCentavos: 5 });
+    const exec = (x: Missao) => {
+      vistas.push(x.rodada);
+      return roteirizado(x);
+    };
+    const esperando = await missoes.avancar(m.id, exec);
+    assert.deepEqual([esperando.estado, esperando.tentativas, esperando.rodada], ["waiting_approval", 1, { ondeParou: "pedido de envio" }]);
     assert.equal((await missoes.avancar(m.id, exec)).estado, "waiting_approval", "a pessoa ainda não decidiu");
     await motor.approve(p1.id, { id: "ana", kind: "user", strongAuth: false }, p1.payloadHash);
-    assert.equal((await missoes.avancar(m.id, exec)).estado, "completed");
+    const feita = await missoes.avancar(m.id, exec);
+    assert.deepEqual([feita.estado, feita.tentativas, feita.rodada], ["completed", 1, null], "terminou: a conversa guardada some");
+    assert.deepEqual(vistas, [null, { ondeParou: "pedido de envio" }], "o executor continua de onde parou");
 
     const p2 = await pedir();
     const m2 = await missoes.criar("ana", "obedient", "Mandar outro");
