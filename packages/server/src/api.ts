@@ -12,7 +12,8 @@
 //   • tudo o que toca dado do usuário roda em comoUsuario(): a RLS é a segunda barreira.
 
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
-import { type Database, type OpcoesMotor, Sessoes, comoUsuario, contestacoes, memoriaNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
+import { type Database, type OpcoesMotor, Sessoes, comoUsuario, contestacoes, lerIdentificacao } from "@obedient/store-postgres";
+import { contexto } from "./contexto.ts";
 import { exportarDados } from "./exportar.ts";
 import { aplicarAcao, lerAcao } from "./acoes.ts";
 import { montarPainel } from "./painel.ts";
@@ -61,7 +62,8 @@ const cookieApagado = `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Ma
 export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemClock) {
   const sessoes = new Sessoes(db, clock);
   const passkeys = new Passkeys(db, cfg, clock);
-  const opcoesMotor: OpcoesMotor = { ...cfg.motor, clock };
+  // O servidor exige a identificação nas mensagens em nome da pessoa (Art. 5º).
+  const opcoesMotor: OpcoesMotor = { ...cfg.motor, clock, exigirIdentificacao: true };
 
   const comCorpo = (p: Pedido): unknown => {
     if (p.body.length > MAX_CORPO) throw new ObedientError("INVALID_PAYLOAD", "corpo grande demais");
@@ -112,14 +114,14 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
       return json(
         200,
         await comoUsuario(db, s.userId, async (tx) => {
-          const m = motorNaTransacao(tx, opcoesMotor);
-          return montarPainel(m, memoriaNaTransacao(tx, m, clock), await contestacoes(tx, s.userId), s.userId, s.strongAuth, clock.now());
+          const c = contexto(tx, opcoesMotor, clock);
+          return montarPainel(c.motor, c.memoria, c.missoes, await contestacoes(tx, s.userId), await lerIdentificacao(tx, s.userId), s.userId, s.strongAuth, clock.now());
         }),
       );
 
     // Art. 13: tudo o que o OBEDIENT tem sobre a pessoa, num arquivo aberto (JSON).
     if (p.method === "GET" && caminho === "/api/meus-dados") {
-      const dados = await comoUsuario(db, s.userId, (tx) => exportarDados(tx, motorNaTransacao(tx, opcoesMotor), s.userId, clock.now()));
+      const dados = await comoUsuario(db, s.userId, (tx) => exportarDados(contexto(tx, opcoesMotor, clock), s.userId, clock.now()));
       const dia = clock.now().toISOString().slice(0, 10);
       return json(200, dados, { "content-disposition": `attachment; filename="obedient-${s.userId.replace(/[^A-Za-z0-9._-]/g, "_")}-${dia}.json"` });
     }
@@ -128,10 +130,7 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
       const acao = lerAcao(comCorpo(p));
       if (Array.isArray(acao)) return erro(400, "acao", acao.join("; "));
       try {
-        const r = await comoUsuario(db, s.userId, (tx) => {
-          const m = motorNaTransacao(tx, opcoesMotor);
-          return aplicarAcao(tx, m, memoriaNaTransacao(tx, m, clock), s, acao, clock);
-        });
+        const r = await comoUsuario(db, s.userId, (tx) => aplicarAcao(contexto(tx, opcoesMotor, clock), s, acao));
         return json(200, r);
       } catch (e) {
         // Mesmo opId chegando duas vezes ao mesmo tempo: a segunda perde na chave única e lê o

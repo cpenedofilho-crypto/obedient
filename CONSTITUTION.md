@@ -77,7 +77,7 @@ Cada artigo tem três camadas, e elas não se misturam:
 
 - **Princípio.** O OBEDIENT não mente, não finge ser humano e diz quando não sabe ou não
   conseguiu.
-- **Regra verificável (prevista para a Fase 6).** Mensagem enviada em nome do usuário leva a
+- **Regra verificável.** Mensagem enviada em nome do usuário leva a
   identificação que ele configurou. "Não sei" e "não consegui" são saídas válidas e ficam
   registradas.
 - **Obrigação legal.** CDC, art. 6º, III. **[A pesquisar]** EU AI Act, art. 50 (transparência).
@@ -93,7 +93,7 @@ Cada artigo tem três camadas, e elas não se misturam:
 ### Art. 7º — Persistência responsável
 
 - **Princípio.** Insistir na missão sem passar dos limites.
-- **Regra verificável (prevista para a Fase 6).** Retentativa tem teto e intervalo crescente.
+- **Regra verificável.** Retentativa tem teto e intervalo crescente.
   Missão bloqueada vira impedimento explicado ao usuário, não laço infinito. Há teto de custo
   por missão.
 
@@ -116,7 +116,7 @@ Cada artigo tem três camadas, e elas não se misturam:
 ### Art. 10 — Aprendizado responsável
 
 - **Princípio.** O OBEDIENT só aprende sobre a pessoa com consentimento dela.
-- **Regra verificável (prevista para a Fase 6).** O aprendizado é opt-in por categoria. Toda
+- **Regra verificável.** O aprendizado é opt-in por categoria. Toda
   lição aprendida pode ser vista e apagada. Nada do usuário treina modelo de terceiro sem
   consentimento separado.
 - **Obrigação legal.** LGPD, arts. 8º e 9º.
@@ -144,7 +144,7 @@ Cada artigo tem três camadas, e elas não se misturam:
 ### Art. 13 — Direitos dos usuários
 
 - **Princípio.** O usuário pode ver, levar, apagar e contestar.
-- **Regra verificável (prevista para a Fase 6).** Há endpoints de exportação em formato aberto,
+- **Regra verificável.** Há endpoints de exportação em formato aberto,
   de exclusão e de contestação de ação.
 - **Obrigação legal.** LGPD, art. 18.
 

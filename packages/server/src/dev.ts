@@ -10,8 +10,11 @@
 // Dados fictícios: "Ana Praça", "Casa Bertoldi". Nunca dado de cliente.
 
 import type { AddressInfo } from "node:net";
+import { systemClock } from "@obedient/core";
 import type { Server } from "node:http";
-import { comoUsuario, memoriaNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
+import type { Executor as ExecutorDeMissao } from "@obedient/missions";
+import { comoUsuario, gravarIdentificacao, lerIdentificacao, memoriaNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
+import { processarMissoes } from "./processador.ts";
 import { bancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { criarApi } from "./api.ts";
 import { servidorHttp } from "./http.ts";
@@ -25,6 +28,8 @@ export interface Dev {
   pedir(tool: string, risk: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL", category: string, args: Record<string, unknown>): Promise<string>;
   /** O agente tenta aprender algo (só guarda se a pessoa ligou a categoria). */
   lembrar(categoria: string, texto: string): Promise<"guardou" | "recusado">;
+  /** Roda uma tentativa de cada missão devida, com o resultado que o teste escolher. */
+  processar(executar: ExecutorDeMissao): Promise<void>;
   fechar(): Promise<void>;
 }
 
@@ -47,8 +52,15 @@ export async function subirDev(porta = 3010, usuario = "ana.praca"): Promise<Dev
       usuario,
     ),
   );
+  await comoUsuario(banco.db, usuario, (tx) => gravarIdentificacao(tx, usuario, "Enviada pelo assistente da Ana Praça"));
+  // O agente de desenvolvimento faz o que o runtime fará: põe a identificação da pessoa em toda mensagem.
   const pedir: Dev["pedir"] = async (tool, risk, category, args) => {
-    const a = await motor((m) => m.authorize({ userId: usuario, agentId: "obedient", systemId: tool.split(".")[0]!, tool, risk, category, args }));
+    const identificacao = category === "COMMUNICATION" ? await comoUsuario(banco.db, usuario, (tx) => lerIdentificacao(tx, usuario)) : null;
+    // Identificação explícita nos argumentos é respeitada (o teste usa para mandar uma errada).
+    const comId = identificacao && !("identificacao" in args) ? { ...args, identificacao } : args;
+    const a = await comoUsuario(banco.db, usuario, (tx) =>
+      motorNaTransacao(tx, { exigirIdentificacao: true }).authorize({ userId: usuario, agentId: "obedient", systemId: tool.split(".")[0]!, tool, risk, category, args: comId }),
+    );
     return a.outcome === "approval_required" ? a.proposal.id : a.outcome;
   };
   await pedir("agenda.ler_semana", "LOW", "READ", {});
@@ -74,6 +86,9 @@ export async function subirDev(porta = 3010, usuario = "ana.praca"): Promise<Dev
           return "recusado" as const;
         }
       }),
+    processar: async (executar) => {
+      await processarMissoes(banco.db, usuario, executar, {}, systemClock);
+    },
     fechar: async () => {
       await new Promise((ok) => srv.close(ok));
       await banco.fechar();

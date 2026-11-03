@@ -14,6 +14,7 @@ import { AutenticadorDeTeste } from "./autenticador-de-teste.ts";
 import { COOKIE, criarApi, lerCookie, type Pedido } from "./api.ts";
 import { arquivoEstatico, servidorHttp } from "./http.ts";
 import { Passkeys } from "./passkeys.ts";
+import { processarMissoes } from "./processador.ts";
 
 const ORIGIN = "https://obedient.exemplo.test";
 const RP_ID = "obedient.exemplo.test";
@@ -397,5 +398,90 @@ describe("memória e direitos pelo app (Arts. 10 e 13)", () => {
     assert.equal(d.trilhaIntegra, true);
     assert.ok(d.pedidos.every((x) => JSON.stringify(x.payload) === "{}"));
     assert.doesNotMatch(JSON.stringify(d), /resumo curto|Resumo da semana/);
+  });
+});
+
+describe("missões e identificação pelo app (Arts. 5º, 7º e 9º)", () => {
+  const acao = (token: string, a: Record<string, unknown>) => api(post("/api/acoes", { opId: opId(), ...a }, token)).then((r) => corpo<{ resultado: { ok: boolean; codigo?: string; mensagem?: string } }>(r).resultado);
+  type M = { id: string; objetivo: string; situacao: string; estado: string; impedimento: string | null; desfecho: { tipo: string; explicacao: string } | null; teto: string };
+  const missoesDoPainel = async (token: string) => corpo<{ missoes: M[]; identificacao: string | null; atividade: { texto: string }[] }>(await api(get("/api/painel", token)));
+  const processar = (u: string, exec: Parameters<typeof processarMissoes>[2]) => processarMissoes(banco.db, u, exec, {}, clock);
+
+  it("a pessoa pede; o agente diz que não sabe; o painel mostra a explicação", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    assert.equal((await acao(token, { tipo: "criar_missao", objetivo: "Descobrir o horário do dentista" })).ok, true);
+    let p = await missoesDoPainel(token);
+    assert.deepEqual(p.missoes.map((m) => [m.objetivo, m.situacao]), [["Descobrir o horário do dentista", "Trabalhando nisso"]]);
+    await processar(u, async () => ({ tipo: "nao_sei", explicacao: "Não achei na agenda nem nos e-mails.", custoCentavos: 3 }));
+    p = await missoesDoPainel(token);
+    assert.equal(p.missoes[0]!.situacao, "Não soube responder");
+    assert.equal(p.missoes[0]!.desfecho?.explicacao, "Não achei na agenda nem nos e-mails.");
+    assert.match(p.atividade.map((a) => a.texto).join("\n"), /disse que não sabe responder/);
+  });
+
+  it("falhou até o teto: impedimento explicado; a pessoa manda tentar de novo ou cancela", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    await acao(token, { tipo: "criar_missao", objetivo: "Confirmar a reserva", tetoCentavos: 100 });
+    const falha = async () => ({ tipo: "falha_temporaria" as const, erro: "o site do restaurante não abriu", custoCentavos: 10 });
+    for (let i = 0; i < 3; i++) {
+      await processar(u, falha);
+      clock.advance(10 * 60_000);
+    }
+    let [m] = (await missoesDoPainel(token)).missoes;
+    assert.equal(m!.situacao, "Parou e precisa de você");
+    assert.match(m!.impedimento!, /Tentou 3 vez\(es\).*o site do restaurante não abriu/);
+    assert.equal((await acao(token, { tipo: "tentar_de_novo", missaoId: m!.id })).ok, true);
+    [m] = (await missoesDoPainel(token)).missoes;
+    assert.equal(m!.situacao, "Trabalhando nisso");
+    assert.equal((await acao(token, { tipo: "cancelar_missao", missaoId: m!.id })).ok, true);
+    const outra = await acao(token, { tipo: "cancelar_missao", missaoId: m!.id });
+    assert.equal(outra.mensagem, "Essa missão já tinha terminado.");
+  });
+
+  it("parar pelo app cancela as missões no mesmo commit", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    await acao(token, { tipo: "criar_missao", objetivo: "x" });
+    await acao(token, { tipo: "parar" });
+    assert.equal((await missoesDoPainel(token)).missoes[0]!.situacao, "Cancelada");
+    let chamou = false;
+    await processar(u, async () => ((chamou = true), { tipo: "feito", explicacao: "x", custoCentavos: 1 }));
+    assert.equal(chamou, false);
+  });
+
+  it("cancelada durante a tentativa: o resultado que chega depois não vale", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    await acao(token, { tipo: "criar_missao", objetivo: "Mandar o resumo" });
+    const [m] = (await missoesDoPainel(token)).missoes;
+    await processar(u, async () => {
+      // Enquanto o agente trabalha (fora do banco), a pessoa cancela pelo app.
+      await acao(token, { tipo: "cancelar_missao", missaoId: m!.id });
+      return { tipo: "feito", explicacao: "enviado", custoCentavos: 2 };
+    });
+    const [depois] = (await missoesDoPainel(token)).missoes;
+    assert.deepEqual([depois!.situacao, depois!.desfecho], ["Cancelada", null]);
+  });
+
+  it("identificação: a pessoa configura; texto curto demais é recusado", async () => {
+    const { token } = await cadastrar(usuario("ana"));
+    assert.equal((await missoesDoPainel(token)).identificacao, null);
+    assert.equal((await acao(token, { tipo: "identificacao", texto: "ok" })).ok, false);
+    assert.equal((await acao(token, { tipo: "identificacao", texto: "Enviada pelo assistente da Ana" })).ok, true);
+    assert.equal((await missoesDoPainel(token)).identificacao, "Enviada pelo assistente da Ana");
+  });
+
+  it("uma pessoa não cancela a missão de outra", async () => {
+    const ana = usuario("ana");
+    const bia = usuario("bia");
+    const { token } = await cadastrar(ana);
+    const { token: daBia } = await cadastrar(bia);
+    await acao(token, { tipo: "criar_missao", objetivo: "segredo da Ana" });
+    const [m] = (await missoesDoPainel(token)).missoes;
+    assert.equal((await acao(daBia, { tipo: "cancelar_missao", missaoId: m!.id })).mensagem, "Essa missão não existe mais.");
+    assert.equal((await missoesDoPainel(daBia)).missoes.length, 0);
+    assert.equal((await missoesDoPainel(token)).missoes[0]!.situacao, "Trabalhando nisso");
   });
 });

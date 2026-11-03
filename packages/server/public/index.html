@@ -48,6 +48,22 @@
           <p id="sem-pedidos" class="vazio" hidden>Nada esperando por você.</p>
         </section>
 
+        <section aria-labelledby="t-missoes">
+          <h3 id="t-missoes">Missões</h3>
+          <form id="f-missao" class="formulario">
+            <label for="m-objetivo">O que você quer que o agente faça?</label>
+            <textarea id="m-objetivo" rows="3" maxlength="2000" required></textarea>
+            <label for="m-teto">Gastar no máximo</label>
+            <select id="m-teto">
+              <option value="100">R$ 1,00</option>
+              <option value="500" selected>R$ 5,00</option>
+              <option value="2000">R$ 20,00</option>
+            </select>
+            <button class="botao principal" type="submit">Pedir ao agente</button>
+          </form>
+          <ul id="missoes" class="lista"></ul>
+        </section>
+
         <section aria-labelledby="t-autorizacoes">
           <h3 id="t-autorizacoes">O que os agentes podem fazer</h3>
           <ul id="autorizacoes" class="lista"></ul>
@@ -73,6 +89,13 @@
           <p><a id="baixar" class="botao" href="/api/meus-dados" download>Baixar meus dados</a></p>
           <p class="ajuda">Um arquivo com tudo o que o OBEDIENT guarda sobre você, inclusive o registro do que aconteceu.</p>
           <div id="apagar"></div>
+          <h4 id="t-identificacao">Como as mensagens em seu nome se identificam</h4>
+          <form id="f-identificacao" class="formulario">
+            <label for="i-texto">Assinatura que o agente põe em toda mensagem que manda por você</label>
+            <input id="i-texto" maxlength="200" minlength="3" required />
+            <button class="botao" type="submit">Guardar assinatura</button>
+          </form>
+          <p id="sem-identificacao" class="ajuda" hidden>Enquanto não houver assinatura, o agente não manda mensagem nenhuma em seu nome.</p>
           <h4 id="t-contestacoes">Suas contestações</h4>
           <ul id="contestacoes" class="lista" aria-labelledby="t-contestacoes"></ul>
           <p id="sem-contestacoes" class="vazio" hidden>Você não contestou nada. Para contestar, use "Contestar" em "O que aconteceu".</p>

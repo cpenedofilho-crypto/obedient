@@ -203,6 +203,41 @@ describe("app de ponta a ponta", { concurrency: false }, () => {
     assert.equal(d.contestacoes.length, 1);
   });
 
+  it("missão: pedir em um toque; 'não sei' aparece com a explicação", async () => {
+    await p.getByLabel("O que você quer que o agente faça?").fill("Descobrir o horário do dentista");
+    await p.getByRole("button", { name: "Pedir ao agente" }).click();
+    await p.getByText("Trabalhando nisso", { exact: false }).waitFor();
+    await dev.processar(async () => ({ tipo: "nao_sei", explicacao: "Não achei o horário na agenda nem nos e-mails.", custoCentavos: 3 }));
+    await p.reload();
+    await p.getByText("Não soube responder", { exact: false }).waitFor();
+    await p.getByText("Não achei o horário na agenda nem nos e-mails.").waitFor();
+  });
+
+  it("missão que não avança vira impedimento explicado, e a pessoa decide", async () => {
+    await p.getByLabel("O que você quer que o agente faça?").fill("Confirmar a reserva de quinta");
+    await p.getByLabel("Gastar no máximo").selectOption("100");
+    await p.getByRole("button", { name: "Pedir ao agente" }).click();
+    await p.getByText("Confirmar a reserva de quinta").waitFor();
+    await dev.processar(async () => ({ tipo: "falha_temporaria", erro: "o site do restaurante não abriu", custoCentavos: 150 }));
+    await p.reload();
+    await p.locator("#missoes").getByText(/Chegou ao teto de custo \(R\$\s?1,00\)/).waitFor();
+    assert.deepEqual(await axe(p), []);
+    await p.getByRole("button", { name: "Tentar de novo: Confirmar a reserva de quinta" }).click();
+    await p.getByRole("button", { name: "Cancelar a missão: Confirmar a reserva de quinta" }).click();
+    await p.getByText("Cancelada", { exact: false }).first().waitFor();
+  });
+
+  it("assinatura das mensagens: a pessoa troca, e mensagem com a antiga não sai mais", async () => {
+    const campo = p.getByLabel("Assinatura que o agente põe em toda mensagem que manda por você");
+    assert.equal(await campo.inputValue(), "Enviada pelo assistente da Ana Praça");
+    await campo.fill("Mensagem do assistente pessoal da Ana");
+    await p.getByRole("button", { name: "Guardar assinatura" }).click();
+    await p.waitForResponse((r) => r.url().endsWith("/api/painel"));
+    // Com a assinatura antiga a mensagem é barrada; com a nova (que o agente lê), vira pedido (Art. 5º).
+    assert.equal(await dev.pedir("email.enviar", "HIGH", "COMMUNICATION", { assunto: "teste", identificacao: "Enviada pelo assistente da Ana Praça" }), "denied");
+    assert.notEqual(await dev.pedir("email.enviar", "HIGH", "COMMUNICATION", { assunto: "teste" }), "denied");
+  });
+
   it("apagar o que o OBEDIENT sabe: confirmação, um passo, e o painel mostra o resultado", async () => {
     await p.getByRole("button", { name: "Apagar o que o OBEDIENT sabe sobre mim" }).click();
     await p.getByText("Não dá para desfazer.", { exact: false }).waitFor();

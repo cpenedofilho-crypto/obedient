@@ -16,7 +16,9 @@
  * @typedef {{ tipo: "aprovar", propostaId: string, hash: string } | { tipo: "recusar", propostaId: string } | { tipo: "parar" } | { tipo: "liberar" }
  *   | { tipo: "revogar", autorizacaoId: string } | { tipo: "ligar_aprendizado", categoria: string, especifico?: boolean }
  *   | { tipo: "desligar_aprendizado", categoria: string } | { tipo: "esquecer", licaoId: string }
- *   | { tipo: "contestar", seq: number, motivo: string } | { tipo: "apagar_tudo" }} Acao
+ *   | { tipo: "contestar", seq: number, motivo: string } | { tipo: "apagar_tudo" }
+ *   | { tipo: "criar_missao", objetivo: string, tetoCentavos?: number } | { tipo: "cancelar_missao", missaoId: string }
+ *   | { tipo: "tentar_de_novo", missaoId: string, novoTetoCentavos?: number } | { tipo: "identificacao", texto: string }} Acao
  */
 /** @typedef {{ ok: true, tipo: string } | { ok: false, tipo: string, codigo: string, mensagem: string }} Resultado */
 /**
@@ -42,10 +44,14 @@ export const PRIORIDADE = {
   desligar_aprendizado: 1,
   esquecer: 1,
   apagar_tudo: 1,
+  cancelar_missao: 1,
   aprovar: 2,
   recusar: 2,
   contestar: 2,
   ligar_aprendizado: 2,
+  criar_missao: 2,
+  tentar_de_novo: 2,
+  identificacao: 2,
 };
 
 /** Id da ação, gerado no aparelho: 22 caracteres base64url (128 bits). */

@@ -128,6 +128,46 @@ async function render() {
 
   renderAprendizado(ops);
   renderDados(ops);
+  renderMissoes(ops);
+}
+
+/** @param {Op[]} ops */
+function renderMissoes(ops) {
+  const pendentes = ops.filter((o) => o.estado === "pendente");
+  const novas = pendentes.filter((o) => o.acao.tipo === "criar_missao").map((o) => /** @type {any} */ (o.acao));
+  const mexendo = new Set(pendentes.filter((o) => o.acao.tipo === "cancelar_missao" || o.acao.tipo === "tentar_de_novo").map((o) => /** @type {any} */ (o.acao).missaoId));
+  /** @type {Node[]} */
+  const itens = novas.map((a) => el("li", { classe: "autorizacao" }, [el("p", { texto: a.objetivo }), el("p", { classe: "estado", texto: "Pedido. Enviando…" })]));
+  for (const m of painel.missoes) {
+    /** @type {Node[]} */
+    const filhos = [el("p", { texto: m.objetivo }), el("p", { classe: "meta", texto: `${m.situacao} · gastou ${m.custo} de ${m.teto}` })];
+    if (m.impedimento) filhos.push(el("p", { classe: "impedimento", texto: m.impedimento }));
+    if (m.desfecho) filhos.push(el("p", { classe: m.desfecho.tipo === "feito" ? "estado bom" : "estado", texto: m.desfecho.explicacao }));
+    if (mexendo.has(m.id)) filhos.push(el("p", { classe: "estado", texto: "Enviando…" }));
+    else if (["running", "waiting_approval", "blocked"].includes(m.estado)) {
+      /** @type {Node[]} */
+      const acoes = [];
+      if (m.estado === "blocked") {
+        const teto = /teto de custo/.test(m.impedimento ?? "");
+        const novo = Math.min(m.tetoCentavos * 2, 10000);
+        acoes.push(
+          teto
+            ? botao(`Tentar de novo com até ${(novo / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`, () => agir({ tipo: "tentar_de_novo", missaoId: m.id, novoTetoCentavos: novo }), "botao principal", `Tentar de novo: ${m.objetivo}`)
+            : botao("Tentar de novo", () => agir({ tipo: "tentar_de_novo", missaoId: m.id }), "botao principal", `Tentar de novo: ${m.objetivo}`),
+        );
+      }
+      acoes.push(botao("Cancelar", () => agir({ tipo: "cancelar_missao", missaoId: m.id }), "botao", `Cancelar a missão: ${m.objetivo}`));
+      filhos.push(el("div", { classe: "acoes" }, acoes));
+    }
+    const recusa = ops.filter((o) => o.estado === "recusada" && "missaoId" in o.acao && /** @type {any} */ (o.acao).missaoId === m.id).sort((a, b) => b.criadaEm - a.criadaEm)[0];
+    if (recusa?.resultado && !recusa.resultado.ok) filhos.push(el("p", { classe: "erro", texto: recusa.resultado.mensagem, atributos: { role: "alert" } }));
+    itens.push(el("li", { classe: `autorizacao${m.estado === "blocked" ? " sensivel" : ""}` }, filhos));
+  }
+  $("missoes").replaceChildren(...itens);
+
+  const campo = /** @type {HTMLInputElement} */ ($("i-texto"));
+  if (document.activeElement !== campo) campo.value = painel.identificacao ?? "";
+  $("sem-identificacao").hidden = !!painel.identificacao;
 }
 
 /** @param {any} a @param {boolean} jaContestada */
@@ -427,6 +467,20 @@ async function sair() {
 $("b-entrar").addEventListener("click", entrar);
 $("f-convite").addEventListener("submit", convite);
 $("b-sair").addEventListener("click", sair);
+$("f-missao").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const campo = /** @type {HTMLTextAreaElement} */ ($("m-objetivo"));
+  const objetivo = campo.value.trim();
+  if (!objetivo) return;
+  const teto = Number(/** @type {HTMLSelectElement} */ ($("m-teto")).value);
+  campo.value = "";
+  void agir({ tipo: "criar_missao", objetivo, tetoCentavos: teto });
+});
+$("f-identificacao").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const texto = /** @type {HTMLInputElement} */ ($("i-texto")).value.trim();
+  if (texto.length >= 3) void agir({ tipo: "identificacao", texto });
+});
 addEventListener("online", () => {
   online = true;
   void drenar().then(atualizar);

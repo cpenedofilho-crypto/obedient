@@ -4,3 +4,6 @@ export * from "./acoes.ts";
 export * from "./painel.ts";
 export * from "./passkeys.ts";
 export * from "./http.ts";
+export * from "./contexto.ts";
+export * from "./processador.ts";
+export * from "./exportar.ts";

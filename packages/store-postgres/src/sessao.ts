@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 import { type Clock, ObedientError, sha256Hex, systemClock } from "@obedient/core";
 import { ApprovalGateway, AuditTrail, ConsentManager, EmergencyStop, EthicsEngine, type EthicsEngineDeps, GrantRegistry } from "@obedient/ethics-engine";
 import type { Database, Executor } from "./db.ts";
+import { lerIdentificacao } from "./missoes.ts";
 import { PgAuditSink, PgConsentStore, PgGrantStore, PgProposalStore, PgStopStore } from "./stores.ts";
 
 /** Reautenticação (senha, passkey, biometria) vale por 5 minutos para aprovar ação CRITICAL. */
@@ -117,6 +118,11 @@ export class Sessoes {
 }
 
 export interface OpcoesMotor extends Pick<EthicsEngineDeps, "policiesFor" | "defaultsFor"> {
+  /**
+   * Art. 5º: exigir que mensagem em nome da pessoa leve a identificação que ela configurou
+   * (obedient.preferences). O servidor liga; o motor fora do servidor não precisa.
+   */
+  exigirIdentificacao?: boolean;
   clock?: Clock;
   /** Ids dos operadores do serviço (liberam a parada global). */
   operators?: ReadonlySet<string>;
@@ -137,5 +143,6 @@ export function motorNaTransacao(tx: Executor, o: OpcoesMotor = {}): EthicsEngin
     audit: new AuditTrail(new PgAuditSink(tx), clock),
     ...(o.policiesFor ? { policiesFor: o.policiesFor } : {}),
     ...(o.defaultsFor ? { defaultsFor: o.defaultsFor } : {}),
+    ...(o.exigirIdentificacao ? { identificacaoDe: (userId: string) => lerIdentificacao(tx, userId) } : {}),
   });
 }

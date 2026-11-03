@@ -21,10 +21,11 @@ propõe, o backend decide e a pessoa autoriza o que é sensível.
 | `@obedient/dots-adapter` | AGPL-3.0-only | O DOTS como agente subordinado, **só leitura**, por MCP |
 | `@obedient/store-postgres` | AGPL-3.0-only | O Ethics Engine em Postgres: RLS forçada por usuário, auditoria só de inclusão com a cadeia conferida pelo banco, execução única da proposta e sessão autenticada (`docs/architecture/persistencia.md`) |
 | `@obedient/memory` | AGPL-3.0-only | Memória pessoal com aprendizado opt-in por assunto: toda lição visível e apagável; desligar apaga; treino de modelo de terceiro só com consentimento separado (`docs/architecture/memoria-e-direitos.md`) |
+| `@obedient/missions` | AGPL-3.0-only | Missões com teto de tentativas, intervalo crescente, teto de custo e impedimento explicado; "não sei" e "não consegui" como desfechos (`docs/architecture/missoes.md`) |
 | `@obedient/server` | AGPL-3.0-only | O servidor e o app (PWA) onde a pessoa decide: entrada por passkey, cartões de aprovação, parada, autorizações e trilha, com fila sem internet (`docs/architecture/app.md`) |
 | `@obedient/sdk` | **Apache-2.0** | Contrato de protocolo para integradores, sem dependência do núcleo AGPL |
 
-O que **ainda não existe** (sem stub, sem pasta vazia): missões persistidas e a API pela qual o agente chega ao servidor. A ordem está em `docs/ROADMAP.md` e a extração do Growth OS em
+O que **ainda não existe** (sem stub, sem pasta vazia): o executor das missões (modelo e ferramentas) e a API pela qual o agente chega ao servidor. A ordem está em `docs/ROADMAP.md` e a extração do Growth OS em
 `docs/architecture/extracao-growth-os.md`.
 
 ## Rodar

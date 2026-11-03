@@ -10,10 +10,13 @@
 // fica guardada e o aparelho não tenta de novo. Só erro de infraestrutura volta como falha
 // temporária, para o aparelho reenviar depois.
 
-import { type Clock, ObedientError } from "@obedient/core";
-import { CONSTITUTION_VERSION, type EthicsEngine } from "@obedient/ethics-engine";
-import type { Memoria } from "@obedient/memory";
-import { type Executor, type Sessao, apagarMeusDados, contestar } from "@obedient/store-postgres";
+import { ObedientError } from "@obedient/core";
+import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
+import { type Sessao, apagarMeusDados, contestar, gravarIdentificacao } from "@obedient/store-postgres";
+import type { Contexto } from "./contexto.ts";
+
+/** O agente que trabalha nas missões que a pessoa pede pelo app. */
+export const AGENTE_PADRAO = "obedient";
 
 export type Acao =
   | { opId: string; tipo: "aprovar"; propostaId: string; hash: string }
@@ -25,7 +28,11 @@ export type Acao =
   | { opId: string; tipo: "desligar_aprendizado"; categoria: string }
   | { opId: string; tipo: "esquecer"; licaoId: string }
   | { opId: string; tipo: "contestar"; seq: number; motivo: string }
-  | { opId: string; tipo: "apagar_tudo" };
+  | { opId: string; tipo: "apagar_tudo" }
+  | { opId: string; tipo: "criar_missao"; objetivo: string; tetoCentavos?: number }
+  | { opId: string; tipo: "cancelar_missao"; missaoId: string }
+  | { opId: string; tipo: "tentar_de_novo"; missaoId: string; novoTetoCentavos?: number }
+  | { opId: string; tipo: "identificacao"; texto: string };
 
 export type ResultadoAcao = { ok: true; tipo: Acao["tipo"] } | { ok: false; tipo: Acao["tipo"]; codigo: string; mensagem: string };
 
@@ -64,6 +71,20 @@ export function lerAcao(corpo: unknown): Acao | string[] {
       if (!Number.isInteger(o.seq) || (o.seq as number) < 1) erros.push("seq inválido");
       if (typeof o.motivo !== "string" || !o.motivo.trim() || o.motivo.length > 1000) erros.push("motivo inválido");
       break;
+    case "criar_missao":
+      if (typeof o.objetivo !== "string" || !o.objetivo.trim() || o.objetivo.length > 2000) erros.push("objetivo inválido");
+      if (o.tetoCentavos !== undefined && !Number.isInteger(o.tetoCentavos)) erros.push("teto inválido");
+      break;
+    case "cancelar_missao":
+      id("missaoId");
+      break;
+    case "tentar_de_novo":
+      id("missaoId");
+      if (o.novoTetoCentavos !== undefined && !Number.isInteger(o.novoTetoCentavos)) erros.push("teto inválido");
+      break;
+    case "identificacao":
+      if (typeof o.texto !== "string" || o.texto.length > 400) erros.push("identificação inválida");
+      break;
     case "parar":
     case "liberar":
     case "apagar_tudo":
@@ -92,9 +113,12 @@ const MENSAGEM: Partial<Record<string, string>> = {
 const MENSAGEM_POR_TIPO: Partial<Record<Acao["tipo"], Partial<Record<string, string>>>> = {
   esquecer: { PROPOSAL_NOT_FOUND: "Essa lição já tinha sido apagada." },
   contestar: { PROPOSAL_NOT_FOUND: "Essa entrada não existe na sua trilha." },
+  cancelar_missao: { PROPOSAL_NOT_FOUND: "Essa missão não existe mais.", PROPOSAL_NOT_PENDING: "Essa missão já tinha terminado." },
+  tentar_de_novo: { PROPOSAL_NOT_FOUND: "Essa missão não existe mais.", PROPOSAL_NOT_PENDING: "Essa missão não está parada esperando você." },
 };
 
-async function executar(tx: Executor, m: EthicsEngine, memoria: Memoria, s: Sessao, a: Acao, clock: Clock): Promise<void> {
+async function executar(ctx: Contexto, s: Sessao, a: Acao): Promise<void> {
+  const { tx, motor: m, memoria, missoes, clock } = ctx;
   const eu = { id: s.userId, kind: "user" as const, strongAuth: s.strongAuth };
   switch (a.tipo) {
     case "aprovar":
@@ -142,6 +166,18 @@ async function executar(tx: Executor, m: EthicsEngine, memoria: Memoria, s: Sess
     case "apagar_tudo":
       await apagarMeusDados(tx, m.audit, s.userId, clock);
       return;
+    case "criar_missao":
+      await missoes.criar(s.userId, AGENTE_PADRAO, a.objetivo, a.tetoCentavos !== undefined ? { tetoCustoCentavos: a.tetoCentavos } : {});
+      return;
+    case "cancelar_missao":
+      await missoes.cancelarPelaPessoa(s.userId, a.missaoId);
+      return;
+    case "tentar_de_novo":
+      await missoes.tentarDeNovo(s.userId, a.missaoId, a.novoTetoCentavos !== undefined ? { novoTetoCentavos: a.novoTetoCentavos } : {});
+      return;
+    case "identificacao":
+      await gravarIdentificacao(tx, s.userId, a.texto, clock);
+      return;
   }
 }
 
@@ -149,13 +185,14 @@ async function executar(tx: Executor, m: EthicsEngine, memoria: Memoria, s: Sess
  * Faz a ação uma vez só. Roda dentro da transação do usuário: a ação, a trilha e o registro do
  * resultado entram juntos no commit.
  */
-export async function aplicarAcao(tx: Executor, m: EthicsEngine, memoria: Memoria, s: Sessao, a: Acao, clock: Clock): Promise<{ resultado: ResultadoAcao; repetida: boolean }> {
+export async function aplicarAcao(ctx: Contexto, s: Sessao, a: Acao): Promise<{ resultado: ResultadoAcao; repetida: boolean }> {
+  const { tx, clock } = ctx;
   const ja = await tx.query<{ result: ResultadoAcao }>("select result from obedient.client_ops where user_id = $1 and op_id = $2", [s.userId, a.opId]);
   if (ja.rows[0]) return { resultado: ja.rows[0].result, repetida: true };
 
   let resultado: ResultadoAcao;
   try {
-    await executar(tx, m, memoria, s, a, clock);
+    await executar(ctx, s, a);
     resultado = { ok: true, tipo: a.tipo };
   } catch (e) {
     if (!(e instanceof ObedientError)) throw e; // infraestrutura: rollback, o aparelho tenta de novo

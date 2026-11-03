@@ -82,6 +82,7 @@ export interface ResultadoApagar {
   autorizacoes: number;
   consentimentos_revogados: number;
   acoes_do_aparelho: number;
+  missoes: number;
 }
 
 /** "Apague o que você sabe sobre mim" (Art. 13), num passo. Ver obedient.apagar_meus_dados(). */
@@ -93,7 +94,7 @@ export async function apagarMeusDados(tx: Executor, audit: AuditTrail, userId: s
     actor: `user:${userId}`,
     event: "user.data_erased",
     outcome: "info",
-    reasons: [`${r.memorias} lição(ões), ${r.pedidos} pedido(s) esvaziado(s), ${r.autorizacoes} autorização(ões) encerrada(s)`],
+    reasons: [`${r.memorias} lição(ões), ${r.missoes} missão(ões), ${r.pedidos} pedido(s) esvaziado(s), ${r.autorizacoes} autorização(ões) encerrada(s)`],
     constitutionVersion: CONSTITUTION_VERSION,
   });
   return r;
