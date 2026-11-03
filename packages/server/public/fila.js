@@ -18,7 +18,8 @@
  *   | { tipo: "desligar_aprendizado", categoria: string } | { tipo: "esquecer", licaoId: string }
  *   | { tipo: "contestar", seq: number, motivo: string } | { tipo: "apagar_tudo" }
  *   | { tipo: "criar_missao", objetivo: string, tetoCentavos?: number } | { tipo: "cancelar_missao", missaoId: string }
- *   | { tipo: "tentar_de_novo", missaoId: string, novoTetoCentavos?: number } | { tipo: "identificacao", texto: string }} Acao
+ *   | { tipo: "tentar_de_novo", missaoId: string, novoTetoCentavos?: number } | { tipo: "identificacao", texto: string }
+ *   | { tipo: "desconectar", integracao: string }} Acao
  */
 /** @typedef {{ ok: true, tipo: string } | { ok: false, tipo: string, codigo: string, mensagem: string }} Resultado */
 /**
@@ -45,6 +46,7 @@ export const PRIORIDADE = {
   esquecer: 1,
   apagar_tudo: 1,
   cancelar_missao: 1,
+  desconectar: 1,
   aprovar: 2,
   recusar: 2,
   contestar: 2,

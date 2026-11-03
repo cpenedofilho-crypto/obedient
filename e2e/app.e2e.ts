@@ -50,6 +50,12 @@ async function aparelho(): Promise<{ ctx: BrowserContext; p: Page; erros: string
   return { ctx, p, erros };
 }
 
+/** A revogação roda depois do commit: espera um pouco por ela. */
+async function expectRevogacao(feita: () => boolean) {
+  for (let i = 0; i < 50 && !feita(); i++) await new Promise((ok) => setTimeout(ok, 50));
+  assert.ok(feita(), "a credencial foi revogada no Google");
+}
+
 async function axe(p: Page) {
   await p.addScriptTag({ content: AXE });
   return p.evaluate(async () => {
@@ -236,6 +242,24 @@ describe("app de ponta a ponta", { concurrency: false }, () => {
     // Com a assinatura antiga a mensagem é barrada; com a nova (que o agente lê), vira pedido (Art. 5º).
     assert.equal(await dev.pedir("email.enviar", "HIGH", "COMMUNICATION", { assunto: "teste", identificacao: "Enviada pelo assistente da Ana Praça" }), "denied");
     assert.notEqual(await dev.pedir("email.enviar", "HIGH", "COMMUNICATION", { assunto: "teste" }), "denied");
+  });
+
+  it("conectar o Google Agenda: vai ao Google, volta conectado; desconectar revoga", async () => {
+    // O navegador do teste nunca sai para a internet: a "tela do Google" responde redirecionando
+    // de volta ao app, como o Google faria depois de a pessoa autorizar.
+    await p.route("https://accounts.google.com/**", (rota) => {
+      const { state, code } = dev.google.autorizar(rota.request().url());
+      return rota.fulfill({ status: 302, headers: { location: `${dev.url}/api/conexoes/retorno?state=${state}&code=${code}` } });
+    });
+    await p.getByRole("button", { name: "Conectar Google Agenda" }).click();
+    await p.getByText("Conectado.").waitFor();
+    await p.getByRole("button", { name: "Desconectar Google Agenda" }).waitFor();
+    assert.equal(new URL(p.url()).search, "", "o desfecho sai da URL depois de lido");
+    assert.deepEqual(await axe(p), []);
+    const antes = dev.google.revogados.length;
+    await p.getByRole("button", { name: "Desconectar Google Agenda" }).click();
+    await p.getByRole("button", { name: "Conectar Google Agenda" }).waitFor();
+    await expectRevogacao(() => dev.google.revogados.length > antes);
   });
 
   it("apagar o que o OBEDIENT sabe: confirmação, um passo, e o painel mostra o resultado", async () => {

@@ -6,6 +6,7 @@
 //   node --import tsx packages/server/src/cli.ts migrar
 //   node --import tsx packages/server/src/cli.ts convite <usuario>
 //   node --import tsx packages/server/src/cli.ts servir
+//   node --import tsx packages/server/src/cli.ts chave       (gera uma chave nova para o cofre)
 //
 // Variáveis:
 //   OBEDIENT_DATABASE_URL        conexão do SERVIDOR (papel de login membro de obedient_app/_operator/_auth)
@@ -13,12 +14,16 @@
 //   OBEDIENT_ORIGIN              origem exata do app, ex.: https://obedient.exemplo.org
 //   OBEDIENT_RP_ID               domínio das passkeys, ex.: obedient.exemplo.org (padrão: o host da origem)
 //   OBEDIENT_PORT                porta (padrão 3010)
+//   OBEDIENT_GOOGLE_CLIENT_ID     } cliente OAuth do Google (opcional: sem eles, as integrações ficam desligadas).
+//   OBEDIENT_GOOGLE_CLIENT_SECRET }   Redirect cadastrado no Google: <OBEDIENT_ORIGIN>/api/conexoes/retorno
+//   OBEDIENT_CHAVES_COFRE        chaves do cofre de credenciais, "id:base64,…" (gere com: cli.ts chave)
 
 import pg from "pg";
 import { fromPgPool, migrate } from "@obedient/store-postgres";
 import { criarApi } from "./api.ts";
 import { servidorHttp } from "./http.ts";
 import { Passkeys } from "./passkeys.ts";
+import { Cofre, lerChaves } from "@obedient/integrations";
 
 const env = (k: string) => process.env[k]?.trim() || undefined;
 
@@ -48,16 +53,27 @@ async function main(argv: string[]) {
     console.log(`convite para ${usuario}: ${codigo} (vale até ${venceEm.toISOString()}, uma vez só)`);
     return fechar();
   }
+  if (comando === "chave") {
+    console.log(`k${new Date().toISOString().slice(0, 10).replace(/-/g, "")}:${Cofre.novaChave()}`);
+    return;
+  }
   if (comando === "servir") {
     const origin = env("OBEDIENT_ORIGIN");
     if (!origin) throw new Error("defina OBEDIENT_ORIGIN");
     const rpId = env("OBEDIENT_RP_ID") ?? new URL(origin).hostname;
     const { db } = banco("OBEDIENT_DATABASE_URL");
     const porta = Number(env("OBEDIENT_PORT") ?? 3010);
-    servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
+    const idGoogle = env("OBEDIENT_GOOGLE_CLIENT_ID");
+    const segredoGoogle = env("OBEDIENT_GOOGLE_CLIENT_SECRET");
+    const google =
+      idGoogle && segredoGoogle
+        ? { cliente: { clientId: idGoogle, clientSecret: segredoGoogle, redirectUri: `${origin}/api/conexoes/retorno` }, cofre: new Cofre(lerChaves(env("OBEDIENT_CHAVES_COFRE"))) }
+        : undefined;
+    if (!google) console.log("integrações com o Google desligadas (sem OBEDIENT_GOOGLE_CLIENT_ID/SECRET)");
+    servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(google ? { google } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
     return;
   }
-  throw new Error("comandos: migrar | convite <usuario> | servir");
+  throw new Error("comandos: migrar | convite <usuario> | chave | servir");
 }
 
 main(process.argv.slice(2)).catch((e) => {

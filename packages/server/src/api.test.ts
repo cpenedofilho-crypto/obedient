@@ -15,6 +15,8 @@ import { COOKIE, criarApi, lerCookie, type Pedido } from "./api.ts";
 import { arquivoEstatico, servidorHttp } from "./http.ts";
 import { Passkeys } from "./passkeys.ts";
 import { processarMissoes } from "./processador.ts";
+import { Cofre, lerChaves } from "@obedient/integrations";
+import { GoogleFalso } from "../../integrations/src/google-falso.ts";
 
 const ORIGIN = "https://obedient.exemplo.test";
 const RP_ID = "obedient.exemplo.test";
@@ -483,5 +485,77 @@ describe("missões e identificação pelo app (Arts. 5º, 7º e 9º)", () => {
     assert.equal((await acao(daBia, { tipo: "cancelar_missao", missaoId: m!.id })).mensagem, "Essa missão não existe mais.");
     assert.equal((await missoesDoPainel(daBia)).missoes.length, 0);
     assert.equal((await missoesDoPainel(token)).missoes[0]!.situacao, "Trabalhando nisso");
+  });
+});
+
+describe("conexões com o Google pelo app (Fase 7)", () => {
+  const SEGREDO = "segredo-google-de-teste";
+  const google = new GoogleFalso(SEGREDO);
+  const cofre = new Cofre(lerChaves(`k1:${Cofre.novaChave()}`));
+  const apiG = () => criarApi(banco.db, { rpName: "OBEDIENT", rpId: RP_ID, origin: ORIGIN, google: { cofre, cliente: { clientId: "id", clientSecret: SEGREDO, redirectUri: `${ORIGIN}/api/conexoes/retorno` }, fetch: google.fetch as typeof fetch } }, clock);
+  const acaoG = (a: ReturnType<typeof apiG>, token: string, x: Record<string, unknown>) => a(post("/api/acoes", { opId: opId(), ...x }, token)).then((r) => corpo<{ resultado: { ok: boolean; mensagem?: string } }>(r).resultado);
+  const conexoesDo = async (a: ReturnType<typeof apiG>, token: string) => corpo<{ conexoes: { id: string; conectada: boolean; disponivel: boolean; ferramentas: { risco: string }[] }[] }>(await a(get("/api/painel", token))).conexoes;
+
+  /** O caminho do navegador: Conectar → Google → retorno com o cookie Lax do nonce. */
+  async function conectarPeloApp(a: ReturnType<typeof apiG>, token: string, integracao: string, opts: { semCookie?: boolean } = {}) {
+    const ini = await a(post("/api/conexoes/iniciar", { integracao }, token));
+    assert.equal(ini.status, 200, ini.body);
+    const cookie = ini.headers["set-cookie"]!;
+    assert.match(cookie, /^__Host-obedient-oauth=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=600$/);
+    const { state, code } = google.autorizar(corpo<{ url: string }>(ini).url);
+    const nonce = cookie.split(";")[0]!.split("=")[1]!;
+    return a({ method: "GET", path: `/api/conexoes/retorno?state=${state}&code=${code}`, headers: opts.semCookie ? {} : { cookie: `__Host-obedient-oauth=${nonce}` }, body: "" });
+  }
+
+  it("conectar: o retorno do Google cria a conexão e volta ao app; o painel mostra, sem credencial", async () => {
+    const a = apiG();
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    const r = await conectarPeloApp(a, token, "google_agenda");
+    assert.equal(r.status, 303);
+    assert.equal(r.headers.location, "/?conexao=ok&integracao=google_agenda");
+    assert.match(r.headers["set-cookie"] ?? "", /Max-Age=0/);
+    const c = await conexoesDo(a, token);
+    assert.deepEqual(c.map((x) => [x.id, x.conectada]), [["google_agenda", true], ["google_gmail", false], ["google_drive", false]]);
+    assert.equal(c.find((x) => x.id === "google_agenda")!.ferramentas.at(-1)!.risco, "crítico", "apagar compromisso conta como crítico");
+    const painel = (await a(get("/api/painel", token))).body + (await a(get("/api/meus-dados", token))).body;
+    assert.doesNotMatch(painel, /refresh-|acesso-|cifra/);
+  });
+
+  it("retorno sem o cookie do navegador que começou não conecta nada", async () => {
+    const a = apiG();
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    const r = await conectarPeloApp(a, token, "google_gmail", { semCookie: true });
+    assert.equal(r.status, 303);
+    assert.match(r.headers.location ?? "", /^\/\?conexao=erro&motivo=/);
+    assert.ok((await conexoesDo(a, token)).every((x) => !x.conectada));
+  });
+
+  it("a pessoa recusou no Google: volta ao app explicando", async () => {
+    const r = await apiG()({ method: "GET", path: "/api/conexoes/retorno?error=access_denied&state=x", headers: {}, body: "" });
+    assert.equal(r.headers.location, `/?${new URLSearchParams({ conexao: "erro", motivo: "você não autorizou no Google" })}`);
+  });
+
+  it("desconectar e parar tiram a conexão e revogam no Google", async () => {
+    const a = apiG();
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    await conectarPeloApp(a, token, "google_agenda");
+    await conectarPeloApp(a, token, "google_drive");
+    const antes = google.revogados.length;
+    assert.equal((await acaoG(a, token, { tipo: "desconectar", integracao: "google_drive" })).ok, true);
+    assert.equal((await acaoG(a, token, { tipo: "desconectar", integracao: "google_drive" })).mensagem, "Essa conexão já tinha sido desfeita.");
+    await acaoG(a, token, { tipo: "parar" });
+    assert.ok((await conexoesDo(a, token)).every((x) => !x.conectada), "parar tira todas");
+    await new Promise((ok) => setTimeout(ok, 50)); // a revogação roda depois do commit
+    assert.equal(google.revogados.length - antes, 2);
+  });
+
+  it("servidor sem integração configurada: o painel mostra, mas não conecta", async () => {
+    const { token } = await cadastrar(usuario("ana"));
+    const c = corpo<{ conexoes: { disponivel: boolean }[] }>(await api(get("/api/painel", token))).conexoes;
+    assert.ok(c.every((x) => !x.disponivel));
+    assert.equal((await api(post("/api/conexoes/iniciar", { integracao: "google_agenda" }, token))).status, 400);
   });
 });

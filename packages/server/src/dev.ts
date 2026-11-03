@@ -15,6 +15,8 @@ import type { Server } from "node:http";
 import type { Executor as ExecutorDeMissao } from "@obedient/missions";
 import { comoUsuario, gravarIdentificacao, lerIdentificacao, memoriaNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 import { processarMissoes } from "./processador.ts";
+import { Cofre, lerChaves } from "@obedient/integrations";
+import { GoogleFalso } from "../../integrations/src/google-falso.ts";
 import { bancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { criarApi } from "./api.ts";
 import { servidorHttp } from "./http.ts";
@@ -28,6 +30,8 @@ export interface Dev {
   pedir(tool: string, risk: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL", category: string, args: Record<string, unknown>): Promise<string>;
   /** O agente tenta aprender algo (só guarda se a pessoa ligou a categoria). */
   lembrar(categoria: string, texto: string): Promise<"guardou" | "recusado">;
+  /** O Google falso: no teste, faz o papel da tela de autorização (o navegador nunca sai para a internet). */
+  google: GoogleFalso;
   /** Roda uma tentativa de cada missão devida, com o resultado que o teste escolher. */
   processar(executar: ExecutorDeMissao): Promise<void>;
   fechar(): Promise<void>;
@@ -71,12 +75,23 @@ export async function subirDev(porta = 3010, usuario = "ana.praca"): Promise<Dev
   const srv: Server = servidorHttp((p) => api!(p));
   await new Promise<void>((ok) => srv.listen(porta, "127.0.0.1", ok));
   const url = `http://localhost:${(srv.address() as AddressInfo).port}`;
-  api = criarApi(banco.db, { rpName: "OBEDIENT (desenvolvimento)", rpId: "localhost", origin: url });
+  const google = new GoogleFalso("segredo-de-desenvolvimento");
+  api = criarApi(banco.db, {
+    rpName: "OBEDIENT (desenvolvimento)",
+    rpId: "localhost",
+    origin: url,
+    google: {
+      cofre: new Cofre(lerChaves(`dev:${Cofre.novaChave()}`)),
+      cliente: { clientId: "desenvolvimento.apps.googleusercontent.com", clientSecret: "segredo-de-desenvolvimento", redirectUri: `${url}/api/conexoes/retorno` },
+      fetch: google.fetch as typeof fetch,
+    },
+  });
   return {
     url,
     convite: codigo,
     usuario,
     pedir,
+    google,
     lembrar: (categoria, texto) =>
       comoUsuario(banco.db, usuario, async (tx) => {
         try {

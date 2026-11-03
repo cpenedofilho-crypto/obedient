@@ -129,6 +129,46 @@ async function render() {
   renderAprendizado(ops);
   renderDados(ops);
   renderMissoes(ops);
+  renderConexoes(ops);
+}
+
+/** @param {Op[]} ops */
+function renderConexoes(ops) {
+  const saindo = new Set(ops.filter((o) => o.estado === "pendente" && o.acao.tipo === "desconectar").map((o) => /** @type {any} */ (o.acao).integracao));
+  $("conexoes").replaceChildren(
+    ...(painel.conexoes ?? []).map((/** @type {any} */ c) => {
+      /** @type {Node[]} */
+      const filhos = [
+        el("p", {}, [el("strong", { texto: c.nome }), document.createTextNode(c.conectada && !saindo.has(c.id) ? " · conectado" : "")]),
+        el("p", { classe: "meta", texto: c.explicacao }),
+      ];
+      if (saindo.has(c.id)) filhos.push(el("p", { classe: "estado", texto: "Desconectando…" }));
+      else if (c.conectada) filhos.push(botao("Desconectar", () => agir({ tipo: "desconectar", integracao: c.id }), "botao", `Desconectar ${c.nome}`));
+      else if (!c.disponivel) filhos.push(el("p", { classe: "ajuda", texto: "Este servidor ainda não tem conexão com o Google configurada." }));
+      else if (!online) filhos.push(el("p", { classe: "ajuda", texto: "Conectar precisa de internet." }));
+      else filhos.push(botao("Conectar", () => conectar(c.id), "botao principal", `Conectar ${c.nome}`));
+      return el("li", { classe: "autorizacao" }, filhos);
+    }),
+  );
+}
+
+/** Vai para o Google; a volta cai em /api/conexoes/retorno e depois aqui, com o desfecho na URL. */
+async function conectar(/** @type {string} */ integracao) {
+  const r = await enviarJson("/api/conexoes/iniciar", { integracao }).catch(() => ({ status: 0, j: {} }));
+  if (r.status === 200 && typeof r.j.url === "string" && r.j.url.startsWith("https://accounts.google.com/")) location.assign(r.j.url);
+  else avisar("Não deu para começar a conexão. Tente de novo.");
+}
+
+/** Desfecho da conexão que o servidor pôs na URL ao voltar do Google. */
+function lerVoltaDoGoogle() {
+  const q = new URLSearchParams(location.search);
+  const status = q.get("conexao");
+  if (!status) return;
+  const aviso = $("aviso-conexao");
+  aviso.hidden = false;
+  aviso.textContent = status === "ok" ? "Conectado." : `Não conectou: ${q.get("motivo") ?? "tente de novo"}.`;
+  aviso.className = status === "ok" ? "estado bom" : "erro";
+  history.replaceState(null, "", "/");
 }
 
 /** @param {Op[]} ops */
@@ -497,4 +537,5 @@ setInterval(() => {
 }, 20000);
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+lerVoltaDoGoogle();
 void atualizar().then(drenar);
