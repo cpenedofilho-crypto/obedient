@@ -26,6 +26,9 @@ function banco(variavel: string) {
   const url = env(variavel);
   if (!url) throw new Error(`defina ${variavel}`);
   const pool = new pg.Pool({ connectionString: url, max: 10 });
+  // Conexão ociosa que o Postgres derruba (reinício, failover) emite erro no pool. Sem ouvinte, o
+  // processo inteiro cai; com ele, o pool abre outra conexão no próximo pedido.
+  pool.on("error", (e) => console.error(JSON.stringify({ evento: "banco.conexao_perdida", erro: e.message })));
   return { db: fromPgPool(pool), fechar: () => pool.end() };
 }
 
