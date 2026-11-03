@@ -50,7 +50,8 @@ export async function comoOperador<T>(db: Database, fn: (tx: Executor) => Promis
   });
 }
 
-async function comoAuth<T>(db: Database, fn: (tx: Executor) => Promise<T>): Promise<T> {
+/** Serviço de entrada: sessões, passkeys, desafios e convites, nada de dado do usuário. */
+export async function comoAutenticacao<T>(db: Database, fn: (tx: Executor) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {
     await tx.query("set local role obedient_auth");
     return fn(tx);
@@ -72,7 +73,7 @@ export class Sessoes {
     const token = randomBytes(32).toString("base64url");
     const agora = this.clock.now();
     const expiresAt = new Date(agora.getTime() + (opts.ttlMs ?? DEFAULT_SESSION_TTL_MS));
-    await comoAuth(this.db, (tx) => tx.query("select obedient.session_issue($1, $2, $3, $4, $5)", [hashDoToken(token), userId, agora, expiresAt, opts.strongAuth ?? false]));
+    await comoAutenticacao(this.db, (tx) => tx.query("select obedient.session_issue($1, $2, $3, $4, $5)", [hashDoToken(token), userId, agora, expiresAt, opts.strongAuth ?? false]));
     return { token, expiresAt };
   }
 
@@ -80,7 +81,7 @@ export class Sessoes {
   async resolver(token: string): Promise<Sessao | null> {
     if (typeof token !== "string" || token.length < 20 || token.length > 200) return null;
     const agora = this.clock.now();
-    const { rows } = await comoAuth(this.db, (tx) =>
+    const { rows } = await comoAutenticacao(this.db, (tx) =>
       tx.query<{ user_id: string; strong_auth_at: unknown; expires_at: unknown }>("select * from obedient.session_resolve($1, $2)", [hashDoToken(token), agora]),
     );
     const r = rows[0];
@@ -95,12 +96,12 @@ export class Sessoes {
 
   /** Marca a reautenticação (o provedor de identidade acabou de confirmar a pessoa de novo). */
   async elevar(token: string): Promise<boolean> {
-    const { rows } = await comoAuth(this.db, (tx) => tx.query<{ ok: boolean }>("select obedient.session_elevate($1, $2) as ok", [hashDoToken(token), this.clock.now()]));
+    const { rows } = await comoAutenticacao(this.db, (tx) => tx.query<{ ok: boolean }>("select obedient.session_elevate($1, $2) as ok", [hashDoToken(token), this.clock.now()]));
     return rows[0]?.ok === true;
   }
 
   async encerrar(token: string): Promise<boolean> {
-    const { rows } = await comoAuth(this.db, (tx) => tx.query<{ ok: boolean }>("select obedient.session_revoke($1, $2) as ok", [hashDoToken(token), this.clock.now()]));
+    const { rows } = await comoAutenticacao(this.db, (tx) => tx.query<{ ok: boolean }>("select obedient.session_revoke($1, $2) as ok", [hashDoToken(token), this.clock.now()]));
     return rows[0]?.ok === true;
   }
 

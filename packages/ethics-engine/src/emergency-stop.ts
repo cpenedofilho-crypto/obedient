@@ -75,4 +75,12 @@ export class EmergencyStop {
   async blocking(userId: string): Promise<StopState | null> {
     return (await this.store.get({ kind: "global" })) ?? (await this.store.get({ kind: "user", userId }));
   }
+
+  /** Como `blocking`, dizendo também de onde vem a parada (a global só o operador libera). */
+  async blockingScope(userId: string): Promise<{ scope: StopScope; state: StopState } | null> {
+    const g = await this.store.get({ kind: "global" });
+    if (g) return { scope: { kind: "global" }, state: g };
+    const u = await this.store.get({ kind: "user", userId });
+    return u ? { scope: { kind: "user", userId }, state: u } : null;
+  }
 }
