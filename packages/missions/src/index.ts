@@ -53,6 +53,12 @@ export interface Missao {
   tetoCustoCentavos: number;
   /** Pedido de aprovação que a missão espera (quando waiting_approval). */
   propostaId: string | null;
+  /**
+   * Onde a tentativa parou (a conversa com o modelo), guardado pelo executor para continuar dali:
+   * depois da aprovação, ou depois de uma falha passageira. Opaco para esta camada. Tem conteúdo da
+   * pessoa: some ao terminar, impedir, cancelar e apagar.
+   */
+  rodada: unknown;
   criadaEm: Date;
   atualizadaEm: Date;
   /** Sobe a cada gravação: a troca é atômica pela versão lida (duas tentativas nunca se cruzam). */
@@ -62,8 +68,8 @@ export interface Missao {
 /** O que uma tentativa devolve. `custoCentavos` é o gasto da tentativa (modelo, ferramentas). */
 export type ResultadoTentativa = { custoCentavos: number } & (
   | { tipo: TipoDesfecho; explicacao: string }
-  | { tipo: "falha_temporaria"; erro: string }
-  | { tipo: "aguardando_aprovacao"; propostaId: string }
+  | { tipo: "falha_temporaria"; erro: string; rodada?: unknown }
+  | { tipo: "aguardando_aprovacao"; propostaId: string; rodada?: unknown }
 );
 
 export type Executor = (m: Missao) => Promise<ResultadoTentativa>;
@@ -141,6 +147,7 @@ export class Missoes {
       custoCentavos: 0,
       tetoCustoCentavos: teto,
       propostaId: null,
+      rodada: null,
       criadaEm: agora,
       atualizadaEm: agora,
       versao: 1,
@@ -207,10 +214,14 @@ export class Missoes {
               : "O pedido de aprovação venceu sem resposta. Tente de novo quando puder responder, ou cancele.",
           ),
         );
-      // Aprovado (ou já executado): segue com uma nova tentativa agora.
+      // Aprovado (ou já executado): a MESMA tentativa continua de onde parou (não conta outra).
       m.estado = "running";
       m.propostaId = null;
       m.proximaTentativaEm = this.clock.now();
+      if (m.custoCentavos >= m.tetoCustoCentavos) return nao(await this.bloquear(m, this.textoTeto(m)));
+      m.atualizadaEm = this.clock.now();
+      if (!(await this.salvar(m))) return nao((await this.store.get(id))!);
+      return { reservada: true, missao: m };
     }
     if ((m.proximaTentativaEm?.getTime() ?? Infinity) > this.clock.now().getTime()) return nao(m);
 
@@ -239,6 +250,7 @@ export class Missoes {
       case "nao_sei":
       case "nao_consegui": {
         m.estado = r.tipo === "nao_consegui" ? "failed" : "completed";
+        m.rodada = null;
         m.desfecho = { tipo: r.tipo, explicacao: curto(String(r.explicacao ?? "").trim() || "(sem explicação)", MAX_EXPLICACAO) };
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
         await this.registrar(m, `mission.${r.tipo}`, r.tipo === "feito" ? "executed" : r.tipo === "nao_sei" ? "info" : "failed", sobre);
@@ -247,10 +259,12 @@ export class Missoes {
       case "aguardando_aprovacao":
         m.estado = "waiting_approval";
         m.propostaId = r.propostaId;
+        m.rodada = r.rodada ?? null;
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
         await this.registrar(m, "mission.waiting_approval", "approval_required", sobre);
         return m;
       case "falha_temporaria": {
+        m.rodada = r.rodada ?? null;
         if (m.tentativas >= m.maxTentativas) {
           m.estado = "blocked";
           m.impedimento = `Tentou ${m.tentativas} vez(es) e não conseguiu. Último erro: ${curto(String(r.erro), 200)}. Diga se quer tentar de novo ou cancelar.`;
@@ -258,6 +272,8 @@ export class Missoes {
           m.estado = "blocked";
           m.impedimento = this.textoTeto(m);
         } else m.proximaTentativaEm = new Date(this.clock.now().getTime() + intervaloDepois(m.tentativas));
+        // Impedida, a missão recomeça do zero se a pessoa mandar tentar de novo.
+        if (m.estado === "blocked") m.rodada = null;
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
         await this.registrar(m, "mission.attempt_failed", "failed", sobre);
         if (m.estado === "blocked") await this.registrar(m, "mission.blocked", "info", [curto(m.impedimento!, 200)]);
@@ -292,6 +308,7 @@ export class Missoes {
     m.impedimento = null;
     m.tentativas = 0;
     m.propostaId = null;
+    m.rodada = null;
     m.proximaTentativaEm = this.clock.now();
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) throw new ObedientError("PROPOSAL_NOT_PENDING", "a missão mudou enquanto isso");
@@ -315,6 +332,7 @@ export class Missoes {
   private async cancelar(m: Missao, motivo: string): Promise<Missao> {
     m.estado = "cancelled";
     m.proximaTentativaEm = null;
+    m.rodada = null;
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) return (await this.store.get(m.id))!;
     await this.registrar(m, "mission.cancelled", "info", [motivo]);
@@ -325,6 +343,7 @@ export class Missoes {
     m.estado = "blocked";
     m.impedimento = impedimento;
     m.proximaTentativaEm = null;
+    m.rodada = null;
     m.atualizadaEm = this.clock.now();
     await this.gravar(m);
     // O texto do impedimento é do sistema (não da pessoa): pode ir para a trilha.

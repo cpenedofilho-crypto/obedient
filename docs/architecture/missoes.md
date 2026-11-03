@@ -61,12 +61,15 @@ sistema). **Não guarda** o objetivo nem a explicação, que podem ter conteúdo
 missão, que a pessoa apaga com "Apagar o que o OBEDIENT sabe sobre mim" (a 0004 estende a função:
 objetivo e explicação esvaziados, abertas canceladas).
 
-## O que ainda não existe
+## Quem executa a tentativa
 
-**Quem executa a tentativa** é uma porta (`Executor`). O laço do agente com modelo e ferramentas
-governadas (`agent-orchestrator` + Ethics Engine) entra com as integrações (Fase 7). Até lá,
-`processarMissoes()` existe e é testado com executores roteirizados, mas o servidor (`cli.ts
-servir`) não processa missões sozinho. Também falta um agendador que percorra as pessoas.
+Uma porta (`Executor`). No servidor é o laço do agente com o modelo e as ferramentas governadas, e
+um agendador percorre quem tem missão devida: ver [`executor.md`](./executor.md). Duas regras desta
+camada vieram com ele:
+
+- **Continuar depois de uma aprovação é a mesma tentativa:** não conta outra.
+- **A missão guarda onde a tentativa parou (`rodada`),** para o executor continuar dali. A conversa
+  some ao terminar, impedir, cancelar e apagar.
 
 ## Testes
 

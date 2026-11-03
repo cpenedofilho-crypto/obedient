@@ -1,0 +1,11 @@
+{
+  "name": "@obedient/modelo-anthropic",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0"
+  }
+}

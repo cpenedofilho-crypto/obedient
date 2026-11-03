@@ -23,11 +23,14 @@ interface LinhaMissao {
   custo_centavos: number;
   teto_custo_centavos: number;
   proposta_id: string | null;
+  rodada: unknown;
   criada_em: unknown;
   atualizada_em: unknown;
   versao: number;
 }
 
+/** A conversa guardada vai como JSON (null = nada guardado). */
+const json = (v: unknown) => (v === null || v === undefined ? null : JSON.stringify(v));
 const data = (v: unknown) => (v === null || v === undefined ? null : new Date(v as string | Date));
 
 const paraMissao = (r: LinhaMissao): Missao => ({
@@ -44,6 +47,7 @@ const paraMissao = (r: LinhaMissao): Missao => ({
   custoCentavos: r.custo_centavos,
   tetoCustoCentavos: r.teto_custo_centavos,
   propostaId: r.proposta_id,
+  rodada: r.rodada ?? null,
   criadaEm: data(r.criada_em)!,
   atualizadaEm: data(r.atualizada_em)!,
   versao: r.versao,
@@ -54,10 +58,10 @@ export class PgMissionStore implements MissionStore {
   async insert(m: Missao): Promise<void> {
     await this.tx.query(
       `insert into obedient.missions (id, user_id, agente, objetivo, estado, impedimento, desfecho_tipo, desfecho_explicacao, tentativas, max_tentativas,
-         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, criada_em, atualizada_em, versao)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18)`,
       [m.id, m.userId, m.agente, m.objetivo, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas, m.maxTentativas,
-        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.criadaEm, m.atualizadaEm, m.versao],
+        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, json(m.rodada), m.criadaEm, m.atualizadaEm, m.versao],
     );
   }
   async get(id: string): Promise<Missao | undefined> {
@@ -72,10 +76,11 @@ export class PgMissionStore implements MissionStore {
   async update(m: Missao, versaoLida: number): Promise<boolean> {
     const { rows } = await this.tx.query(
       `update obedient.missions set estado = $3, impedimento = $4, desfecho_tipo = $5, desfecho_explicacao = $6, tentativas = $7,
-         proxima_tentativa_em = $8, custo_centavos = $9, teto_custo_centavos = $10, proposta_id = $11, atualizada_em = $12, versao = $13
+         proxima_tentativa_em = $8, custo_centavos = $9, teto_custo_centavos = $10, proposta_id = $11, atualizada_em = $12, versao = $13,
+         rodada = $14::jsonb
        where id = $1 and versao = $2 returning id`,
       [m.id, versaoLida, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas,
-        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao],
+        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao, json(m.rodada)],
     );
     return rows.length > 0;
   }
@@ -102,4 +107,13 @@ export async function gravarIdentificacao(tx: Executor, userId: string, texto: s
     [userId, t, clock.now()],
   );
   return t;
+}
+
+/**
+ * Para o agendador: QUEM tem missão para andar agora (só o id da pessoa). Roda com o papel do
+ * operador, que não lê missão nenhuma: a função é a única coisa que ele pode chamar aqui.
+ */
+export async function pessoasComMissaoDevida(tx: Executor, agora: Date, limite = 100): Promise<string[]> {
+  const { rows } = await tx.query<{ u: string }>("select obedient.pessoas_com_missao_devida($1, $2) as u", [agora, limite]);
+  return rows.map((r) => r.u);
 }

@@ -7,7 +7,7 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ManualClock } from "@obedient/core";
 import { bancoDeTeste, type BancoDeTeste } from "./banco-de-teste.ts";
-import { PgMissionStore, apagarMeusDados, comoUsuario, gravarIdentificacao, missoesNaTransacao, motorNaTransacao, type Executor } from "./index.ts";
+import { PgMissionStore, apagarMeusDados, comoOperador, comoUsuario, gravarIdentificacao, missoesNaTransacao, motorNaTransacao, pessoasComMissaoDevida, type Executor } from "./index.ts";
 
 const T0 = new Date("2026-11-03T12:00:00Z");
 let banco: BancoDeTeste;
@@ -144,5 +144,52 @@ describe("identificação das mensagens (Art. 5º)", () => {
     assert.equal(await enviar({ para: "x@exemplo.org", identificacao: id }), "allowed");
     // Sem a exigência ligada (motor fora do servidor), a regra fica de fora.
     assert.equal(await missoes(ana, async (_ms, m) => (await m.authorize({ userId: ana, agentId: "obedient", systemId: "email", tool: "email.enviar", risk: "MEDIUM", category: "COMMUNICATION", args: {} })).outcome), "allowed");
+  });
+});
+
+describe("executor e agendador no banco (Fase 7)", () => {
+  it("a conversa guardada vai e volta, e apagar o que o OBEDIENT sabe a esvazia", async () => {
+    const ana = usuario("ana");
+    const m = await missoes(ana, (ms) => ms.criar(ana, "obedient", "Ver a agenda de amanhã"));
+    const r = await missoes(ana, (ms) => ms.reservar(m.id));
+    const rodada = { messages: [{ role: "user", content: "Ver a agenda de amanhã — dentista às 10h" }], passos: 1 };
+    await missoes(ana, (ms) => ms.concluir(r.missao, { tipo: "falha_temporaria", erro: "fora do ar", custoCentavos: 1, rodada }));
+    assert.deepEqual((await missoes(ana, (ms) => ms.get(m.id)))?.rodada, rodada);
+    await missoes(ana, (ms, mt, tx) => apagarMeusDados(tx, mt.audit, ana, clock));
+    const depois = (await missoes(ana, (ms) => ms.get(m.id)))!;
+    assert.deepEqual([depois.estado, depois.rodada], ["cancelled", null]);
+  });
+
+  it("o agendador vê só QUEM tem missão devida; o operador não lê missão; o app não chama o agendador", async () => {
+    const ana = usuario("ana");
+    const bia = usuario("bia");
+    const caio = usuario("caio");
+    await missoes(ana, (ms) => ms.criar(ana, "obedient", "Devida agora"));
+    const b = await missoes(bia, (ms) => ms.criar(bia, "obedient", "Vai esperar"));
+    const rb = await missoes(bia, (ms) => ms.reservar(b.id));
+    await missoes(bia, (ms) => ms.concluir(rb.missao, { tipo: "falha_temporaria", erro: "x", custoCentavos: 0 }));
+    // Caio: missão esperando um pedido que ninguém decidiu ainda.
+    await missoes(caio, (_ms, mt) =>
+      mt.grants.grant({ userId: caio, agentId: "obedient", systemId: "email", capability: "email.*", purpose: "teste", limits: { maxRisk: "HIGH", autonomousUpTo: "LOW", maxAmount: null, amountField: null }, expiresAt: new Date(clock.now().getTime() + 3_600_000) }, caio),
+    );
+    const pedido = await missoes(caio, async (_ms, mt) => {
+      const a = await mt.authorize({ userId: caio, agentId: "obedient", systemId: "email", tool: "email.enviar", risk: "HIGH", category: "WRITE", args: {} });
+      return a.outcome === "approval_required" ? a.proposal : null;
+    });
+    const c = await missoes(caio, (ms) => ms.criar(caio, "obedient", "Esperando a pessoa"));
+    const rc = await missoes(caio, (ms) => ms.reservar(c.id));
+    await missoes(caio, (ms) => ms.concluir(rc.missao, { tipo: "aguardando_aprovacao", propostaId: pedido!.id, custoCentavos: 0 }));
+
+    const devidas = () => comoOperador(banco.db, (tx) => pessoasComMissaoDevida(tx, clock.now(), 1000));
+    const agora = await devidas();
+    assert.ok(agora.includes(ana));
+    assert.ok(!agora.includes(bia), "a próxima tentativa da Bia ainda não chegou");
+    assert.ok(!agora.includes(caio), "o pedido do Caio ainda espera a pessoa");
+    await missoes(caio, (_ms, mt) => mt.approve(pedido!.id, { id: caio, kind: "user", strongAuth: false }, pedido!.payloadHash));
+    assert.ok((await devidas()).includes(caio), "decidido o pedido, a missão anda");
+
+    await assert.rejects(comoOperador(banco.db, (tx) => tx.query("select objetivo from obedient.missions")), /permission denied/);
+    await assert.rejects(comoOperador(banco.db, (tx) => tx.query("select user_id from obedient.missions")), /permission denied/);
+    await assert.rejects(comoUsuario(banco.db, ana, (tx) => pessoasComMissaoDevida(tx, clock.now())), /permission denied/);
   });
 });
