@@ -1,62 +1,67 @@
 # OBEDIENT
 
-Agente pessoal open source governado por uma **Constituição Ética verificável**: o modelo
-propõe, o backend decide e a pessoa autoriza o que é sensível.
+**English** · [Português](README.pt-BR.md)
 
-> **Estado: pré-alfa.** Os documentos jurídicos deste repositório (Constituição, CLA, licença
-> comercial, governança) são **minutas não revisadas** e podem mudar. **Ainda não aceitamos
-> contribuições externas**: o CLA está em revisão jurídica (ver `CONTRIBUTING.md`).
+An open-source personal agent governed by a **verifiable Ethical Constitution**: the model
+proposes, the backend decides, and the person authorizes anything sensitive.
 
-## O que já existe
+> **Status: pre-alpha.** The legal documents in this repository (Constitution, CLA, commercial
+> license, governance) are **unreviewed drafts** and may change. **We do not accept external
+> contributions yet**: the CLA is under legal review (see `CONTRIBUTING.md`).
+>
+> The documents linked below are written in Portuguese; this README is the English entry point.
 
-| Pacote | Licença | O que faz |
+## What exists today
+
+| Package | License | What it does |
 |---|---|---|
-| `@obedient/core` | AGPL-3.0-only | Tipos, relógio injetável, hash canônico de payload |
-| `@obedient/policy-engine` | AGPL-3.0-only | Decisão pura: `deny > aprovação forte > aprovação > allow`, piso CRITICAL por categoria |
-| `@obedient/ethics-engine` | AGPL-3.0-only | Grants (Art. 3º), consentimento (Art. 4º), aprovação humana com hash e execução única (Art. 1º e 12), parada de emergência (Art. 9º), auditoria encadeada (Art. 8º) |
-| `@obedient/integration-gateway` | AGPL-3.0-only | Risco e categoria de ferramenta MCP de terceiros sem confiar nas dicas do servidor, proteção contra SSRF, redação de dado pessoal (extraído do Growth OS, decisão D7) |
-| `@obedient/event-bus` | AGPL-3.0-only | Barramento de eventos: vocabulário declarado por sistema, idempotência, rede contra dado pessoal, retry com espera dobrada e dead letter (extraído do Growth OS, D7) |
-| `@obedient/mission-engine` | AGPL-3.0-only | Máquina de estados de missão e tarefa, plano com dependências em camadas, autonomia por níveis que só restringe e delegação por interseção (extraído do Growth OS, D7) |
-| `@obedient/agent-orchestrator` | AGPL-3.0-only | O laço do agente: modelo propõe, cada ferramenta passa pelo Ethics Engine, o que exige pessoa para o run até a aprovação e executa uma vez; limites de passos, tokens, prazo, laço e ferramenta inválida (extraído do Growth OS, D7) |
-| `@obedient/dots-adapter` | AGPL-3.0-only | O DOTS como agente subordinado, **só leitura**, por MCP |
-| `@obedient/store-postgres` | AGPL-3.0-only | O Ethics Engine em Postgres: RLS forçada por usuário, auditoria só de inclusão com a cadeia conferida pelo banco, execução única da proposta e sessão autenticada (`docs/architecture/persistencia.md`) |
-| `@obedient/memory` | AGPL-3.0-only | Memória pessoal com aprendizado opt-in por assunto: toda lição visível e apagável; desligar apaga; treino de modelo de terceiro só com consentimento separado (`docs/architecture/memoria-e-direitos.md`) |
-| `@obedient/missions` | AGPL-3.0-only | Missões com teto de tentativas, intervalo crescente, teto de custo e impedimento explicado; "não sei" e "não consegui" como desfechos (`docs/architecture/missoes.md`) |
-| `@obedient/integrations` | AGPL-3.0-only | Conexões com o Google (Agenda, Gmail, Drive): escopo mínimo, OAuth com PKCE, credencial cifrada e revogada na parada (`docs/architecture/integracoes.md`) |
-| `@obedient/server` | AGPL-3.0-only | O servidor e o app (PWA) onde a pessoa decide: entrada por passkey, cartões de aprovação, parada, autorizações e trilha, com fila sem internet (`docs/architecture/app.md`) |
-| `@obedient/sdk` | **Apache-2.0** | Contrato de protocolo para integradores, sem dependência do núcleo AGPL |
+| `@obedient/core` | AGPL-3.0-only | Types, injectable clock, canonical payload hash |
+| `@obedient/policy-engine` | AGPL-3.0-only | Pure decision: `deny > strong approval > approval > allow`, with a CRITICAL floor per category |
+| `@obedient/ethics-engine` | AGPL-3.0-only | Grants (Art. 3), consent (Art. 4), human approval bound to a hash and executed once (Art. 1 and 12), emergency stop (Art. 9), chained audit log (Art. 8) |
+| `@obedient/integration-gateway` | AGPL-3.0-only | Risk and category of third-party MCP tools without trusting the server's hints, SSRF protection, redaction of personal data (extracted from Growth OS, decision D7) |
+| `@obedient/event-bus` | AGPL-3.0-only | Event bus: vocabulary declared per system, idempotency, a net against personal data, retry with doubling backoff and dead letter (extracted from Growth OS, D7) |
+| `@obedient/mission-engine` | AGPL-3.0-only | State machine for missions and tasks, layered dependency plan, autonomy levels that can only restrict, delegation by intersection (extracted from Growth OS, D7) |
+| `@obedient/agent-orchestrator` | AGPL-3.0-only | The agent loop: the model proposes, every tool goes through the Ethics Engine, anything that needs a person pauses the run until approval and executes once; limits on steps, tokens, deadline, loops and invalid tools (extracted from Growth OS, D7) |
+| `@obedient/dots-adapter` | AGPL-3.0-only | DOTS as a subordinate, **read-only** agent, over MCP |
+| `@obedient/store-postgres` | AGPL-3.0-only | The Ethics Engine on Postgres: row-level security forced per user, append-only audit with the chain verified by the database, single execution of each proposal and authenticated session (`docs/architecture/persistencia.md`) |
+| `@obedient/memory` | AGPL-3.0-only | Personal memory with opt-in learning per subject: every lesson is visible and deletable; turning it off deletes it; training a third-party model only with separate consent (`docs/architecture/memoria-e-direitos.md`) |
+| `@obedient/missions` | AGPL-3.0-only | Missions with an attempt cap, growing intervals, a cost cap and an explained blocker; "I don't know" and "I couldn't" are valid outcomes (`docs/architecture/missoes.md`) |
+| `@obedient/integrations` | AGPL-3.0-only | Google connections (Calendar, Gmail, Drive): minimal scope, OAuth with PKCE, encrypted credential revoked on stop (`docs/architecture/integracoes.md`) |
+| `@obedient/server` | AGPL-3.0-only | The server and app (PWA) where the person decides: passkey sign-in, approval cards, stop, authorizations and audit trail, with an offline queue (`docs/architecture/app.md`) |
+| `@obedient/sdk` | **Apache-2.0** | Protocol contract for integrators, with no dependency on the AGPL core |
 
-O que **ainda não existe** (sem stub, sem pasta vazia): o executor das missões (modelo e ferramentas) e a API pela qual o agente chega ao servidor. A ordem está em `docs/ROADMAP.md` e a extração do Growth OS em
-`docs/architecture/extracao-growth-os.md`.
+What **does not exist yet** (no stubs, no empty folders): the mission executor (model and tools)
+and the API through which the agent reaches the server. The order is in `docs/ROADMAP.md`, and
+the extraction from Growth OS in `docs/architecture/extracao-growth-os.md`.
 
-## Rodar
+## Running
 
 ```bash
 npm install
-npm run check      # typecheck + testes (inclui a suíte constitucional) + allowlist de licenças
+npm run check      # typecheck + tests (including the constitutional suite) + license allowlist
 ```
 
-Node 22 ou mais novo.
+Node 22 or newer.
 
-## Documentos
+## Documents
 
-- [`CONSTITUTION.md`](CONSTITUTION.md): princípios, regras verificáveis e obrigações legais
-- [`GOVERNANCE.md`](GOVERNANCE.md): titular, papel do fundador, mantenedores, releases
+- [`CONSTITUTION.md`](CONSTITUTION.md): principles, verifiable rules and legal obligations
+- [`GOVERNANCE.md`](GOVERNANCE.md): rights holder, founder's role, maintainers, releases
 - [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CLA.md`](CLA.md),
   [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), [`SECURITY.md`](SECURITY.md)
 - [`COMMERCIAL-LICENSE.md`](COMMERCIAL-LICENSE.md), [`TRADEMARKS.md`](TRADEMARKS.md),
   [`NOTICE`](NOTICE)
 - [`docs/architecture/ethics-engine.md`](docs/architecture/ethics-engine.md),
   [`docs/architecture/dots.md`](docs/architecture/dots.md)
-- [`docs/licensing/PROVENANCE.md`](docs/licensing/PROVENANCE.md): de onde veio cada arquivo
-- [`docs/governance/decisoes.md`](docs/governance/decisoes.md): decisões D1 a D15 do fundador
+- [`docs/licensing/PROVENANCE.md`](docs/licensing/PROVENANCE.md): where each file came from
+- [`docs/governance/decisoes.md`](docs/governance/decisoes.md): the founder's decisions D1 to D15
 
-## Licença
+## License
 
-GNU Affero General Public License v3.0 only (`LICENSE`), exceto `packages/sdk` (Apache-2.0).
-Licença comercial, para quem não pode cumprir a AGPL, pela Casa de IA Educação e Consultoria
-Ltda (`COMMERCIAL-LICENSE.md`).
+GNU Affero General Public License v3.0 only (`LICENSE`), except `packages/sdk` (Apache-2.0).
+A commercial license, for those who cannot comply with the AGPL, is offered by Casa de IA
+Educação e Consultoria Ltda (`COMMERCIAL-LICENSE.md`).
 
-Copyright (C) 2026 Cláudio Penedo. A licença exclusiva de exploração comercial à Casa de IA
-Educação e Consultoria Ltda (CNPJ 69.761.208/0001-20) está em formalização; a licença AGPL-3.0
-deste repositório já vale para todos.
+Copyright (C) 2026 Cláudio Penedo. The exclusive commercial-exploitation license to Casa de IA
+Educação e Consultoria Ltda (CNPJ 69.761.208/0001-20) is being formalized; the AGPL-3.0 license
+of this repository already applies to everyone.
