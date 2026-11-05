@@ -140,6 +140,74 @@ export function validarArgs(nome: string, args: Record<string, unknown>): string
 
 class ErroSessao extends Error {}
 
+/** Erro da API de governança externa: o código é estável, a mensagem é para o agente ler. */
+export class ErroMovel extends Error {
+  constructor(
+    readonly codigo: string,
+    mensagem: string,
+  ) {
+    super(mensagem);
+    this.name = "ErroMovel";
+  }
+}
+
+/** Faixa de execução: casa com o risco que o Gateway atribui a cada ferramenta de executar. */
+export type Faixa = "comum" | "alta" | "critica";
+export const faixaDe = (r: RiskLevel): Faixa => (r === "CRITICAL" ? "critica" : r === "HIGH" ? "alta" : "comum");
+export const FERRAMENTA_DA_FAIXA: Record<Faixa, string> = {
+  comum: "mobile_executar_acao",
+  alta: "mobile_executar_acao_alta",
+  critica: "mobile_executar_acao_critica",
+};
+export const PRAZO_PROPOSTA_MS = 10 * 60_000;
+
+export interface Proposta {
+  id: string;
+  tenantId: string;
+  sessionId: string;
+  observacao: ObservacaoInterna;
+  args: Record<string, unknown>;
+  operacao: Operacao;
+  risco: RiskLevel;
+  categoria: ToolCategory;
+  faixa: Faixa;
+  resumo: string;
+  criadaEm: Date;
+  expiraEm: Date;
+  usada: boolean;
+}
+
+export interface PropostaVisivel {
+  proposta_id: string;
+  risco: RiskLevel;
+  categoria: ToolCategory;
+  executar_com: string;
+  resumo: string;
+  expira_em: string;
+}
+
+const curto = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** O que a pessoa lê no pedido de aprovação. Sai dos dados da proposta, nunca do texto do modelo. */
+export function resumir(op: Operacao, app: string | null, textoAlvo: string | undefined, args: Record<string, unknown>): string {
+  const onde = app ? ` (${app})` : "";
+  const alvo = `"${curto(textoAlvo || "elemento sem texto", 60)}"`;
+  switch (op) {
+    case "input.tap_element":
+      return `Tocar em ${alvo}${onde}`;
+    case "input.text":
+      return `Digitar "${curto(String(args.texto), 120)}" em ${alvo}${onde}`;
+    case "input.swipe":
+      return `Deslizar para ${String(args.direcao)}${onde}`;
+    case "nav.home":
+      return "Ir para a tela inicial";
+    case "nav.back":
+      return `Voltar${onde}`;
+    case "apps.launch":
+      return `Abrir o app ${String(args.app)}`;
+  }
+}
+
 export interface OpcoesMotor {
   dispositivos: RegistroDeDispositivos;
   adaptador: AdaptadorMovel;
@@ -265,6 +333,108 @@ export class MotorMovel {
       if (r.status === "approval_required") this.registrar(s, nome, op, c.risco, c.categoria, args, "aguardando_aprovacao", null, obs.screenHash, null);
       return r;
     };
+  }
+
+  // ---- governança externa (MCP Gateway do Growth OS) ----------------------------------------------
+  //
+  // O Gateway decide risco e aprovação POR FERRAMENTA (nome e anotações), não pelos argumentos, e o
+  // risco de um toque depende da tela. Por isso, por este caminho, agir tem dois passos:
+  //   1. proporAcao: o motor confere a observação, classifica e guarda a proposta (não age);
+  //   2. executarProposta: só pela ferramenta da faixa da proposta (comum, alta, crítica), que o
+  //      Gateway governa com o risco dela; uma vez só, até 10 minutos, com o mesmo resumo que a pessoa
+  //      viu no pedido de aprovação, e com a verificação de que a tela não mudou.
+  // O que o Ethics Engine fazia na porta() fica com o Gateway; o motor continua dono da política.
+
+  private readonly propostas = new Map<string, Proposta>();
+
+  listarAparelhos(tenantId: string) {
+    return this.o.dispositivos.listar(tenantId).filter((d) => d.ativo).map((d) => ({ id: d.id, rotulo: d.rotulo, plataforma: d.plataforma, ambiente: d.ambiente, apps_permitidos: d.appsPermitidos }));
+  }
+
+  async iniciarSessao(tenantId: string, dispositivoId: string, minutos = 15, correlationId?: string) {
+    const d = this.o.dispositivos.get(tenantId, dispositivoId);
+    if (!d || !d.ativo) throw new ErroMovel("aparelho_inexistente", "aparelho inexistente ou desligado");
+    if (!Number.isInteger(minutos) || minutos < 1 || minutos > MAX_MINUTOS) throw new ErroMovel("argumento_invalido", `minutos entre 1 e ${MAX_MINUTOS}`);
+    try {
+      return await this.abrirSessao(d, minutos, { userId: tenantId, agentId: "", ...(correlationId ? { correlationId } : {}) });
+    } catch (e) {
+      if (e instanceof ErroSessao) throw new ErroMovel("sessao_ocupada", e.message);
+      throw e;
+    }
+  }
+
+  async lerTela(tenantId: string, sessionId: string) {
+    const s = this.ativaOuErro(tenantId, sessionId);
+    s.passos++;
+    const obs = await this.capturar(s);
+    this.registrar(s, "mobile_ler_tela", "screen.observe", "LOW", "READ", { session_id: sessionId }, "executada", null, null, obs.screenHash);
+    return paraModelo(obs);
+  }
+
+  proporAcao(tenantId: string, args: Record<string, unknown>): PropostaVisivel {
+    const problema = validarArgs(FERRAMENTAS.agir, args);
+    if (problema) throw new ErroMovel("argumento_invalido", problema);
+    const s = this.ativaOuErro(tenantId, args.session_id as string);
+    if (args.observation_id !== s.ultimaObservacao) throw new ErroMovel("observacao_desatualizada", "observe a tela de novo antes de propor");
+    const obs = this.observacoes.get(args.observation_id as string)!;
+    const op = args.operacao as Operacao;
+    const alvo = typeof args.alvo === "string" ? obs.internos.find((e) => e.id === args.alvo) : undefined;
+    if ((op === "input.tap_element" || op === "input.text") && !alvo) throw new ErroMovel("alvo_inexistente", "o alvo não existe nesta observação");
+    if (op === "input.text" && !alvo!.campo) throw new ErroMovel("alvo_invalido", "o alvo não é um campo de texto");
+    const c = classificar(this.o.dispositivos.get(tenantId, s.dispositivoId)!, { operacao: op, appAtual: obs.app, ...(alvo ? { textoAlvo: alvo.texto } : {}), ...(typeof args.app === "string" ? { app: args.app } : {}) });
+    if (c.negado) {
+      this.registrar(s, "mobile_propor_acao", op, c.risco, c.categoria, args, "negada", c.negado, obs.screenHash, null);
+      throw new ErroMovel("negada", c.negado);
+    }
+    const agora = this.clock.now();
+    const p: Proposta = {
+      id: this.novoId(),
+      tenantId,
+      sessionId: s.id,
+      observacao: structuredClone(obs),
+      args: structuredClone(args),
+      operacao: op,
+      risco: c.risco,
+      categoria: c.categoria,
+      faixa: faixaDe(c.risco),
+      resumo: resumir(op, obs.app, alvo?.texto, args),
+      criadaEm: agora,
+      expiraEm: new Date(agora.getTime() + PRAZO_PROPOSTA_MS),
+      usada: false,
+    };
+    this.propostas.set(p.id, p);
+    this.registrar(s, "mobile_propor_acao", op, c.risco, c.categoria, args, "aguardando_aprovacao", null, obs.screenHash, null);
+    return { proposta_id: p.id, risco: p.risco, categoria: p.categoria, executar_com: FERRAMENTA_DA_FAIXA[p.faixa], resumo: p.resumo, expira_em: p.expiraEm.toISOString() };
+  }
+
+  async executarProposta(tenantId: string, propostaId: string, faixa: Faixa, resumo: string) {
+    const p = this.propostas.get(propostaId);
+    if (!p || p.tenantId !== tenantId) throw new ErroMovel("proposta_inexistente", "proposta inexistente");
+    if (p.usada) throw new ErroMovel("proposta_usada", "esta proposta já foi executada; proponha de novo");
+    if (this.clock.now().getTime() >= p.expiraEm.getTime()) throw new ErroMovel("proposta_vencida", "a proposta venceu; observe e proponha de novo");
+    // A faixa é o que o Gateway usou para decidir; tem de ser exatamente a da proposta.
+    if (p.faixa !== faixa) throw new ErroMovel("faixa_errada", `esta proposta é da faixa ${p.faixa}: execute com ${FERRAMENTA_DA_FAIXA[p.faixa]}`);
+    // O resumo é o que a pessoa viu no pedido de aprovação: tem de ser o desta proposta.
+    if (resumo !== p.resumo) throw new ErroMovel("resumo_diferente", "o resumo não é o da proposta");
+    this.ativaOuErro(tenantId, p.sessionId);
+    p.usada = true;
+    return this.agir(tenantId, p.sessionId, p.observacao, p.operacao, p.args);
+  }
+
+  async encerrarSessao(tenantId: string, sessionId: string) {
+    const s = this.sessoes.get(sessionId);
+    if (!s || s.tenantId !== tenantId) throw new ErroMovel("sessao_inexistente", "sessão inexistente");
+    if (s.estado === "active") await this.fechar(s, "stopped", "encerrada pelo agente");
+    for (const [id, p] of this.propostas) if (p.sessionId === sessionId) this.propostas.delete(id);
+    return { encerrada: true };
+  }
+
+  private ativaOuErro(tenantId: string, sessionId: string): Sessao {
+    try {
+      return this.ativa(tenantId, sessionId);
+    } catch (e) {
+      throw new ErroMovel("sessao_indisponivel", (e as Error).message);
+    }
   }
 
   // ---- por dentro --------------------------------------------------------------------------------

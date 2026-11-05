@@ -118,13 +118,60 @@ adaptador expõe:
 - tirar a tela do payload aprovado;
 - tirar o prazo.
 
+## Pelo MCP Gateway do Growth OS (`@obedient/mobile-mcp`)
+
+No Growth OS quem governa é o MCP Gateway, que decide risco e aprovação **por ferramenta**, pelo nome
+e pelas anotações (`classificar()` do `@obedient/integration-gateway`, o mesmo código que ele roda). O
+risco de um toque depende da tela, então por esse caminho agir tem dois passos.
+
+| Ferramenta | Risco no Gateway | Faz |
+|---|---|---|
+| `mobile_listar_aparelhos` | LOW, READ | Os aparelhos da organização |
+| `mobile_iniciar_sessao` | HIGH, WRITE | Abre a sessão (pede aprovação) |
+| `mobile_ler_tela` | LOW, READ | A tela mascarada, como `conteudo_externo` |
+| `mobile_propor_acao` | LOW, READ | **Não age.** Confere e classifica; devolve a faixa, a ferramenta de executar e o resumo |
+| `mobile_executar_acao` | HIGH, WRITE | Faixa comum. É HIGH por padrão (escrita sem anotação); uma pessoa pode rebaixar para MEDIUM, com auditoria |
+| `mobile_executar_acao_alta` | HIGH, WRITE | Faixa alta (enviar, confirmar) |
+| `mobile_executar_acao_critica` | CRITICAL, DESTRUCTIVE | Faixa crítica (pagar, excluir); aprovação privilegiada |
+| `mobile_encerrar_sessao` | HIGH, WRITE | Encerra. Recomenda-se rebaixar para LOW: só tira poder, e a sessão vence sozinha em até 30 min |
+
+**Regras do motor na execução de uma proposta:**
+
+- só pela ferramenta da faixa dela;
+- só uma vez;
+- só até 10 minutos;
+- só com o **resumo** exato que a proposta devolveu. É esse texto que a pessoa lê no pedido de
+  aprovação do Gateway, e ele sai dos dados da proposta, nunca do modelo;
+- e só se a tela não tiver mudado.
+
+O teste `packages/mobile-mcp/src/servidor.test.ts` passa cada ferramenta pelo classificador do Gateway
+e reprova se alguma mudar de faixa.
+
+**Servidor** (`servir.ts`):
+
+- HTTP streamable, sem estado por requisição, uma organização por instância;
+- token conferido em tempo constante;
+- Host conferido pelo nome, contra DNS rebinding;
+- corpo limitado.
+
+O aparelho é o serviço `executores/mobile-control` do casa-de-ia, falado pelo `AdaptadorHttp`, que
+desconfia da resposta: formato, tipos e tamanho, e o texto de senha nunca passa.
+
+```bash
+MOBILE_MCP_TENANT=<organization_id> MOBILE_MCP_TOKEN=<token> MOBILE_MCP_HOSTS=mobile.interno \
+MOBILE_CONTROL_URL=http://127.0.0.1:8765 MOBILE_CONTROL_TOKEN=<token do serviço> \
+MOBILE_MCP_APPS_PERMITIDOS=dev.obedient.demo \
+node --import tsx packages/mobile-mcp/src/servir.ts
+```
+
+Por enquanto, sessões e propostas vivem no processo: reiniciar o servidor encerra tudo, o que falha
+fechado.
+
 ## A seguir
 
-1. **Executor Android no Growth OS**, sobre o emulador do `android-qa`:
-   - adb sem comando livre;
-   - HTTP interno com `secret_ref`;
-   - registro no MCP Gateway;
-   - migration `0040_mobile_control`.
-2. **Persistência no OBEDIENT** (`0007_mobile.sql`): sessões, observações e o registro, para a
-   aprovação sobreviver a um reinício.
-3. **Cartão de aprovação** com o print mascarado.
+1. **No casa-de-ia:** registrar o servidor em `mcp_servers`, com o token como `secret_ref` e
+   `MCP_SEGREDOS`; registrar a exceção em `docs/SECURITY.md`; aplicar os rebaixamentos de risco
+   recomendados acima.
+2. **Fase 2:** imagem com o emulador, o serviço do aparelho e este servidor; rodar o app de
+   demonstração com dados sintéticos.
+3. **Persistência** das sessões e propostas, quando mais de uma instância precisar enxergá-las.
