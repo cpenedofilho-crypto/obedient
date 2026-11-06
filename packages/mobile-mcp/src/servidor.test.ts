@@ -6,6 +6,7 @@
 //   • organizações não se enxergam; HTTP com token e Host conferidos;
 //   • o adaptador HTTP fala com o serviço do aparelho no formato combinado e desconfia da resposta.
 
+import { generateKeyPairSync } from "node:crypto";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
@@ -13,9 +14,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ManualClock } from "@obedient/core";
-import { classificar, classificarCategoria } from "@obedient/integration-gateway";
+import { CAMPO_COMPROVANTE, assinarComprovante, classificar, classificarCategoria } from "@obedient/integration-gateway";
 import { APP_DEMO, AdaptadorHttp, CelularFalso, lerCaptura, MotorMovel, RegistroDeDispositivos } from "@obedient/mobile-control";
-import { criarServidorMcp } from "./servidor.ts";
+import { criarServidorMcp, type OpcoesServidor } from "./servidor.ts";
 import { motorDaInstancia, servirMcp } from "./servir.ts";
 
 const T0 = new Date("2026-11-05T12:00:00Z");
@@ -35,16 +36,28 @@ function montar() {
   return { clock, celular, motor };
 }
 
-async function cliente(motor: MotorMovel, org = "org-a") {
+// O par de chaves do "Gateway" dos testes: a privada assina, o servidor só conhece a pública.
+const der = (k: { export(o: object): Buffer | string }, type: string) => (k.export({ format: "der", type }) as Buffer).toString("base64");
+const parGateway = generateKeyPairSync("ed25519");
+const PRIVADA = der(parGateway.privateKey, "pkcs8");
+const PUBLICA = der(parGateway.publicKey, "spki");
+const OUTRA_PRIVADA = der(generateKeyPairSync("ed25519").privateKey, "pkcs8");
+
+async function cliente(motor: MotorMovel, org = "org-a", opcoes: OpcoesServidor = { chaveAprovacao: PUBLICA }) {
   const [a, b] = InMemoryTransport.createLinkedPair();
-  await criarServidorMcp(motor, org).connect(a);
+  await criarServidorMcp(motor, org, opcoes).connect(a);
   const c = new Client({ name: "teste", version: "0" });
   await c.connect(b);
-  const chamar = async (name: string, args: Record<string, unknown> = {}) => {
-    const r = (await c.callTool({ name, arguments: args })) as { isError?: boolean; content: { type: string; text: string }[] };
+  const bruto = async (name: string, args: Record<string, unknown>, _meta?: Record<string, unknown>) => {
+    const r = (await c.callTool({ name, arguments: args, ...(_meta ? { _meta } : {}) })) as { isError?: boolean; content: { type: string; text: string }[] };
     return { erro: Boolean(r.isError), dados: JSON.parse(r.content[0]!.text) };
   };
-  return { c, chamar };
+  // Papel do Gateway depois que uma pessoa aprovou: executar leva o comprovante assinado.
+  const chamar = (name: string, args: Record<string, unknown> = {}) =>
+    bruto(name, args, name.startsWith("mobile_executar_")
+      ? { [CAMPO_COMPROVANTE]: assinarComprovante({ chavePrivada: PRIVADA, ferramenta: name, argumentos: args, approvalId: "aprov-0001" }) }
+      : undefined);
+  return { c, chamar, bruto };
 }
 
 type Tela = { observation_id: string; elementos: { id: string; texto: string }[] };
@@ -141,6 +154,75 @@ describe("servidor MCP do Mobile Control Engine", () => {
     const t = (await a.chamar("mobile_ler_tela", { session_id: s.session_id })).dados.conteudo_externo as Tela;
     const p = (await a.chamar("mobile_propor_acao", { session_id: s.session_id, observation_id: t.observation_id, operacao: "nav.home", intencao: "ir ao início" })).dados;
     assert.equal((await b.chamar("mobile_executar_acao", { proposta_id: p.proposta_id, resumo: p.resumo })).dados.erro, "proposta_inexistente");
+  });
+});
+
+describe("defesa no destino: executar exige o comprovante do Gateway (R6)", () => {
+  async function propostaCritica() {
+    const { motor, celular } = montar();
+    const cli = await cliente(motor);
+    const { dados: s } = await cli.chamar("mobile_iniciar_sessao", { device_id: "emulador-org-a" });
+    let t = (await cli.chamar("mobile_ler_tela", { session_id: s.session_id })).dados.conteudo_externo as Tela;
+    const abrir = (await cli.chamar("mobile_propor_acao", { session_id: s.session_id, observation_id: t.observation_id, operacao: "apps.launch", app: APP_DEMO, intencao: "abrir o demo" })).dados;
+    assert.equal((await cli.chamar("mobile_executar_acao", { proposta_id: abrir.proposta_id, resumo: abrir.resumo })).erro, false);
+    t = (await cli.chamar("mobile_ler_tela", { session_id: s.session_id })).dados.conteudo_externo as Tela;
+    const p = (await cli.chamar("mobile_propor_acao", { session_id: s.session_id, observation_id: t.observation_id, operacao: "input.tap_element", alvo: id(t, "Enviar"), intencao: "enviar o cadastro" })).dados;
+    return { ...cli, celular, motor, p, args: { proposta_id: p.proposta_id, resumo: p.resumo } };
+  }
+  const comp = (ferramenta: string, argumentos: object, over: Partial<Parameters<typeof assinarComprovante>[0]> = {}) =>
+    ({ [CAMPO_COMPROVANTE]: assinarComprovante({ chavePrivada: PRIVADA, ferramenta, argumentos, approvalId: "aprov-0001", ...over }) });
+
+  it("só o Bearer não basta: sem comprovante, nada é executado", async () => {
+    const { bruto, celular, args } = await propostaCritica();
+    const r = await bruto("mobile_executar_acao_alta", args);
+    assert.deepEqual([r.erro, r.dados.erro], [true, "sem_aprovacao"]);
+    assert.match(r.dados.motivo, /ausente/);
+    assert.equal(celular.enviados, 0);
+  });
+
+  it("recusa comprovante de outra ferramenta, de outros argumentos, vencido ou assinado por outra chave", async () => {
+    const { bruto, celular, args } = await propostaCritica();
+    const casos: [string, Record<string, unknown>][] = [
+      ["ferramenta", comp("mobile_executar_acao_critica", args)],
+      ["argumentos", comp("mobile_executar_acao_alta", { ...args, resumo: "Tocar em \"Cancelar\"" })],
+      ["vencido", comp("mobile_executar_acao_alta", args, { agora: Date.now() - 10 * 60_000, validadeMs: 60_000 })],
+      ["assinatura", comp("mobile_executar_acao_alta", args, { chavePrivada: OUTRA_PRIVADA })],
+    ];
+    for (const [motivo, meta] of casos) {
+      const r = await bruto("mobile_executar_acao_alta", args, meta);
+      assert.deepEqual([r.erro, r.dados.erro], [true, "sem_aprovacao"], motivo);
+      assert.match(r.dados.motivo, new RegExp(motivo), motivo);
+    }
+    assert.equal(celular.enviados, 0);
+    // Com o comprovante certo, executa; e só uma vez.
+    assert.equal((await bruto("mobile_executar_acao_alta", args, comp("mobile_executar_acao_alta", args))).dados.conteudo_externo.status, "executada");
+    assert.equal((await bruto("mobile_executar_acao_alta", args, comp("mobile_executar_acao_alta", args))).dados.erro, "proposta_usada");
+    assert.equal(celular.enviados, 1);
+  });
+
+  it("sem a chave pública configurada, nenhuma faixa executa (falha fechada)", async () => {
+    const { motor, celular } = montar();
+    const { chamar } = await cliente(motor, "org-a", {});
+    const { dados: s } = await chamar("mobile_iniciar_sessao", { device_id: "emulador-org-a" });
+    const t = (await chamar("mobile_ler_tela", { session_id: s.session_id })).dados.conteudo_externo as Tela;
+    const p = (await chamar("mobile_propor_acao", { session_id: s.session_id, observation_id: t.observation_id, operacao: "nav.home", intencao: "ir ao início" })).dados;
+    const r = await chamar("mobile_executar_acao", { proposta_id: p.proposta_id, resumo: p.resumo });
+    assert.deepEqual([r.erro, r.dados.erro], [true, "sem_aprovacao"]);
+    assert.equal(celular.comandos.length, 0);
+  });
+
+  it("a faixa comum dispensa o comprovante só com comumSemAprovacao; alta e crítica nunca", async () => {
+    const { motor, celular } = montar();
+    const { bruto, chamar } = await cliente(motor, "org-a", { chaveAprovacao: PUBLICA, comumSemAprovacao: true });
+    const { dados: s } = await chamar("mobile_iniciar_sessao", { device_id: "emulador-org-a" });
+    let t = (await chamar("mobile_ler_tela", { session_id: s.session_id })).dados.conteudo_externo as Tela;
+    const abrir = (await chamar("mobile_propor_acao", { session_id: s.session_id, observation_id: t.observation_id, operacao: "apps.launch", app: APP_DEMO, intencao: "abrir o demo" })).dados;
+    // Comum, sem comprovante: passa (decisão escrita de rebaixar no Gateway).
+    assert.equal((await bruto("mobile_executar_acao", { proposta_id: abrir.proposta_id, resumo: abrir.resumo })).erro, false);
+    t = (await chamar("mobile_ler_tela", { session_id: s.session_id })).dados.conteudo_externo as Tela;
+    const enviar = (await chamar("mobile_propor_acao", { session_id: s.session_id, observation_id: t.observation_id, operacao: "input.tap_element", alvo: id(t, "Enviar"), intencao: "enviar o cadastro" })).dados;
+    assert.equal((await bruto("mobile_executar_acao_alta", { proposta_id: enviar.proposta_id, resumo: enviar.resumo })).dados.erro, "sem_aprovacao");
+    assert.equal(celular.enviados, 0);
   });
 });
 

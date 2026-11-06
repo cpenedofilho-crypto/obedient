@@ -13,10 +13,18 @@
 //   mobile_executar_acao_critica faixa crítica (destructiveHint: CRITICAL, aprovação privilegiada).
 // O motor só executa uma proposta pela ferramenta da faixa dela, uma vez, com o resumo que a pessoa
 // viu no pedido de aprovação. O teste servidor.test.ts confere a classificação de cada ferramenta.
+//
+// Defesa no destino (auditoria A2A de 06/11/2026, achado R6): até aqui a aprovação morava só no Gateway,
+// e quem tivesse o Bearer deste servidor executava a ação crítica direto. Agora as ferramentas de
+// executar exigem o comprovante que o Gateway assina (Ed25519, @obedient/integration-gateway) quando uma
+// pessoa aprova: ferramenta, argumentos e aprovação conferidos com a chave PÚBLICA do Gateway. Sem chave
+// configurada, executar é recusado (falha fechada). A faixa comum dispensa o comprovante só com
+// `comumSemAprovacao`, espelho da decisão escrita de rebaixar mobile_executar_acao no Gateway.
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { CAMPO_COMPROVANTE, verificarComprovante } from "@obedient/integration-gateway";
 import { ErroMovel, type Faixa, MAX_MINUTOS, type MotorMovel, OPERACOES } from "@obedient/mobile-control";
 
 const INSTRUCOES = [
@@ -41,7 +49,16 @@ async function seguro(fn: () => Promise<unknown> | unknown): Promise<CallToolRes
 const sid = z.string().min(8).max(64);
 const executar = { proposta_id: z.string().min(8).max(64), resumo: z.string().min(3).max(300) };
 
-export function criarServidorMcp(motor: MotorMovel, tenantId: string): McpServer {
+export interface OpcoesServidor {
+  /** Chave pública Ed25519 do Gateway (PEM ou DER base64). Sem ela, nenhuma ação é executada. */
+  chaveAprovacao?: string;
+  /** A faixa comum executa sem comprovante (só com decisão escrita de rebaixar a ferramenta no Gateway). */
+  comumSemAprovacao?: boolean;
+  /** Relógio dos testes. */
+  agora?: () => number;
+}
+
+export function criarServidorMcp(motor: MotorMovel, tenantId: string, opcoes: OpcoesServidor = {}): McpServer {
   const s = new McpServer({ name: "obedient-mobile", version: "0.1.0" }, { instructions: INSTRUCOES });
 
   s.registerTool(
@@ -82,23 +99,36 @@ export function criarServidorMcp(motor: MotorMovel, tenantId: string): McpServer
     (args) => seguro(() => motor.proporAcao(tenantId, Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined)))),
   );
 
-  const executarNaFaixa = (faixa: Faixa) => ({ proposta_id, resumo }: { proposta_id: string; resumo: string }) =>
-    seguro(async () => ({ conteudo_externo: await motor.executarProposta(tenantId, proposta_id, faixa, resumo) }));
+  const executarNaFaixa = (faixa: Faixa, ferramenta: string) =>
+    ({ proposta_id, resumo }: { proposta_id: string; resumo: string }, extra: { _meta?: Record<string, unknown> }) => {
+      if (faixa !== "comum" || !opcoes.comumSemAprovacao) {
+        if (!opcoes.chaveAprovacao) return falha("sem_aprovacao", "Este servidor não tem a chave de aprovação do Gateway: nenhuma ação é executada.");
+        const v = verificarComprovante({
+          chavePublica: opcoes.chaveAprovacao,
+          ferramenta,
+          argumentos: { proposta_id, resumo },
+          comprovante: extra?._meta?.[CAMPO_COMPROVANTE],
+          agora: opcoes.agora?.(),
+        });
+        if (!v.ok) return falha("sem_aprovacao", `Ação sem comprovante válido de aprovação humana (${v.motivo}).`);
+      }
+      return seguro(async () => ({ conteudo_externo: await motor.executarProposta(tenantId, proposta_id, faixa, resumo) }));
+    };
 
   s.registerTool(
     "mobile_executar_acao",
     { title: "Executar ação comum", description: "Executa uma proposta da faixa comum. Repita o resumo exatamente como veio da proposta.", inputSchema: executar },
-    executarNaFaixa("comum"),
+    executarNaFaixa("comum", "mobile_executar_acao"),
   );
   s.registerTool(
     "mobile_executar_acao_alta",
     { title: "Executar ação de risco alto", description: "Executa uma proposta da faixa alta (enviar, confirmar). Espera aprovação humana.", inputSchema: executar },
-    executarNaFaixa("alta"),
+    executarNaFaixa("alta", "mobile_executar_acao_alta"),
   );
   s.registerTool(
     "mobile_executar_acao_critica",
     { title: "Executar ação crítica", description: "Executa uma proposta da faixa crítica (pagar, excluir). Espera aprovação privilegiada.", inputSchema: executar, annotations: { destructiveHint: true } },
-    executarNaFaixa("critica"),
+    executarNaFaixa("critica", "mobile_executar_acao_critica"),
   );
 
   s.registerTool(

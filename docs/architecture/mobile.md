@@ -147,6 +147,19 @@ risco de um toque depende da tela, então por esse caminho agir tem dois passos.
 O teste `packages/mobile-mcp/src/servidor.test.ts` passa cada ferramenta pelo classificador do Gateway
 e reprova se alguma mudar de faixa.
 
+**Comprovante de aprovação no destino** (auditoria A2A de 06/11/2026, achado R6). Antes, a aprovação
+morava só no Gateway: quem tivesse o Bearer deste servidor chamava `mobile_executar_acao_critica`
+direto. Agora as três ferramentas de executar conferem um comprovante que o Gateway assina quando uma
+pessoa aprova (`@obedient/integration-gateway`, `comprovante.ts`):
+
+- **Ed25519.** O Gateway assina com a chave privada; o servidor só tem a pública
+  (`MOBILE_MCP_CHAVE_APROVACAO`). Nem o Bearer nem o próprio servidor fabricam um comprovante.
+- **O que é assinado:** a ferramenta, o hash dos argumentos (o mesmo `hashArgumentos` que amarra a
+  aprovação no Gateway), o id da aprovação e o vencimento (5 min, no máximo 15).
+- **Onde viaja:** em `_meta["obedient/aprovacao"]` da chamada `tools/call`.
+- **Sem chave configurada, nada executa** (falha fechada). A faixa comum dispensa o comprovante só com
+  `MOBILE_MCP_COMUM_SEM_APROVACAO=1`, espelho da decisão escrita de rebaixar `mobile_executar_acao`.
+
 **Servidor** (`servir.ts`):
 
 - HTTP streamable, sem estado por requisição, uma organização por instância;
@@ -160,7 +173,7 @@ desconfia da resposta: formato, tipos e tamanho, e o texto de senha nunca passa.
 ```bash
 MOBILE_MCP_TENANT=<organization_id> MOBILE_MCP_TOKEN=<token> MOBILE_MCP_HOSTS=mobile.interno \
 MOBILE_CONTROL_URL=http://127.0.0.1:8765 MOBILE_CONTROL_TOKEN=<token do serviço> \
-MOBILE_MCP_APPS_PERMITIDOS=dev.obedient.demo \
+MOBILE_MCP_APPS_PERMITIDOS=dev.obedient.demo MOBILE_MCP_CHAVE_APROVACAO=<chave pública do Gateway> \
 node --import tsx packages/mobile-mcp/src/servir.ts
 ```
 

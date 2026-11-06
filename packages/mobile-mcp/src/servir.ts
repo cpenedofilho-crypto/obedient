@@ -16,7 +16,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { AdaptadorHttp, type AdaptadorMovel, MotorMovel, RegistroDeDispositivos } from "@obedient/mobile-control";
-import { criarServidorMcp } from "./servidor.ts";
+import { criarServidorMcp, type OpcoesServidor } from "./servidor.ts";
 
 export const MAX_CORPO = 1_000_000;
 
@@ -27,6 +27,8 @@ export interface ConfigServir {
   motor: MotorMovel;
   host?: string;
   porta?: number;
+  /** Chave pública do Gateway e a regra da faixa comum (ver servidor.ts). */
+  aprovacao?: OpcoesServidor;
 }
 
 function iguais(a: string, b: string) {
@@ -71,7 +73,7 @@ export function servirMcp(c: ConfigServir): Promise<Server> {
     } catch {
       return responder(res, 400, "corpo inválido ou grande demais");
     }
-    const mcp = criarServidorMcp(c.motor, c.tenantId);
+    const mcp = criarServidorMcp(c.motor, c.tenantId, c.aprovacao);
     const transporte = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.on("close", () => {
       void transporte.close();
@@ -126,7 +128,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       motor,
       host: env.MOBILE_MCP_HOST?.trim() || "127.0.0.1",
       porta: Number(env.MOBILE_MCP_PORTA ?? 8780),
+      aprovacao: {
+        chaveAprovacao: env.MOBILE_MCP_CHAVE_APROVACAO?.trim() || undefined,
+        comumSemAprovacao: env.MOBILE_MCP_COMUM_SEM_APROVACAO?.trim() === "1",
+      },
     });
+    if (!env.MOBILE_MCP_CHAVE_APROVACAO?.trim()) console.warn("obedient-mobile: sem MOBILE_MCP_CHAVE_APROVACAO, nenhuma ação será executada");
     const a = srv.address();
     console.log(`obedient-mobile MCP em ${typeof a === "object" && a ? `${a.address}:${a.port}` : a} (organização ${tenantId})`);
   } catch (e) {
