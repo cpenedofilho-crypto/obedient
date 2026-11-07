@@ -4,5 +4,6 @@ export * from "./vocabulario.ts";
 export * from "./regras.ts";
 export * from "./consumidores.ts";
 export * from "./produtores.ts";
+export * from "./tokens-maquina.ts";
 export * from "./memoria.ts";
 export * from "./vocabulario-obedient.ts";
