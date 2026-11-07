@@ -64,6 +64,17 @@ describe("fetch seguro", () => {
     assert.equal(recebidos.length, antes);
   });
 
+  it("socket aberto por outro fetch (outra regra) para o mesmo nome não é reaproveitado sem lookup", async () => {
+    const permissivo = criarFetchSeguro({ resolver: dns({ "reuso.test": ["127.0.0.1"] }), ipProibido: soLocalPermitido });
+    const r = await permissivo(`http://reuso.test:${porta}/x`);
+    assert.equal(r.status, 201);
+    await r.text(); // devolve o socket ao pool
+    const antes = recebidos.length;
+    const estrito = criarFetchSeguro({ resolver: dns({ "reuso.test": ["127.0.0.1"] }) });
+    await assert.rejects(estrito(`http://reuso.test:${porta}/x`), ErroDestinoProibido);
+    assert.equal(recebidos.length, antes);
+  });
+
   it("um endereço reservado no meio de públicos já recusa a conexão inteira", async () => {
     const f = criarFetchSeguro({ resolver: dns({ "misto.test": ["127.0.0.1", "10.0.0.5"] }), ipProibido: soLocalPermitido });
     await assert.rejects(f(`http://misto.test:${porta}/x`), ErroDestinoProibido);

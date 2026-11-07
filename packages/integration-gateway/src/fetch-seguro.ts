@@ -9,12 +9,15 @@
 // conectado, sem segunda resolução no meio. Qualquer endereço reservado na resposta do DNS (mesmo
 // misturado com públicos) recusa a conexão inteira.
 //
+// O pool de conexões (keep-alive) é de cada fetch criado, nunca o globalAgent do Node: um socket
+// aberto por outro código, com outra regra ou sem regra nenhuma, não é reaproveitado sem lookup.
+//
 // Também: nunca segue redirect (o destino de um 3xx não passou pela checagem); só http e https.
 // Devolve um Response do fetch padrão, com o corpo em stream (o SSE do MCP Streamable HTTP funciona).
 
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
-import { request as httpRequest, type IncomingMessage } from "node:http";
-import { request as httpsRequest } from "node:https";
+import { Agent as AgenteHttp, request as httpRequest, type IncomingMessage } from "node:http";
+import { Agent as AgenteHttps, request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import { Readable } from "node:stream";
 import { hostLocalOuPrivado } from "./seguranca.ts";
@@ -84,6 +87,7 @@ function corpoDe(body: unknown): Buffer | undefined {
  */
 export function criarFetchSeguro(o: OpcoesFetchSeguro = {}): typeof fetch {
   const lookup = lookupSeguro(o);
+  const agentes = { http: new AgenteHttp({ keepAlive: true, lookup }), https: new AgenteHttps({ keepAlive: true, lookup }) };
   return (async (entrada: RequestInfo | URL, init: RequestInit = {}) => {
     const pedido = entrada instanceof Request ? entrada : null;
     const url = new URL(pedido ? pedido.url : String(entrada));
@@ -99,10 +103,11 @@ export function criarFetchSeguro(o: OpcoesFetchSeguro = {}): typeof fetch {
     if (corpo) cabecalhos.set("content-length", String(corpo.length));
     const sinal = init.signal ?? pedido?.signal ?? undefined;
     const fazer = url.protocol === "https:" ? httpsRequest : httpRequest;
+    const agent = url.protocol === "https:" ? agentes.https : agentes.http;
 
     return new Promise<Response>((ok, erro) => {
       if (sinal?.aborted) return erro(sinal.reason ?? new DOMException("abortado", "AbortError"));
-      const req = fazer(url, { method: metodo, headers: Object.fromEntries(cabecalhos), lookup, signal: sinal }, (res: IncomingMessage) => {
+      const req = fazer(url, { method: metodo, headers: Object.fromEntries(cabecalhos), lookup, agent, signal: sinal }, (res: IncomingMessage) => {
         const status = res.statusCode ?? 0;
         if (status >= 300 && status < 400 && res.headers.location) {
           res.resume();
