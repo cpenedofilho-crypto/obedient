@@ -174,3 +174,25 @@ Para uso pessoal, o modo de teste basta.
   - tirar a conferência do nonce no retorno reprova o teste "só no navegador que começou";
   - tirar a conferência do payload na aprovação reprova os testes de payload trocado. Mesmo sem
     ela, o que executaria é o payload guardado: a conferência dá a recusa clara.
+
+## Growth OS por A2A (fase 3 da auditoria A2A, 08/11/2026)
+
+O Growth OS é o servidor A2A da casa. O OBEDIENT fala com ele como cliente, pelo `@obedient/a2a-client`. A diferença para o Google é que a credencial não é de uma pessoa: é uma aplicação M2M no WorkOS, cadastrada no Growth OS por uma pessoa, presa a uma organização e a uma lista fechada de skills. O código está em `packages/server/src/growth-os.ts`.
+
+**Quem pode usar:**
+- só as pessoas que o dono do servidor lista em `OBEDIENT_GROWTH_OS_USUARIOS`;
+- e só depois de um ato explícito: `cli.ts growth-os conceder <usuario>`.
+
+**O que o ato cria:** um grant do Ethics Engine (`growth_os.*`, risco máximo LOW, autonomia até LOW, 30 dias), com a finalidade escrita.
+- O grant aparece no app como o de qualquer integração.
+- Tira-se pelo app ou com `growth-os retirar`.
+- Sem grant vigente, a ferramenta nem é oferecida ao modelo.
+
+**O que a ferramenta faz:** `growth_os.resumo_operacional` é só leitura.
+- O executor escolhe a skill pela ferramenta autorizada. O que o modelo põe nos argumentos não chega ao Growth OS.
+- Volta ao modelo só o estado e as partes `data`, como `conteudo_externo`. Texto livre do servidor não volta.
+
+**Configuração:** todas as variáveis ou nenhuma, senão o servidor não sobe.
+- `OBEDIENT_GROWTH_OS_CARD_URL`, `_TOKEN_URL`, `_CLIENT_ID`, `_SEGREDO` e `_USUARIOS`.
+- O card e o token precisam ser https.
+- O segredo é lido do ambiente na hora de pedir o token e nunca vai para log, banco ou conversa.
