@@ -38,6 +38,8 @@ import {
 import { type Conexoes, executorGoogle, itensGovernados } from "@obedient/integrations";
 import type { Licao } from "@obedient/memory";
 import type { Executor as ExecutorDeMissao, Missao, ResultadoTentativa, TipoDesfecho } from "@obedient/missions";
+import type { ClienteA2A } from "@obedient/a2a-client";
+import { SISTEMA_GROWTH_OS, executorGrowthOs, itensGrowthOs, temGrowthOs } from "./growth-os.ts";
 import { type Database, type OpcoesMotor, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 
 export const CONCLUIR = "concluir_missao";
@@ -64,6 +66,8 @@ export interface DepsExecutor {
   fuso?: string;
   limites?: typeof LIMITES_PADRAO;
   http?: typeof fetch;
+  /** Growth OS por A2A (growth-os.ts). Ausente: a ferramenta não existe neste servidor. */
+  growthOs?: { cliente: ClienteA2A; usuarios: ReadonlySet<string> } | null;
 }
 
 interface RodadaGuardada {
@@ -159,8 +163,11 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     // O que o agente sabe ao começar, numa transação curta.
     const ctx = await comoUsuario(d.db, u, async (tx) => {
       const motor = motorNaTransacao(tx, opcoes);
-      const conectadas = d.conexoes ? (await tx.query<{ integracao: string }>("select integracao from obedient.connections where user_id = $1 order by integracao", [u])).rows.map((r) => r.integracao) : [];
-      return { conectadas, identificacao: await lerIdentificacao(tx, u), licoes: await memoriaNaTransacao(tx, motor, d.clock).paraContexto(u) };
+      const google = d.conexoes ? (await tx.query<{ integracao: string }>("select integracao from obedient.connections where user_id = $1 order by integracao", [u])).rows.map((r) => r.integracao) : [];
+      // Growth OS: só quem o dono listou E tem grant vigente (concedido pela linha de comando).
+      const growthOs = Boolean(d.growthOs?.usuarios.has(u)) && (await temGrowthOs(motor, u, d.clock.now()));
+      const conectadas = growthOs ? [...google, SISTEMA_GROWTH_OS] : google;
+      return { google, growthOs, conectadas, identificacao: await lerIdentificacao(tx, u), licoes: await memoriaNaTransacao(tx, motor, d.clock).paraContexto(u) };
     });
 
     const salva = lerRodada(missao.rodada);
@@ -176,7 +183,8 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     }
 
     const catalogo = new Map<string, ItemCatalogo>([[CONCLUIR, ferramentaConcluir]]);
-    for (const i of itensGovernados(ctx.conectadas)) catalogo.set(i.definicao.name, i);
+    for (const i of itensGovernados(ctx.google)) catalogo.set(i.definicao.name, i);
+    if (ctx.growthOs) for (const i of itensGrowthOs()) catalogo.set(i.definicao.name, i);
 
     const modelo = d.novoModelo();
     const gastoCentavos = () => Math.ceil(modelo.gastoEmDolares * d.centavosPorDolar);
@@ -184,8 +192,18 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     let parouPor: "teto" | "missao" | null = null;
     let desfecho: { tipo: TipoDesfecho; explicacao: string } | null = null;
 
-    const governada = d.conexoes
-      ? chamarComEthicsEmEtapas(abrir, { userId: u, agentId: missao.agente, correlationId: missao.id }, executorGoogle(d.conexoes, u, d.http ?? fetch))
+    // Um executor por sistema; o Ethics Engine autoriza antes de qualquer um rodar.
+    const google = d.conexoes ? executorGoogle(d.conexoes, u, d.http ?? fetch) : null;
+    const growth = ctx.growthOs && d.growthOs ? executorGrowthOs(d.growthOs.cliente) : null;
+    const governada = google || growth
+      ? chamarComEthicsEmEtapas(abrir, { userId: u, agentId: missao.agente, correlationId: missao.id }, (sistema, ferramenta, args) => {
+        if (sistema === SISTEMA_GROWTH_OS) {
+          if (!growth) throw new Error("Growth OS desligado neste servidor");
+          return growth(sistema, ferramenta, args);
+        }
+        if (!google) throw new Error("integrações desligadas neste servidor");
+        return google(sistema, ferramenta, args);
+      })
       : null;
     const chamar = async (item: ItemCatalogo, args: Record<string, unknown>, approvalId?: string): Promise<ResultadoChamada> => {
       if (item.chave === CHAVE_CONCLUIR) {

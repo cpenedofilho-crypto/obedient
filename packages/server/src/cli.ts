@@ -7,6 +7,7 @@
 //   node --import tsx packages/server/src/cli.ts convite <usuario>
 //   node --import tsx packages/server/src/cli.ts servir
 //   node --import tsx packages/server/src/cli.ts chave       (gera uma chave nova para o cofre)
+//   node --import tsx packages/server/src/cli.ts growth-os conceder|retirar <usuario>
 //
 // Variáveis:
 //   OBEDIENT_DATABASE_URL        conexão do SERVIDOR (papel de login membro de obedient_app/_operator/_auth)
@@ -24,6 +25,12 @@
 //   OBEDIENT_FALLBACK            "desligado" para não refazer no servidor o que os classificadores recusarem
 //   OBEDIENT_CENTAVOS_POR_DOLAR  câmbio para o teto de custo das missões (padrão 600, isto é, R$ 6,00: a mais)
 //   OBEDIENT_FUSO                fuso das pessoas (padrão America/Sao_Paulo)
+//   OBEDIENT_GROWTH_OS_*         Growth OS por A2A (growth-os.ts), todas ou nenhuma:
+//     _CARD_URL                  https://<growth-os>/.well-known/agent-card.json
+//     _TOKEN_URL                 token endpoint do WorkOS (client_credentials)
+//     _CLIENT_ID                 client_id da aplicação M2M (não é segredo)
+//     _SEGREDO                   client secret da aplicação M2M (segredo do ambiente; nunca no repositório)
+//     _USUARIOS                  quem pode receber a autoridade, ids separados por vírgula
 
 import pg from "pg";
 import Anthropic from "@anthropic-ai/sdk";
@@ -37,6 +44,8 @@ import { criarApi } from "./api.ts";
 import { servidorHttp } from "./http.ts";
 import { Passkeys } from "./passkeys.ts";
 import { Cofre, Conexoes, lerChaves } from "@obedient/integrations";
+import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
+import { clienteGrowthOs, concederGrowthOs, configGrowthOsDoAmbiente, retirarGrowthOs } from "./growth-os.ts";
 
 const ESFORCOS: readonly Esforco[] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -55,9 +64,12 @@ function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null) {
   const fallbacks = env("OBEDIENT_FALLBACK") !== "desligado";
   // Confere o modelo agora (sem preço conhecido, não sobe).
   const teste = new ModeloAnthropic({ cliente, ...(modelo ? { modelo } : {}), esforco, fallbacks });
+  const growth = configGrowthOsDoAmbiente();
+  console.log(growth ? `Growth OS por A2A ligado para ${growth.usuarios.size} pessoa(s)` : "Growth OS desligado (sem OBEDIENT_GROWTH_OS_*)");
   const executar = executorDeMissoes({
     db,
     conexoes,
+    growthOs: growth ? { cliente: clienteGrowthOs(growth), usuarios: growth.usuarios } : null,
     novoModelo: () => new ModeloAnthropic({ cliente, modelo: teste.modelo, esforco, fallbacks }),
     centavosPorDolar,
     clock: systemClock,
@@ -99,6 +111,20 @@ async function main(argv: string[]) {
     console.log(`k${new Date().toISOString().slice(0, 10).replace(/-/g, "")}:${Cofre.novaChave()}`);
     return;
   }
+  if (comando === "growth-os") {
+    const [acao, usuario] = resto;
+    if ((acao !== "conceder" && acao !== "retirar") || !usuario) throw new Error("uso: growth-os conceder|retirar <usuario>");
+    const cfg = configGrowthOsDoAmbiente();
+    if (!cfg) throw new Error("Growth OS desligado: defina as OBEDIENT_GROWTH_OS_*");
+    const { db, fechar } = banco("OBEDIENT_DATABASE_URL");
+    await comoUsuario(db, usuario, async (tx) => {
+      const motor = motorNaTransacao(tx, { clock: systemClock });
+      if (acao === "conceder") await concederGrowthOs(motor, cfg, usuario, systemClock.now());
+      else await retirarGrowthOs(motor, usuario);
+    });
+    console.log(acao === "conceder" ? `${usuario}: o agente pode ler o Growth OS por 30 dias (aparece no app e pode ser tirado)` : `${usuario}: autoridade no Growth OS retirada`);
+    return fechar();
+  }
   if (comando === "servir") {
     const origin = env("OBEDIENT_ORIGIN");
     if (!origin) throw new Error("defina OBEDIENT_ORIGIN");
@@ -116,7 +142,7 @@ async function main(argv: string[]) {
     servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(google ? { google } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
     return;
   }
-  throw new Error("comandos: migrar | convite <usuario> | chave | servir");
+  throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | servir");
 }
 
 main(process.argv.slice(2)).catch((e) => {
