@@ -54,6 +54,7 @@ describe("grants (Art. 3º)", () => {
       { expiresAt: new Date(T0.getTime() - 1) },
       { limits: { maxRisk: "LOW", autonomousUpTo: "MEDIUM", maxAmount: null, amountField: null } },
       { limits: { maxRisk: "CRITICAL", autonomousUpTo: "CRITICAL", maxAmount: null, amountField: null } },
+      { limits: { maxRisk: "HIGH", autonomousUpTo: "HIGH", maxAmount: null, amountField: null } },
       { limits: { maxRisk: "HIGH", autonomousUpTo: null, maxAmount: 100, amountField: null } },
       { agentId: "u1" },
     ];

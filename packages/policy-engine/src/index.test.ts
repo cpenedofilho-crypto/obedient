@@ -64,9 +64,10 @@ describe("precedence", () => {
     assert.equal(d.policyId, "block");
   });
 
-  it("allow_autonomous lowers the HIGH default, but never another policy's requirement", () => {
-    assert.equal(decide(action(), [pol({ effect: "allow_autonomous" })]).effect, "allow");
-    const d = decide(action(), [pol({ effect: "allow_autonomous" }), pol({ effect: "require_privileged_approval", id: "hard" })]);
+  it("allow_autonomous lowers the MEDIUM default, but never another policy's requirement", () => {
+    const pede = { ...SYSTEM_DEFAULTS, MEDIUM: "require_approval" as const };
+    assert.equal(decide(action({ risk: "MEDIUM" }), [pol({ effect: "allow_autonomous" })], pede).effect, "allow");
+    const d = decide(action({ risk: "MEDIUM" }), [pol({ effect: "allow_autonomous" }), pol({ effect: "require_privileged_approval", id: "hard" })], pede);
     assert.equal(d.effect, "require_privileged_approval");
     assert.equal(d.policyId, "hard");
   });
@@ -79,6 +80,21 @@ describe("precedence", () => {
     const d = decide(action({ risk: "CRITICAL" }), [pol({ effect: "allow_autonomous" })]);
     assert.equal(d.effect, "require_privileged_approval");
     assert.equal(d.source, "fixed_rule");
+  });
+
+  it("HIGH never becomes autonomous (fixed rule, Art. 1º)", () => {
+    const d = decide(action({ risk: "HIGH" }), [pol({ effect: "allow_autonomous" })]);
+    assert.equal(d.effect, "require_approval");
+    assert.equal(d.source, "fixed_rule");
+    // Nem com um padrão HIGH=allow que não passou por validateDefaults.
+    assert.equal(decide(action({ risk: "HIGH" }), [], { ...SYSTEM_DEFAULTS, HIGH: "allow" }).effect, "require_approval");
+    // Exigência maior que aprovação continua valendo.
+    assert.equal(decide(action({ risk: "HIGH" }), [pol({ effect: "deny" })]).effect, "deny");
+  });
+
+  it("validateDefaults ignores allow for HIGH", () => {
+    assert.equal(validateDefaults({ HIGH: "allow" }).HIGH, SYSTEM_DEFAULTS.HIGH);
+    assert.equal(validateDefaults({ HIGH: "require_privileged_approval" }).HIGH, "require_privileged_approval");
   });
 
   it("FINANCIAL/LEGAL/DESTRUCTIVE count as CRITICAL whatever risk is declared", () => {
