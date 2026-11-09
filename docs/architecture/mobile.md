@@ -83,7 +83,7 @@ adaptador expõe:
   na hora e manda o adaptador encerrar.
 - **Parada de emergência** (`ligarParada`): fecha todas as sessões da pessoa no mesmo instante, antes
   de esperar qualquer aparelho, e avisa os aparelhos em paralelo. No servidor MCP (`servir.ts`) o
-  motor não liga a parada do OBEDIENT: ali a parada depende do Gateway, que deixa de emitir comprovante.
+  motor não liga a parada do OBEDIENT: ali a parada depende do Gateway.
 - **Prazo e limite de passos** fecham a sessão.
 
 ## O que vai ao modelo e o que fica guardado
