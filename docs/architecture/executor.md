@@ -160,3 +160,12 @@ O resultado das ferramentas volta ao modelo **sem** a limpeza de dado pessoal do
 
   O teste dos dois pedidos **não** pegava a falta da espera enquanto aprovava o pedido que a missão
   não esperava. Agora ele aprova justamente o que a missão espera.
+
+
+## Aprender nas missões (Art. 10, 09/11/2026)
+
+Até 09/11 o executor só **lia** as lições: nenhuma missão gravava nada, e "O que ele já aprendeu" ficava vazio. Agora o agente tem a ferramenta interna `lembrar(categoria, texto)`:
+
+- **Quando aparece:** só se a pessoa ligou ao menos uma categoria, e só com as categorias ligadas. A recusa por categoria desligada continua no `Memoria.lembrar`, com consentimento e registro na trilha.
+- **O que guarda:** o que a própria pessoa disse no pedido da missão, numa frase curta. A lição aparece no app e pode ser apagada.
+- **A trava:** depois que a conversa recebe resultado de outro sistema (e-mail, documento, resumo do Growth OS), `lembrar` é recusada naquela tentativa, e a conversa guardada carrega isso. Assim, um texto de fora não vira "preferência da pessoa" nem volta nas próximas missões como contexto confiável.
