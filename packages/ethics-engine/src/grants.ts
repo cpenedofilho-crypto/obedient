@@ -196,6 +196,14 @@ export class GrantRegistry {
     return candidates[0] ?? null;
   }
 
+  /** O grant, se ele e toda a cadeia de pais ainda estiverem vigentes. Sem substituto: outro grant não vale por ele. */
+  async inForce(userId: string, grantId: string): Promise<Grant | null> {
+    const doUsuario = await this.store.listByUser(userId);
+    const porId = new Map(doUsuario.map((g) => [g.id, g]));
+    const g = porId.get(grantId);
+    return g && g.userId === userId && this.chainActive(g, this.clock.now(), porId) ? g : null;
+  }
+
   private isActive(g: Grant, now: Date): boolean {
     return !g.revokedAt && g.expiresAt > now;
   }
