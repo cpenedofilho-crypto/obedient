@@ -196,3 +196,36 @@ O Growth OS é o servidor A2A da casa. O OBEDIENT fala com ele como cliente, pel
 - `OBEDIENT_GROWTH_OS_CARD_URL`, `_TOKEN_URL`, `_CLIENT_ID`, `_SEGREDO` e `_USUARIOS`.
 - O card e o token precisam ser https.
 - O segredo é lido do ambiente na hora de pedir o token e nunca vai para log, banco ou conversa.
+
+## Servidores MCP do dono (cliente MCP genérico, 09/11/2026)
+
+O OBEDIENT conversa com qualquer servidor MCP que fale Streamable HTTP, como o Motor IGA e o Recupera OS. Usa o SDK oficial, e a saída para a rede passa pelo `fetchSeguro`. O código está em `packages/server/src/mcp-servidores.ts`.
+
+**Quem decide o que entra é o dono do servidor**, na variável `OBEDIENT_MCP_SERVIDORES`, em JSON. Exemplo:
+
+```json
+[{"id":"motor_iga","nome":"Motor IGA","url":"https://…/mcp","token_env":"OBEDIENT_MCP_MOTOR_IGA_TOKEN",
+  "usuarios":["Juca"],"ferramentas":["motor_quem_sou_eu","motor_listar_leads_quentes"]}]
+```
+
+**Regras da configuração:**
+- **`id`** vira o sistema do Ethics Engine. Os ids `obedient`, `growth_os` e `google_*` são reservados.
+- **`url`** precisa ser https e não pode levar usuário nem senha.
+- **`token_env`** é o **nome** da variável que guarda o token (`OBEDIENT_MCP_*`). O valor do token é lido a cada chamada e nunca aparece no JSON, no log nem na conversa.
+- **`ferramentas`** é a lista fechada, com até 40 nomes:
+  - só é oferecido o que o dono listou **e** o servidor anuncia em `tools/list`;
+  - ferramenta nova no servidor não aparece sozinha;
+  - do servidor vem só o esquema de entrada e uma descrição cortada em 400 caracteres;
+  - chamar uma ferramenta fora da lista é recusado antes de chegar à rede.
+- **Configuração inválida:** o servidor não sobe.
+
+**Autoridade:**
+- Só as pessoas em `usuarios` podem receber a autoridade, e só depois de um ato explícito: `cli.ts mcp conceder <servidor> <usuario>`.
+- O ato cria um grant `<id>.*`, que vale **só para leitura de risco baixo** e por 30 dias.
+- O grant aparece no app e pode ser tirado lá ou com `cli.ts mcp retirar <servidor> <usuario>`.
+- Sem grant vigente, as ferramentas do servidor nem são oferecidas.
+- Escrita fica para uma fase seguinte, com aprovação.
+
+**Resultado e falhas:**
+- O resultado volta ao modelo como `conteudo_externo`, com o texto e os dados estruturados cortados em 20 mil caracteres.
+- Servidor fora do ar não derruba a missão: as ferramentas dele ficam de fora daquela vez, e o motivo vai para o log (`mcp.indisponivel`).

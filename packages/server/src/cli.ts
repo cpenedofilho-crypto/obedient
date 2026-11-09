@@ -8,6 +8,7 @@
 //   node --import tsx packages/server/src/cli.ts servir
 //   node --import tsx packages/server/src/cli.ts chave       (gera uma chave nova para o cofre)
 //   node --import tsx packages/server/src/cli.ts growth-os conceder|retirar <usuario>
+//   node --import tsx packages/server/src/cli.ts mcp conceder|retirar <servidor> <usuario>
 //
 // Variáveis:
 //   OBEDIENT_DATABASE_URL        conexão do SERVIDOR (papel de login membro de obedient_app/_operator/_auth)
@@ -31,6 +32,11 @@
 //     _CLIENT_ID                 client_id da aplicação M2M (não é segredo)
 //     _SEGREDO                   client secret da aplicação M2M (segredo do ambiente; nunca no repositório)
 //     _USUARIOS                  quem pode receber a autoridade, ids separados por vírgula
+//   OBEDIENT_MCP_SERVIDORES      servidores MCP de fora, em JSON (mcp-servidores.ts):
+//                                [{"id":"motor_iga","nome":"Motor IGA","url":"https://…/mcp",
+//                                  "token_env":"OBEDIENT_MCP_MOTOR_IGA_TOKEN","usuarios":["Juca"],
+//                                  "ferramentas":["motor_quem_sou_eu", …]}]
+//   OBEDIENT_MCP_<…>_TOKEN       o token de cada servidor (segredo do ambiente; o JSON só diz o NOME)
 
 import pg from "pg";
 import Anthropic from "@anthropic-ai/sdk";
@@ -46,6 +52,7 @@ import { Passkeys } from "./passkeys.ts";
 import { Cofre, Conexoes, lerChaves } from "@obedient/integrations";
 import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
 import { clienteGrowthOs, concederGrowthOs, configGrowthOsDoAmbiente, retirarGrowthOs } from "./growth-os.ts";
+import { concederMcp, conexaoMcp, retirarMcp, servidoresMcpDoAmbiente } from "./mcp-servidores.ts";
 
 const ESFORCOS: readonly Esforco[] = ["low", "medium", "high", "xhigh", "max"];
 
@@ -66,9 +73,13 @@ function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null) {
   const teste = new ModeloAnthropic({ cliente, ...(modelo ? { modelo } : {}), esforco, fallbacks });
   const growth = configGrowthOsDoAmbiente();
   console.log(growth ? `Growth OS por A2A ligado para ${growth.usuarios.size} pessoa(s)` : "Growth OS desligado (sem OBEDIENT_GROWTH_OS_*)");
+  const servidoresMcp = servidoresMcpDoAmbiente();
+  if (servidoresMcp.length) console.log(`servidores MCP: ${servidoresMcp.map((s) => `${s.id} (${s.ferramentas.length} ferramentas)`).join(", ")}`);
   const executar = executorDeMissoes({
     db,
     conexoes,
+    mcp: servidoresMcp.length ? { servidores: servidoresMcp, conexao: (s) => conexaoMcp(s) } : null,
+    log: (e) => console.log(JSON.stringify(e)),
     growthOs: growth ? { cliente: clienteGrowthOs(growth), usuarios: growth.usuarios } : null,
     novoModelo: () => new ModeloAnthropic({ cliente, modelo: teste.modelo, esforco, fallbacks }),
     centavosPorDolar,
@@ -125,6 +136,20 @@ async function main(argv: string[]) {
     console.log(acao === "conceder" ? `${usuario}: o agente pode ler o Growth OS por 30 dias (aparece no app e pode ser tirado)` : `${usuario}: autoridade no Growth OS retirada`);
     return fechar();
   }
+  if (comando === "mcp") {
+    const [acao, servidor, usuario] = resto;
+    if ((acao !== "conceder" && acao !== "retirar") || !servidor || !usuario) throw new Error("uso: mcp conceder|retirar <servidor> <usuario>");
+    const s = servidoresMcpDoAmbiente().find((x) => x.id === servidor);
+    if (!s) throw new Error(`servidor MCP ${servidor} não está em OBEDIENT_MCP_SERVIDORES`);
+    const { db, fechar } = banco("OBEDIENT_DATABASE_URL");
+    await comoUsuario(db, usuario, async (tx) => {
+      const motor = motorNaTransacao(tx, { clock: systemClock });
+      if (acao === "conceder") await concederMcp(motor, s, usuario, systemClock.now());
+      else await retirarMcp(motor, s.id, usuario);
+    });
+    console.log(acao === "conceder" ? `${usuario}: o agente pode ler ${s.nome} por 30 dias (${s.ferramentas.length} ferramentas; aparece no app e pode ser tirado)` : `${usuario}: autoridade em ${s.nome} retirada`);
+    return fechar();
+  }
   if (comando === "servir") {
     const origin = env("OBEDIENT_ORIGIN");
     if (!origin) throw new Error("defina OBEDIENT_ORIGIN");
@@ -142,7 +167,7 @@ async function main(argv: string[]) {
     servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(google ? { google } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
     return;
   }
-  throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | servir");
+  throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | mcp conceder|retirar <servidor> <usuario> | servir");
 }
 
 main(process.argv.slice(2)).catch((e) => {
