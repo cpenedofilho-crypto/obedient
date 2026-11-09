@@ -130,6 +130,8 @@ export function validarArgs(nome: string, args: Record<string, unknown>): string
     if (typeof args.intencao !== "string" || args.intencao.trim().length < 3 || args.intencao.length > 200) return "intencao de 3 a 200 caracteres";
     if ((op === "input.tap_element" || op === "input.text") && (typeof args.alvo !== "string" || !/^e\d{1,4}$/.test(args.alvo))) return "alvo precisa ser o id de um elemento da observação";
     if (op === "input.text" && (typeof args.texto !== "string" || !args.texto.length || args.texto.length > MAX_TEXTO_DIGITADO)) return `texto de 1 a ${MAX_TEXTO_DIGITADO} caracteres`;
+    // Quebra de linha envia formulário; caractere de controle ou invisível esconde parte do texto no resumo aprovado.
+    if (op === "input.text" && /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(args.texto as string)) return "texto sem quebra de linha, caractere de controle ou invisível";
     if (op === "input.swipe" && !["up", "down", "left", "right"].includes(args.direcao as string)) return "direcao: up, down, left ou right";
     if (op === "apps.launch" && (typeof args.app !== "string" || !/^[A-Za-z0-9_.]{3,200}$/.test(args.app))) return "app inválido";
   }
@@ -188,15 +190,19 @@ export interface PropostaVisivel {
 
 const curto = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
-/** O que a pessoa lê no pedido de aprovação. Sai dos dados da proposta, nunca do texto do modelo. */
+/**
+ * O que a pessoa lê no pedido de aprovação. Sai dos dados da proposta, nunca do texto do modelo. O
+ * texto a digitar vai INTEIRO (até 500 caracteres): aprova-se o que será digitado, não o começo.
+ * Textos entre aspas vão escapados (JSON), para uma aspa no texto não fingir o fim do trecho.
+ */
 export function resumir(op: Operacao, app: string | null, textoAlvo: string | undefined, args: Record<string, unknown>): string {
   const onde = app ? ` (${app})` : "";
-  const alvo = `"${curto(textoAlvo || "elemento sem texto", 60)}"`;
+  const alvo = JSON.stringify(curto(textoAlvo || "elemento sem texto", 60));
   switch (op) {
     case "input.tap_element":
       return `Tocar em ${alvo}${onde}`;
     case "input.text":
-      return `Digitar "${curto(String(args.texto), 120)}" em ${alvo}${onde}`;
+      return `Digitar ${JSON.stringify(String(args.texto))} em ${alvo}${onde}`;
     case "input.swipe":
       return `Deslizar para ${String(args.direcao)}${onde}`;
     case "nav.home":
@@ -248,10 +254,15 @@ export class MotorMovel {
     return s ? structuredClone(s) : undefined;
   }
 
-  /** Art. 9º: a parada de emergência encerra as sessões da pessoa (ou de todos) na hora. */
+  /**
+   * Art. 9º: a parada de emergência encerra as sessões da pessoa (ou de todos) na hora. Todas são
+   * marcadas fechadas antes de qualquer espera pelo aparelho (fechar() marca antes do primeiro
+   * await), e os aparelhos são avisados em paralelo: um aparelho lento não atrasa os outros.
+   */
   ligarParada(engine: { stop: { onEngage(l: (scope: { kind: "global" } | { kind: "user"; userId: string }) => void | Promise<void>): void } }) {
     engine.stop.onEngage(async (scope) => {
-      for (const s of this.sessoes.values()) if (s.estado === "active" && (scope.kind === "global" || s.tenantId === scope.userId)) await this.fechar(s, "killed", "parada de emergência");
+      const alvo = [...this.sessoes.values()].filter((s) => s.estado === "active" && (scope.kind === "global" || s.tenantId === scope.userId));
+      await Promise.all(alvo.map((s) => this.fechar(s, "killed", "parada de emergência")));
     });
   }
 
@@ -481,7 +492,15 @@ export class MotorMovel {
     else if (op === "nav.back") comandos.push({ tipo: "voltar" });
     else comandos.push({ tipo: "abrir_app", app: args.app as string });
     try {
-      for (const c of comandos) await this.o.adaptador.executar(d, c);
+      for (const [i, c] of comandos.entries()) {
+        // Parada, prazo ou encerramento no meio (a captura e cada comando esperam o aparelho): o
+        // próximo comando não sai.
+        if (s.estado !== "active") {
+          this.registrar(s, FERRAMENTAS.agir, op, "-", "-", args, i === 0 ? "negada" : "falhou", `sessão encerrada no meio da ação: ${s.motivoFim ?? s.estado}`, agora.screenHash, null);
+          return { status: "sessao_encerrada", mensagem: "A sessão foi encerrada no meio da ação e o resto não foi feito." };
+        }
+        await this.o.adaptador.executar(d, c);
+      }
     } catch (e) {
       this.registrar(s, FERRAMENTAS.agir, op, "-", "-", args, "falhou", "o aparelho recusou o comando", agora.screenHash, null);
       throw e;
