@@ -123,6 +123,9 @@ describe("authorize", () => {
     assert.equal(await r({ price: 150 }), "approval_required");
     assert.equal(await r({ price: 250 }), "denied");
     assert.equal(await r({}), "denied");
+    // Formatos que antes viravam um número bem menor (1e6 → 16, "R$ 2.500" → 2,5): agora ilegíveis.
+    for (const price of ["1e6", "R$ 2.500", "1.000", "1,000.50", "0x10"]) assert.equal(await r({ price }), "denied", price);
+    assert.equal(await r({ price: "R$ 150,00" }), "approval_required");
   });
 
   it("personal data needs purpose and consent; sensitive needs specific consent; revoking is immediate", async () => {

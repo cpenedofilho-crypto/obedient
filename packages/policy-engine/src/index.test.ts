@@ -153,5 +153,24 @@ describe("amountOf", () => {
     assert.equal(amountOf({ v: "1234.56" }, "v"), 1234.56);
     assert.equal(amountOf({ v: "abc" }, "v"), null);
     assert.equal(amountOf({}, "v"), null);
+    assert.equal(amountOf({ v: "1.234" }, "v"), null, "1.234 é mil e pouco ou um e pouco: ambíguo");
+    assert.equal(amountOf({ v: "1.5" }, "v"), 1.5);
+    assert.equal(amountOf({ v: "1234,56" }, "v"), 1234.56);
+    assert.equal(amountOf({ v: "R$ 2.500,00" }, "v"), 2500);
+  });
+
+  it("formats that used to be read as a much smaller number are now unreadable", () => {
+    for (const v of ["1e6", "R$ 2.500", "1.000", "1,000.50", "0x10", "12abc", "1 000", "Infinity", "--5"]) assert.equal(amountOf({ v }, "v"), null, v);
+    assert.equal(amountOf({ v: Number.POSITIVE_INFINITY }, "v"), null);
+    assert.equal(amountOf({ v: Number.NaN }, "v"), null);
+  });
+
+  it("an unreadable amount triggers a restricting policy, never a releasing one", () => {
+    const restringe = [pol({ effect: "require_privileged_approval", id: "acima", amountField: "amount", amountAbove: 500 })];
+    assert.equal(decide(action({ risk: "LOW", args: { amount: "1e6" } }), restringe).policyId, "acima");
+    assert.equal(decide(action({ risk: "LOW", args: { amount: 100 } }), restringe).policyId, null);
+    assert.equal(decide(action({ risk: "LOW", args: {} }), restringe).policyId, null, "sem o campo, a condição de valor não se aplica");
+    const libera = [pol({ effect: "allow_autonomous", id: "libera", amountField: "amount", amountAbove: 0 })];
+    assert.equal(decide(action({ risk: "MEDIUM", args: { amount: "1e6" } }), libera, { ...SYSTEM_DEFAULTS, MEDIUM: "require_approval" }).effect, "require_approval");
   });
 });
