@@ -53,7 +53,14 @@ export async function bancoDeTeste(): Promise<BancoDeTeste> {
     };
   }
   const lite = new PGlite();
-  const db: Database = {
+  const db = dePglite(lite);
+  await migrate(db);
+  return { db, tipo: "pglite", fechar: () => lite.close() };
+}
+
+/** Adapta um PGlite (uma conexão só) à interface Database. */
+export function dePglite(lite: PGlite): Database {
+  return {
     query: async <R>(sql: string, params?: unknown[]) => (await lite.query(sql, params)) as unknown as { rows: R[] },
     exec: (sql: string) => lite.exec(sql),
     transaction: <T>(fn: Parameters<Database["transaction"]>[0]) =>
@@ -64,6 +71,4 @@ export async function bancoDeTeste(): Promise<BancoDeTeste> {
         }),
       ) as Promise<T>,
   };
-  await migrate(db);
-  return { db, tipo: "pglite", fechar: () => lite.close() };
 }

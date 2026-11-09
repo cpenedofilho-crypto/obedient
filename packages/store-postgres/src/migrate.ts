@@ -13,6 +13,21 @@ import type { Database } from "./db.ts";
 
 const PASTA = fileURLToPath(new URL("../sql/", import.meta.url));
 
+// Papéis que viram donos de função SECURITY DEFINER (`alter function ... owner to`). Fora de
+// superusuário (ex.: Supabase, onde `postgres` só tem CREATEROLE), o Postgres exige que o novo dono
+// tenha CREATE no schema. As migrations já aplicadas não podem mudar (o hash é conferido), então o
+// CREATE é dado aqui, só durante cada migration e na mesma transação, e tirado antes do commit: os
+// papéis nunca ficam com CREATE. Criados antes (se não existem) para o grant ter a quem se dirigir;
+// as migrations que os criam usam `if not exists`.
+const DONOS_DE_FUNCAO = ["obedient_eraser", "obedient_scheduler"] as const;
+
+const ANTES = `do $$
+begin
+${DONOS_DE_FUNCAO.map((r) => `  if not exists (select from pg_roles where rolname = '${r}') then create role ${r} nologin; end if;`).join("\n")}
+end $$;
+grant create on schema obedient to ${DONOS_DE_FUNCAO.join(", ")}`;
+const DEPOIS = `revoke create on schema obedient from ${DONOS_DE_FUNCAO.join(", ")}`;
+
 export interface Migration {
   name: string;
   sql: string;
@@ -40,7 +55,9 @@ export async function migrate(db: Database): Promise<string[]> {
     if (anterior === m.hash) continue;
     if (anterior) throw new Error(`migration ${m.name} já aplicada com outro conteúdo: crie uma migration nova em vez de editar`);
     await db.transaction(async (tx) => {
+      await tx.exec(ANTES);
       await tx.exec(m.sql);
+      await tx.exec(DEPOIS);
       await tx.query("insert into obedient.schema_migrations (name, hash) values ($1, $2)", [m.name, m.hash]);
     });
     aplicadas.push(m.name);
