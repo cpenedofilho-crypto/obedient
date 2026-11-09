@@ -54,6 +54,10 @@ const usar = (id: string, name: string, input: Record<string, unknown>) => () =>
 const concluir = (tipo: string, explicacao: string, id = "fim") => usar(id, CONCLUIR, { tipo, explicacao });
 const encerrar = () => resposta([{ type: "text", text: "Pronto." }], "end_turn");
 const resultados = (p: PedidoModelo) => p.messages.at(-1)!.content as ResultadoFerramenta[];
+/** O Google falso devolve o compromisso no GET (apagar confere título e início) e 204 no DELETE. */
+const eventoFalso = (u: URL, metodo: string) =>
+  metodo === "GET" ? { json: { id: u.pathname.split("/").at(-1), summary: "Consulta", start: { dateTime: "2026-11-05T14:00:00-03:00" } } } : { status: 204 };
+const apagar = (id: string) => ({ id, titulo: "Consulta", inicio: "2026-11-05T14:00:00-03:00" });
 
 function montar() {
   const google = new GoogleFalso(CLIENTE.clientSecret);
@@ -108,11 +112,11 @@ describe("executor das missões", () => {
     const c = montar();
     const u = usuario();
     await c.conectar(u, "google_agenda");
-    c.google.responderApi = () => ({ status: 204 });
+    c.google.responderApi = eventoFalso;
     const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "Apague o compromisso ev1", { maxTentativas: 1 }));
     const r = roteiro(
       0.001,
-      usar("t1", "google_agenda__apagar_evento", { id: "ev1" }),
+      usar("t1", "google_agenda__apagar_evento", apagar("ev1")),
       (p) => {
         // Na retomada, o resultado da ação aprovada volta numa mensagem só.
         assert.equal(resultados(p).length, 1);
@@ -142,11 +146,11 @@ describe("executor das missões", () => {
     const c = montar();
     const u = usuario();
     await c.conectar(u, "google_agenda");
-    c.google.responderApi = () => ({ status: 204 });
+    c.google.responderApi = eventoFalso;
     await c.missoes(u, (ms) => ms.criar(u, "obedient", "Apague ev1 e ev2"));
     const r = roteiro(
       0,
-      () => resposta([{ type: "tool_use", id: "a", name: "google_agenda__apagar_evento", input: { id: "ev1" } }, { type: "tool_use", id: "b", name: "google_agenda__apagar_evento", input: { id: "ev2" } }], "tool_use"),
+      () => resposta([{ type: "tool_use", id: "a", name: "google_agenda__apagar_evento", input: apagar("ev1") }, { type: "tool_use", id: "b", name: "google_agenda__apagar_evento", input: apagar("ev2") }], "tool_use"),
       (p) => {
         assert.deepEqual(resultados(p).map((x) => [x.tool_use_id, x.is_error]), [["a", false], ["b", false]]);
         return concluir("feito", "Apaguei os dois.")();

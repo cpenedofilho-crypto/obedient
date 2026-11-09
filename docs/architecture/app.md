@@ -61,8 +61,9 @@ sem fazer de novo. Se o mesmo `opId` chegar duas vezes ao mesmo tempo, a segunda
 
 ## O painel vem dos dados
 
-O cartão mostra agente, sistema, ação e os argumentos como chave e valor, montados do payload
-gravado, nunca do texto do modelo. Aprovar envia o **hash** do que o cartão mostrou. Se o pedido
+O cartão mostra agente, sistema, ação e TODOS os argumentos, inteiros, como chave e valor, montados
+do payload gravado, nunca do texto do modelo: aprova-se o payload todo, então a pessoa vê o payload
+todo. Texto longo rola dentro do campo; endereço de e-mail traz o domínio à parte, em destaque. Aprovar envia o **hash** do que o cartão mostrou. Se o pedido
 tiver mudado, a aprovação é recusada.
 
 ## O app (PWA)

@@ -79,8 +79,8 @@ describe("ferramentas do Google pelo Ethics Engine", () => {
     const c = montar();
     const u = usuario();
     await c.conectar(u, "google_agenda");
-    c.google.responderApi = () => ({ status: 204 });
-    const args = { id: "ev1" };
+    c.google.responderApi = (_u, metodo) => (metodo === "GET" ? { json: { id: "ev1", summary: "Dentista", start: { dateTime: "2026-11-05T14:00:00-03:00" } } } : { status: 204 });
+    const args = { id: "ev1", titulo: "Dentista", inicio: "2026-11-05T14:00:00-03:00" };
     const r = await c.chamar(u, "google_agenda.apagar_evento", args);
     assert.equal(r.status, "approval_required");
     assert.equal(c.google.api.length, 0, "nada apagado antes da aprovação");
@@ -89,7 +89,7 @@ describe("ferramentas do Google pelo Ethics Engine", () => {
     await assert.rejects(c.motor(u, (m) => m.approve(r.approvalId!, { id: u, kind: "user", strongAuth: false }, p!.payloadHash)), /reautenticação/);
     await c.motor(u, (m) => m.approve(r.approvalId!, { id: u, kind: "user", strongAuth: true }, p!.payloadHash));
     // Outro id com o mesmo approvalId: recusado (o payload é o que a pessoa viu).
-    assert.equal((await c.chamar(u, "google_agenda.apagar_evento", { id: "outro" }, r.approvalId!)).motivo, "payload_diferente_do_aprovado");
+    assert.equal((await c.chamar(u, "google_agenda.apagar_evento", { ...args, id: "outro" }, r.approvalId!)).motivo, "payload_diferente_do_aprovado");
     const feito = await c.chamar(u, "google_agenda.apagar_evento", args, r.approvalId!);
     assert.equal(feito.status, "succeeded", JSON.stringify(feito));
     assert.equal(c.google.api.filter((x) => x.metodo === "DELETE").length, 1);

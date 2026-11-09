@@ -348,13 +348,25 @@ function renderParada(/** @type {Op[]} */ ops) {
   caixa.replaceChildren(...conteudo);
 }
 
+/** @param {string} v */
+const longo = (v) => v.length > 280 || v.includes("\n");
+
 /** @param {any} c cartão do servidor @param {Op | undefined} op última ação local sobre ele */
 function cartao(c, op) {
   const titulo = el("p", { classe: "cartao-titulo" }, [el("strong", { texto: c.agente }), document.createTextNode(" quer "), el("strong", { texto: c.acao }), document.createTextNode(` em ${c.sistema}`)]);
   const detalhes = el(
     "dl",
     { classe: "detalhes" },
-    c.detalhes.flatMap((/** @type {{ campo: string, valor: string }} */ d) => [el("dt", { texto: d.campo }), el("dd", { texto: d.valor })]),
+    // Tudo o que será executado, inteiro: texto longo rola dentro do campo, e o domínio de um e-mail
+    // aparece à parte, em destaque, para não sumir no fim de um endereço comprido.
+    c.detalhes.flatMap((/** @type {{ campo: string, valor: string, dominio?: string }} */ d) => [
+      el("dt", { texto: d.campo }),
+      el("dd", { classe: longo(d.valor) ? "longo" : "" }, [
+        // Região que rola precisa de foco pelo teclado (axe: scrollable-region-focusable).
+        el("span", { classe: "valor", texto: d.valor, atributos: longo(d.valor) ? { tabindex: "0", "aria-label": `${d.campo}, texto completo` } : {} }),
+        d.dominio ? el("span", { classe: "dominio", texto: `domínio: ${d.dominio}` }) : null,
+      ]),
+    ]),
   );
   const meta = el("p", { classe: "meta" }, [el("span", { texto: c.motivo }), document.createTextNode(" · "), el("span", { texto: falta(c.venceEm) })]);
   const rotulo = `${c.acao} em ${c.sistema}`;

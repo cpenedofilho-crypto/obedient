@@ -150,13 +150,13 @@ describe("painel e ações", () => {
     const { token } = await cadastrar(u);
     await grantEPedidos(u);
     const p = corpo<{
-      pedidos: { acao: string; agente: string; exigeReautenticacao: boolean; detalhes: { campo: string; valor: string }[] }[];
+      pedidos: { acao: string; agente: string; exigeReautenticacao: boolean; detalhes: { campo: string; valor: string; dominio?: string }[] }[];
       autorizacoes: { finalidade: string }[];
       atividade: { texto: string }[];
       parada: null;
     }>(await api(get("/api/painel", token)));
     assert.deepEqual(p.pedidos.map((c) => [c.acao, c.agente, c.exigeReautenticacao]), [["mail.send", "obedient", false], ["mail.delete_all", "obedient", true]]);
-    assert.deepEqual(p.pedidos[0]!.detalhes, [{ campo: "assunto", valor: "Resumo da semana" }, { campo: "para", valor: "equipe@exemplo.org" }]);
+    assert.deepEqual(p.pedidos[0]!.detalhes, [{ campo: "assunto", valor: "Resumo da semana" }, { campo: "para", valor: "equipe@exemplo.org", dominio: "exemplo.org" }]);
     assert.equal(p.autorizacoes[0]!.finalidade, "cuidar do e-mail de trabalho");
     assert.match(p.atividade[0]!.texto, /pediu sua aprovação para mail\.delete_all em mail/);
     assert.equal(p.parada, null);

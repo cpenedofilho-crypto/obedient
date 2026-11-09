@@ -146,10 +146,26 @@ export const FERRAMENTAS: readonly DefinicaoDeFerramenta[] = [
   {
     nome: "google_agenda.apagar_evento",
     integracao: "google_agenda",
-    esquema: { type: "object", properties: { id: { type: "string", maxLength: 1024, description: "Id do compromisso (de listar_eventos)" } }, required: ["id"], additionalProperties: false },
+    // Título e início vão no pedido para a pessoa saber O QUE aprova (um id não diz nada) e são
+    // conferidos com o Google antes de apagar: se não baterem, nada é apagado.
+    esquema: {
+      type: "object",
+      properties: {
+        id: { type: "string", maxLength: 1024, description: "Id do compromisso (de listar_eventos)" },
+        titulo: { type: "string", maxLength: LIMITES.titulo, description: "Título do compromisso, exatamente como listar_eventos devolveu" },
+        inicio: { type: "string", maxLength: 64, description: "Início do compromisso, exatamente como listar_eventos devolveu" },
+      },
+      required: ["id", "titulo", "inicio"],
+      additionalProperties: false,
+    },
     async executar(a, token, http) {
       if (!/^[A-Za-z0-9_-]+$/.test(a.id as string)) erro("id de compromisso inválido");
-      await chamar(http, `${API.agenda}/${encodeURIComponent(a.id as string)}?sendUpdates=none`, token, { method: "DELETE" });
+      const url = `${API.agenda}/${encodeURIComponent(a.id as string)}`;
+      const e = (await chamar(http, url, token)) as Record<string, any>;
+      const inicio = e?.start?.dateTime ?? e?.start?.date ?? null;
+      const mesmoInicio = typeof inicio === "string" && (inicio === a.inicio || (e.start?.dateTime && Date.parse(inicio) === Date.parse(a.inicio as string)));
+      if (e?.status === "cancelled" || curto(e?.summary, LIMITES.titulo) !== a.titulo || !mesmoInicio) erro("o compromisso não é o que foi aprovado: nada foi apagado");
+      await chamar(http, `${url}?sendUpdates=none`, token, { method: "DELETE" });
       return { apagado: true };
     },
   },

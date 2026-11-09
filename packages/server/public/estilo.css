@@ -139,6 +139,21 @@ h3 {
   margin: 0;
   overflow-wrap: anywhere;
 }
+.detalhes dd .valor {
+  white-space: pre-wrap;
+}
+.detalhes dd.longo .valor {
+  display: block;
+  max-height: 12em;
+  overflow-y: auto;
+  padding: 4px 6px;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+}
+.detalhes dd .dominio {
+  display: block;
+  font-weight: 700;
+}
 
 .meta,
 .ajuda {
