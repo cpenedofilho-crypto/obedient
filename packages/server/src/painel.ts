@@ -371,3 +371,25 @@ export function conexoesNoPainel(conectadas: readonly { integracao: string; cone
     };
   });
 }
+
+/** Cartões dos servidores MCP que a pessoa conecta com a conta dela (OAuth), só os da lista do dono. */
+export function conexoesMcpNoPainel(
+  servidores: readonly { id: string; nome: string; ferramentas: readonly string[]; usuarios: ReadonlySet<string>; oauth?: unknown }[],
+  conectadas: readonly { integracao: string; conectada_em: unknown }[],
+  userId: string,
+): ConexaoNoPainel[] {
+  return servidores
+    .filter((s) => s.oauth && s.usuarios.has(userId))
+    .map((s) => {
+      const c = conectadas.find((x) => x.integracao === s.id);
+      return {
+        id: s.id,
+        nome: s.nome,
+        explicacao: `Ler, no ${s.nome}, o que as ferramentas listadas pelo dono do servidor mostram, com a sua conta de lá. Só leitura.`,
+        disponivel: true,
+        conectada: !!c,
+        conectadaEm: c ? new Date(c.conectada_em as string | Date).toISOString() : null,
+        ferramentas: s.ferramentas.map((f) => ({ nome: f, descricao: "leitura", risco: riscoEmPortugues("LOW")! })),
+      };
+    });
+}

@@ -229,3 +229,30 @@ O OBEDIENT conversa com qualquer servidor MCP que fale Streamable HTTP, como o M
 **Resultado e falhas:**
 - O resultado volta ao modelo como `conteudo_externo`, com o texto e os dados estruturados cortados em 20 mil caracteres.
 - Servidor fora do ar não derruba a missão: as ferramentas dele ficam de fora daquela vez, e o motivo vai para o log (`mcp.indisponivel`). O motivo é uma classe fechada: `sem_token`, `recusado_401`, `recusado_403`, `nao_encontrado_404`, `erro_servidor_5xx`, `http_<código>`, `destino_proibido`, `tempo_esgotado`, `rede`, `resposta_invalida` ou `erro`. A mensagem do erro nunca entra, porque é texto do servidor de fora, e o token também não.
+
+### Servidor MCP com a conta da pessoa (OAuth, 10/11/2026)
+
+Alguns servidores só aceitam o token de um **usuário**, emitido pelo Authorization Server deles. É o caso do Recupera OS, que usa o Supabase OAuth Server. Para esses, a entrada do servidor em `OBEDIENT_MCP_SERVIDORES` usa `oauth` no lugar de `token_env`:
+
+```json
+{"id":"recupera","nome":"Recupera OS","url":"https://…/mcp","usuarios":["Juca"],
+ "ferramentas":["recupera.minhas_capacidades","recupera.analisar_recuperacao"],
+ "oauth":{"client_id":"<cliente público no Authorization Server>","issuer":"https://<projeto>.supabase.co/auth/v1","escopos":["openid"]},
+ "cabecalhos":{"x-recupera-escola-id":"<uuid da escola do agente>"}}
+```
+
+O código está em `packages/server/src/mcp-oauth.ts` e segue o mesmo desenho da conexão com o Google:
+
+- **A pessoa conecta no app.** O fluxo usa PKCE S256 e um `state` de uso único, preso ao navegador. O retorno vai para `<OBEDIENT_ORIGIN>/api/conexoes/mcp/retorno`, que é o endereço a cadastrar no cliente OAuth do servidor.
+  - Conectar concede ao agente a leitura daquele servidor: grant `<id>.*`, risco baixo, 30 dias.
+  - Desconectar tira a conexão e o grant.
+- **Cliente público, sem segredo.** O emissor vem da configuração do dono. A descoberta (RFC 8414) só vale se:
+  - o `issuer` devolvido for o configurado;
+  - os endpoints forem https na mesma origem;
+  - houver S256.
+- **A credencial fica cifrada no cofre** (`OBEDIENT_CHAVES_COFRE`, obrigatório nesse caso) e é renovada antes de vencer. Se a renovação for recusada (`invalid_grant`), a conexão cai.
+- **Sem endpoint de revogação:** ao desconectar, parar ou apagar, a credencial é descartada aqui. A fila de revogação do Google passou a levar **só** `google_*`. Antes, ela mandaria qualquer token ao endpoint do Google.
+- **`cabecalhos` (opcional):** cabeçalhos fixos que não são segredo, como `x-recupera-escola-id`.
+  - Só nomes `x-…`; o servidor não sobe com nome que pareça credencial (`auth`, `token`, `key`, `secret`, `cookie`).
+  - Nunca substituem o `authorization`.
+  - No Recupera, prendem a sessão à escola do agente cadastrado em `agentes_ia`.

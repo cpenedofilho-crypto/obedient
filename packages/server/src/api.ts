@@ -16,7 +16,9 @@ import { type Database, type OpcoesMotor, Sessoes, comoUsuario, contestacoes, le
 import { contexto } from "./contexto.ts";
 import { type ClienteOAuth, type Cofre, Conexoes, INTEGRACOES, STATE_TTL_MS, concederAoConectar } from "@obedient/integrations";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
-import { conexoesNoPainel } from "./painel.ts";
+import { conexoesMcpNoPainel, conexoesNoPainel } from "./painel.ts";
+import { type ConexoesMcp, ROTA_RETORNO_MCP } from "./mcp-oauth.ts";
+import { type ServidorMcp, concederMcp } from "./mcp-servidores.ts";
 import { exportarDados } from "./exportar.ts";
 import { aplicarAcao, lerAcao } from "./acoes.ts";
 import { montarPainel } from "./painel.ts";
@@ -42,6 +44,8 @@ export interface ConfigApi extends ConfigPasskey {
   motor?: Omit<OpcoesMotor, "clock">;
   /** Integrações com o Google. Sem isto, o app mostra que o servidor não tem integrações ligadas. */
   google?: { cliente: ClienteOAuth; cofre: Cofre; fetch?: typeof fetch };
+  /** Servidores MCP que a pessoa conecta com a conta dela (mcp-oauth.ts). */
+  mcp?: { conexoes: ConexoesMcp; servidores: readonly ServidorMcp[] };
 }
 
 export const COOKIE_OAUTH = "__Host-obedient-oauth";
@@ -73,7 +77,10 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
   /** Revogar no Google o que entrou na fila (rede, depois do commit). Falha fica para a próxima vez. */
   const revogarDepois = (userId: string) => {
     if (conexoes) void conexoes.revogarPendentes(userId).catch((e) => console.error(JSON.stringify({ evento: "conexoes.revogar_falhou", erro: e instanceof Error ? e.message : String(e) })));
+    // Servidor MCP sem endpoint de revogação: a credencial que foi para a fila é descartada (nunca vai ao Google).
+    if (cfg.mcp) void cfg.mcp.conexoes.descartarRevogacoes(userId).catch((e) => console.error(JSON.stringify({ evento: "conexoes.mcp_descartar_falhou", erro: e instanceof Error ? e.name : "erro" })));
   };
+  const idsMcp = (cfg.mcp?.servidores ?? []).filter((s) => s.oauth).map((s) => s.id);
   // O servidor exige a identificação nas mensagens em nome da pessoa (Art. 5º).
   const opcoesMotor: OpcoesMotor = { ...cfg.motor, clock, exigirIdentificacao: true };
 
@@ -120,6 +127,31 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
     // O Google devolve a pessoa aqui. Sem a sessão (o cookie dela é SameSite=Strict e não vem num
     // redirecionamento de outro site): quem prova o fluxo é o state no banco + o nonce no cookie Lax
     // deste navegador. Sempre termina redirecionando para o app, com o desfecho na URL.
+    // Volta do Authorization Server de um servidor MCP (mesma prova do Google: state no banco + nonce
+    // no cookie Lax). Conectar concede ao agente a leitura daquele servidor (grant LOW, 30 dias).
+    if (p.method === "GET" && caminho === ROTA_RETORNO_MCP) {
+      const q = new URLSearchParams(p.path.split("?")[1] ?? "");
+      const voltar = (status: "ok" | "erro", extra: Record<string, string>) => ({
+        status: 303,
+        headers: { location: `/?${new URLSearchParams({ conexao: status, ...extra }).toString()}`, "cache-control": "no-store", "set-cookie": `${COOKIE_OAUTH}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0` },
+        body: "",
+      });
+      if (!cfg.mcp) return voltar("erro", { motivo: "este servidor não tem servidores MCP com conta da pessoa" });
+      if (q.get("error")) return voltar("erro", { motivo: q.get("error") === "access_denied" ? "você não autorizou" : "o servidor recusou" });
+      try {
+        const r = await cfg.mcp.conexoes.concluir(q.get("state") ?? "", q.get("code") ?? "", lerCookie(p.headers.cookie, COOKIE_OAUTH));
+        const sv = cfg.mcp.conexoes.servidor(r.integracao, r.userId);
+        await comoUsuario(db, r.userId, async (tx) => {
+          const m = motorNaTransacao(tx, opcoesMotor);
+          await concederMcp(m, sv, r.userId, clock.now());
+          await m.audit.record({ userId: r.userId, actor: `user:${r.userId}`, event: "connection.added", outcome: "info", systemId: r.integracao, constitutionVersion: CONSTITUTION_VERSION });
+        });
+        return voltar("ok", { integracao: r.integracao });
+      } catch (e) {
+        return voltar("erro", { motivo: e instanceof ObedientError ? e.message : "não deu para conectar" });
+      }
+    }
+
     if (p.method === "GET" && caminho === "/api/conexoes/retorno") {
       const q = new URLSearchParams(p.path.split("?")[1] ?? "");
       const voltar = (status: "ok" | "erro", extra: Record<string, string>) => ({
@@ -155,7 +187,7 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
           const c = contexto(tx, opcoesMotor, clock);
           const conectadas = await tx.query<{ integracao: string; conectada_em: unknown }>("select integracao, conectada_em from obedient.connections where user_id = $1", [s.userId]);
           const painel = await montarPainel(c.motor, c.memoria, c.missoes, await contestacoes(tx, s.userId), await lerIdentificacao(tx, s.userId), s.userId, s.strongAuth, clock.now());
-          return { ...painel, conexoes: conexoesNoPainel(conectadas.rows, !!conexoes) };
+          return { ...painel, conexoes: [...conexoesNoPainel(conectadas.rows, !!conexoes), ...conexoesMcpNoPainel(cfg.mcp?.servidores ?? [], conectadas.rows, s.userId)] };
         }),
       );
 
@@ -167,7 +199,7 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
     }
 
     if (p.method === "POST" && caminho === "/api/acoes") {
-      const acao = lerAcao(comCorpo(p));
+      const acao = lerAcao(comCorpo(p), idsMcp);
       if (Array.isArray(acao)) return erro(400, "acao", acao.join("; "));
       try {
         const r = await comoUsuario(db, s.userId, (tx) => aplicarAcao(contexto(tx, opcoesMotor, clock), s, acao));
@@ -187,8 +219,12 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
 
     // A pessoa aperta "Conectar": o app vai para a URL do Google; o nonce fica num cookie Lax deste navegador.
     if (p.method === "POST" && caminho === "/api/conexoes/iniciar") {
-      if (!conexoes) return erro(400, "conexoes", "este servidor não tem integrações ligadas");
       const { integracao: id } = comCorpo(p) as { integracao?: string };
+      if (cfg.mcp && typeof id === "string" && idsMcp.includes(id)) {
+        const { url, nonce } = await cfg.mcp.conexoes.iniciar(s.userId, id);
+        return json(200, { url }, { "set-cookie": `${COOKIE_OAUTH}=${nonce}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${STATE_TTL_MS / 1000}` });
+      }
+      if (!conexoes) return erro(400, "conexoes", "este servidor não tem integrações ligadas");
       if (!INTEGRACOES.some((i) => i.id === id)) return erro(400, "conexoes", "integração desconhecida");
       const { url, nonce } = await conexoes.iniciar(s.userId, id!);
       return json(200, { url }, { "set-cookie": `${COOKIE_OAUTH}=${nonce}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${STATE_TTL_MS / 1000}` });
