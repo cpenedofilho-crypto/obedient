@@ -135,6 +135,7 @@ export function motivoParaPessoa(m: string): string {
   }
   if ((x = m.match(/^category (\w+) counts as CRITICAL/))) return `Ação ${CATEGORIA[x[1]!] ?? x[1]!.toLowerCase()}: sempre ${passkey}.`;
   if (/^risk CRITICAL always requires privileged approval/.test(m)) return `Ação crítica: sempre ${passkey}.`;
+  if (/^risk HIGH always requires approval/.test(m)) return "Ação de risco alto: sempre precisa da sua aprovação.";
   if ((x = m.match(/^policy (\S+) requires (privileged approval|approval)(?: \(amount in (\S+) above ([\d.]+)\))?$/))) {
     const oque = x[2] === "approval" ? "pede a sua aprovação" : `pede ${passkey.replace("precisa da ", "a ")}`;
     const valor = x[3] ? `, porque o valor em ${x[3]} passa de ${Number(x[4]).toLocaleString("pt-BR")}` : "";

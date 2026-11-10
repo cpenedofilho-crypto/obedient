@@ -65,7 +65,7 @@ export interface EthicsEngineDeps {
 
 const RISKS_UP_TO = (r: RiskLevel): RiskLevel[] => (["LOW", "MEDIUM", "HIGH", "CRITICAL"] as RiskLevel[]).filter((x) => riskRank(x) <= riskRank(r));
 
-/** A autonomia que o usuário deu no grant vira política de dados (nunca alcança CRITICAL: regra fixa). */
+/** A autonomia que o usuário deu no grant vira política de dados (nunca alcança HIGH nem CRITICAL: regra fixa). */
 function autonomyPolicy(g: Grant): Policy | null {
   if (!g.limits.autonomousUpTo) return null;
   return {

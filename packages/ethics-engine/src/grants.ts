@@ -74,7 +74,8 @@ function validateSpec(spec: GrantSpec, now: Date): void {
   if (spec.expiresAt <= now) fail("expiresAt precisa estar no futuro");
   const { limits } = spec;
   if (limits.autonomousUpTo && riskRank(limits.autonomousUpTo) > riskRank(limits.maxRisk)) fail("autonomia acima do risco máximo do grant");
-  if (limits.autonomousUpTo === "CRITICAL") fail("CRITICAL nunca é autônomo");
+  // Art. 1º: HIGH e CRITICAL nunca rodam sem aprovação, mesmo com grant.
+  if (limits.autonomousUpTo && riskRank(limits.autonomousUpTo) >= riskRank("HIGH")) fail("HIGH e CRITICAL nunca são autônomos: autonomia vai no máximo até MEDIUM");
   if ((limits.maxAmount === null) !== (limits.amountField === null)) fail("maxAmount e amountField andam juntos");
   if (limits.maxAmount !== null && !(limits.maxAmount >= 0)) fail("maxAmount inválido");
 }

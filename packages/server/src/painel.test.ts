@@ -52,6 +52,7 @@ describe("painel em português", () => {
     casos.push([acao("LOW", undefined, { valor: 900 }), [politica("require_approval", { amountField: "valor", amountAbove: 500 })], SYSTEM_DEFAULTS]);
     casos.push([acao("MEDIUM"), [], validateDefaults({ MEDIUM: "deny" })]);
     casos.push([acao("HIGH"), [], validateDefaults({ HIGH: "allow" })]);
+    casos.push([acao("HIGH"), [politica("allow_autonomous")], SYSTEM_DEFAULTS]);
     const vistos = new Set<string>();
     for (const [a, ps, d] of casos) {
       const motivo = decide(a, ps, d, agora).reason;

@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { ManualClock } from "@obedient/core";
 import { CONSTITUTION_VERSION, ENFORCED_ARTICLES, EthicsEngine, type GrantSpec } from "@obedient/ethics-engine";
 import { InMemoryMemoryStore, Memoria } from "@obedient/memory";
+import { SYSTEM_DEFAULTS, type Policy } from "@obedient/policy-engine";
 import { InMemoryMissionStore, Missoes } from "@obedient/missions";
 
 const T0 = new Date("2026-11-02T12:00:00Z");
@@ -50,6 +51,38 @@ describe(`Constituição ${CONSTITUTION_VERSION}`, () => {
     await grant({ limits: { maxRisk: "CRITICAL", autonomousUpTo: "MEDIUM", maxAmount: null, amountField: null } });
     assert.equal((await ask("mail.send", "HIGH", "COMMUNICATION")).outcome, "approval_required");
     assert.equal((await ask("mail.send", "CRITICAL", "COMMUNICATION")).outcome, "approval_required");
+  });
+
+  it("Art. 1º — nem grant, nem política, nem padrão deixam HIGH rodar sozinho", async () => {
+    const { grant } = world();
+    await assert.rejects(() => grant({ limits: { maxRisk: "HIGH", autonomousUpTo: "HIGH", maxAmount: null, amountField: null } }));
+    await assert.rejects(() => grant({ limits: { maxRisk: "CRITICAL", autonomousUpTo: "CRITICAL", maxAmount: null, amountField: null } }));
+
+    const solta: Policy = {
+      id: "solta",
+      effect: "allow_autonomous",
+      systemId: "mail",
+      toolPattern: "mail.*",
+      principalId: "*",
+      riskLevels: ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+      eventTypes: null,
+      entityTypes: null,
+      roles: null,
+      contextMatch: null,
+      amountField: null,
+      amountAbove: null,
+      expiresAt: null,
+      active: true,
+    };
+    const clock = new ManualClock(T0);
+    const engine = new EthicsEngine({ clock, policiesFor: () => [solta], defaultsFor: () => ({ ...SYSTEM_DEFAULTS, HIGH: "allow" }) });
+    await engine.grants.grant(
+      { userId: "ana", agentId: "obedient", systemId: "mail", capability: "mail.*", purpose: "responder e-mails de trabalho", limits: { maxRisk: "CRITICAL", autonomousUpTo: "MEDIUM", maxAmount: null, amountField: null }, expiresAt: new Date(T0.getTime() + H) },
+      "ana",
+    );
+    const pedir = async (risk: "HIGH" | "CRITICAL") => (await engine.authorize({ userId: "ana", agentId: "obedient", systemId: "mail", tool: "mail.send", risk, category: "COMMUNICATION", args: { to: "x@example.org" } })).outcome;
+    assert.equal(await pedir("HIGH"), "approval_required");
+    assert.equal(await pedir("CRITICAL"), "approval_required");
   });
 
   it("Art. 2º — revogação vale na próxima chamada", async () => {
@@ -146,7 +179,7 @@ describe(`Constituição ${CONSTITUTION_VERSION}, Fase 6`, () => {
     let identificacao: string | null = null;
     const engine = new EthicsEngine({ clock, identificacaoDe: () => identificacao });
     await engine.grants.grant(
-      { userId: "ana", agentId: "obedient", systemId: "mail", capability: "mail.*", purpose: "responder e-mails de trabalho", limits: { maxRisk: "HIGH", autonomousUpTo: "HIGH", maxAmount: null, amountField: null }, expiresAt: new Date(T0.getTime() + H) },
+      { userId: "ana", agentId: "obedient", systemId: "mail", capability: "mail.*", purpose: "responder e-mails de trabalho", limits: { maxRisk: "HIGH", autonomousUpTo: "MEDIUM", maxAmount: null, amountField: null }, expiresAt: new Date(T0.getTime() + H) },
       "ana",
     );
     const enviar = async (args: Record<string, unknown>) => (await engine.authorize({ userId: "ana", agentId: "obedient", systemId: "mail", tool: "mail.send", risk: "MEDIUM", category: "COMMUNICATION", args })).outcome;

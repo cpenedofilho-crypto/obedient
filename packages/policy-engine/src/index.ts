@@ -14,8 +14,9 @@
 // Efeitos, do mais forte para o mais fraco:
 //   deny > require_privileged_approval > require_approval > allow
 //
-// Regras fixas (não configuráveis, CONSTITUTION.md Art. 6º e 12):
+// Regras fixas (não configuráveis, CONSTITUTION.md Arts. 1º, 6º e 12):
 //   • deny sempre vence;
+//   • HIGH nunca roda sozinha: no mínimo aprovação, mesmo com grant, política ou padrão que deixe;
 //   • CRITICAL nunca roda sozinha: no mínimo aprovação privilegiada, ou bloqueio;
 //   • allow_autonomous só derruba o PADRÃO, nunca uma exigência de outra política;
 //   • política com condição de valor só casa quando o valor existe e é maior que o limite;
@@ -224,11 +225,15 @@ export function decide(
       : "risk CRITICAL always requires privileged approval (fixed rule)";
     return result("require_privileged_approval", "fixed_rule", chosen.policyId, reason);
   }
+  // Regra fixa (Art. 1º): HIGH nunca roda sem a pessoa, mesmo com grant, política ou padrão que deixe.
+  if (a.risk === "HIGH" && effectRank(chosen.effect) < effectRank("require_approval")) {
+    return result("require_approval", "fixed_rule", chosen.policyId, "risk HIGH always requires approval (fixed rule)");
+  }
   return chosen;
 }
 
 /**
- * Padrões configurados pelo usuário, validados. CRITICAL só aceita
+ * Padrões configurados pelo usuário, validados. HIGH não aceita allow (Art. 1º); CRITICAL só aceita
  * require_privileged_approval ou deny. Valor inválido cai no padrão do sistema.
  */
 export function validateDefaults(raw: unknown): Defaults {
@@ -237,6 +242,7 @@ export function validateDefaults(raw: unknown): Defaults {
   for (const r of RISK_LEVELS) {
     const v = input[r];
     if (typeof v !== "string" || !(EFFECTS as readonly string[]).includes(v)) continue;
+    if (r === "HIGH" && v === "allow") continue;
     if (r === "CRITICAL" && v !== "deny" && v !== "require_privileged_approval") continue;
     out[r] = v as Effect;
   }
