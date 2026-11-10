@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Como o OBEDIENT trata os seus dados." />
+    <title>Política de Privacidade · OBEDIENT</title>
+    <link rel="icon" href="/icone.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/estilo.css" />
+  </head>
+  <body>
+    <header class="topo"><h1>OBEDIENT</h1></header>
+    <main id="conteudo" class="tela documento">
+      <h2>Política de Privacidade</h2>
+      <p>Vigente desde 10/11/2026. O OBEDIENT é um agente pessoal de código aberto (AGPL-3.0). Esta página vale para esta instância, operada pelo dono do servidor para uso próprio e de pessoas que ele convidar.</p>
+
+      <h3>O que guardamos</h3>
+      <ul>
+        <li><strong>Entrada:</strong> a chave pública da sua passkey. A digital ou o rosto nunca saem do seu aparelho.</li>
+        <li><strong>Missões:</strong> o que você pede, o desfecho, o custo e o histórico de cada ação do agente (a trilha), que você pode ver e contestar no app.</li>
+        <li><strong>Aprendizado:</strong> só nas categorias que você ligar, e só o que você mesmo disser. Cada lição pode ser vista e apagada.</li>
+        <li><strong>Autorizações:</strong> o que você deixou o agente fazer, até quando, e o que revogou.</li>
+        <li><strong>Conexões:</strong> os tokens de acesso das contas que você conectar, cifrados (AES-256-GCM) com uma chave que fica fora do banco de dados.</li>
+      </ul>
+
+      <h3>Dados do Google</h3>
+      <p>Só se você conectar uma conta Google, e só para cumprir as missões que você pedir:</p>
+      <ul>
+        <li><strong>Google Agenda</strong> (<code>calendar.events</code>): ler compromissos; criar pede a sua aprovação; apagar pede a sua passkey.</li>
+        <li><strong>Gmail</strong> (<code>gmail.readonly</code> e <code>gmail.send</code>): procurar e ler mensagens; enviar sempre pede a sua aprovação, e a mensagem leva a identificação que você definir.</li>
+        <li><strong>Google Drive</strong> (<code>drive.file</code>): criar documentos e ler só os que o próprio OBEDIENT criou.</li>
+      </ul>
+      <p>O uso e a transferência, para qualquer outro app, de informações recebidas das APIs do Google seguirão a <a href="https://developers.google.com/terms/api-services-user-data-policy">Política de Dados do Usuário dos Serviços de API do Google</a>, inclusive os requisitos de Uso Limitado. Os dados do Google não são vendidos, não são usados para publicidade e não são usados para treinar modelos de IA.</p>
+
+      <h3>Quem mais processa os dados</h3>
+      <ul>
+        <li><strong>Provedor do modelo de IA (Anthropic):</strong> recebe o pedido da missão e o resultado das ferramentas que o agente usar nela (por exemplo, um compromisso lido da agenda), para gerar a resposta. Pela API, esse conteúdo não é usado para treinar modelos.</li>
+        <li><strong>Hospedagem:</strong> o servidor roda na Railway e o banco de dados no Supabase (Estados Unidos).</li>
+      </ul>
+      <p>Nenhum dado é vendido nem compartilhado com terceiros além desses.</p>
+
+      <h3>Por quanto tempo</h3>
+      <ul>
+        <li>A conversa de cada missão com o modelo é apagada quando a missão termina, é cancelada ou impedida.</li>
+        <li>Lições, autorizações e conexões ficam até você apagar, revogar ou desconectar. Autorizações vencem em 30 dias.</li>
+        <li>A trilha de ações é mantida para prestação de contas, enquanto a sua conta existir.</li>
+      </ul>
+
+      <h3>Seus direitos (LGPD)</h3>
+      <p>No app você pode exportar tudo o que o OBEDIENT sabe sobre você, apagar tudo, desligar o aprendizado por categoria, revogar autorizações, desconectar contas e parar o agente na hora. Também pode revogar o acesso do OBEDIENT à sua conta Google em <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
+
+      <h3>Contato</h3>
+      <p>Fale com o operador desta instância pelo e-mail de suporte que aparece na tela de autorização do Google.</p>
+
+      <p><a href="/">Voltar ao OBEDIENT</a> · <a href="/termos.html">Termos de Serviço</a></p>
+    </main>
+  </body>
+</html>
