@@ -22,7 +22,7 @@ const numero = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v 
 
 export function lerCaptura(bruto: unknown): CapturaBruta {
   if (!bruto || typeof bruto !== "object") throw new Error("o aparelho devolveu uma tela inválida");
-  const r = bruto as { app?: unknown; elementos?: unknown };
+  const r = bruto as { app?: unknown; elementos?: unknown; imagemHash?: unknown };
   if (r.app !== null && typeof r.app !== "string") throw new Error("o aparelho devolveu um app inválido");
   if (!Array.isArray(r.elementos) || r.elementos.length > MAX_ELEMENTOS_HTTP) throw new Error("o aparelho devolveu elementos inválidos");
   const elementos: ElementoBruto[] = r.elementos.map((e: unknown) => {
@@ -39,7 +39,9 @@ export function lerCaptura(bruto: unknown): CapturaBruta {
       senha: x.senha === true,
     };
   });
-  return { app: (r.app as string | null) ?? null, elementos };
+  // O hash da imagem entra no hash da tela: descartá-lo deixaria uma troca só na imagem passar.
+  if (r.imagemHash !== undefined && r.imagemHash !== null && (typeof r.imagemHash !== "string" || !/^[0-9a-f]{64}$/i.test(r.imagemHash))) throw new Error("o aparelho devolveu um hash de imagem inválido");
+  return { app: (r.app as string | null) ?? null, elementos, ...(typeof r.imagemHash === "string" ? { imagemHash: r.imagemHash.toLowerCase() } : {}) };
 }
 
 export class AdaptadorHttp implements AdaptadorMovel {

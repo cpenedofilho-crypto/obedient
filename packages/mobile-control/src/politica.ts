@@ -7,10 +7,15 @@
 //   • o risco parte do tipo de ação e o texto do alvo só pode SUBIR: um botão "Pagar" vira
 //     FINANCIAL (CRITICAL, passkey); "Enviar" vira COMMUNICATION (HIGH, aprovação); "Excluir" vira
 //     DESTRUCTIVE (CRITICAL). Nenhum texto de tela baixa o risco;
+//   • o texto é normalizado antes da comparação (NFKC, sem acento, sem caractere invisível, letras
+//     cirílicas e gregas parecidas viram latinas): "Pa\u200Bgar" e "Pаgar" (com "а" cirílico) contam
+//     como "Pagar";
 //   • app negado nunca abre, e com um app negado em primeiro plano só sair dele é permitido
-//     (início, voltar). App fora da lista do aparelho também não abre;
-//   • digitar ou tocar para enviar em app de mensagem é COMMUNICATION; com o aparelho sem
-//     permissão de mensagens (o padrão), é negado. As réguas de envio dos produtos rodam no
+//     (início, voltar). App fora da lista do aparelho também não abre e, se chegar à frente (um link
+//     que abre o navegador, uma folha de compartilhamento), o agente não toca nem digita nele: só
+//     sai, desliza ou abre um app da lista;
+//   • digitar ou tocar em app de mensagem é COMMUNICATION (um ícone de enviar não tem texto); com o
+//     aparelho sem permissão de mensagens (o padrão), é negado. As réguas de envio dos produtos rodam no
 //     servidor e um agente no aparelho passaria por fora delas.
 
 import { type RiskLevel, type ToolCategory, riskRank } from "@obedient/core";
@@ -38,7 +43,9 @@ export const APPS_DE_MENSAGEM = [
   "com.google.android.gm",
 ] as const;
 
-const FINANCEIRO = /\b(pagar|pague|pagamento|comprar|compre|finalizar compra|checkout|transferir|transfer[eê]ncia|pix|assinar plano|pay|buy|purchase|order now)\b/i;
+// Os padrões são comparados com o texto JÁ normalizado (minúsculo, sem acento): escreva sem acento.
+const FINANCEIRO =
+  /\b(pagar|pague|pagamento|comprar|compre|finalizar compra|finalizar pedido|fazer pedido|concluir pedido|confirmar pedido|checkout|transferir|transferencia|pix|assinar|assinatura|contratar|doar|doe|doacao|pay|pay now|buy|purchase|order now|place order|donate|subscribe)\b|(?:r\$|us\$|\$|€)\s*\d/i;
 const DESTRUTIVO = /\b(excluir|apagar|deletar|remover|limpar tudo|desinstalar|delete|remove|erase|uninstall)\b/i;
 const COMUNICACAO = /\b(enviar|envie|mandar|publicar|postar|compartilhar|responder|send|post|share|reply|publish)\b/i;
 const CONFIRMACAO = /\b(confirmar|confirmo|aceitar|aceito|concordo|autorizar|concluir|confirm|accept|agree|authorize|allow)\b/i;
@@ -69,8 +76,28 @@ export function appNegado(d: Dispositivo, app: string | null): boolean {
 }
 export const ehAppDeMensagem = (app: string | null) => Boolean(app && (APPS_DE_MENSAGEM as readonly string[]).includes(app));
 
+// Letras de outros alfabetos que se parecem com latinas (as que bastam para disfarçar as palavras acima).
+const PARECIDAS: Record<string, string> = {
+  а: "a", в: "b", е: "e", ё: "e", к: "k", м: "m", н: "h", о: "o", р: "p", с: "c", т: "t", у: "y", х: "x", і: "i", ї: "i", ј: "j", ѕ: "s", ԁ: "d", ԛ: "q", ԝ: "w", һ: "h", ӏ: "l",
+  α: "a", β: "b", ε: "e", η: "n", ι: "i", κ: "k", ν: "v", ο: "o", ρ: "p", τ: "t", υ: "u", χ: "x", ϲ: "c",
+};
+
+/** Texto do alvo como a política compara: só para classificar, nunca para mostrar. */
+export function normalizarTexto(texto: string): string {
+  return texto
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\p{Cf}/gu, "")
+    .replace(/./gu, (c) => PARECIDAS[c] ?? c)
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Pelo texto do alvo: só sobe. */
-function peloTexto(texto: string): Classificacao | null {
+function peloTexto(bruto: string): Classificacao | null {
+  const texto = normalizarTexto(bruto);
   if (FINANCEIRO.test(texto)) return ok("CRITICAL", "FINANCIAL");
   if (DESTRUTIVO.test(texto)) return ok("CRITICAL", "DESTRUCTIVE");
   if (COMUNICACAO.test(texto)) return ok("HIGH", "COMMUNICATION");
@@ -92,6 +119,10 @@ export function classificar(d: Dispositivo, p: PedidoClassificavel): Classificac
   // Saída de emergência de um app negado: sempre deixa voltar e ir ao início.
   if (p.operacao === "nav.home" || p.operacao === "nav.back") return ok("LOW", "WRITE");
   if (appNegado(d, p.appAtual)) return nega(`o app em primeiro plano (${p.appAtual}) não pode ser usado pelo agente`);
+  // Fora da lista em primeiro plano (ou app desconhecido): tocar e digitar, não; sair, deslizar e
+  // abrir um app da lista, sim.
+  if ((p.operacao === "input.tap_element" || p.operacao === "input.text") && !(p.appAtual && d.appsPermitidos.includes(p.appAtual)))
+    return nega(`o app em primeiro plano (${p.appAtual ?? "desconhecido"}) não está na lista deste aparelho: o agente só pode sair dele`);
 
   switch (p.operacao) {
     case "input.swipe":
@@ -116,7 +147,11 @@ export function classificar(d: Dispositivo, p: PedidoClassificavel): Classificac
       let c = ok("MEDIUM", "WRITE");
       const pelo = p.textoAlvo ? peloTexto(p.textoAlvo) : null;
       if (pelo) c = subir(c, pelo);
-      if (ehAppDeMensagem(p.appAtual) && c.categoria === "COMMUNICATION" && !d.permiteMensagens) return nega("enviar em app de mensagem não é permitido neste aparelho");
+      // Em app de mensagem, qualquer toque pode enviar (o ícone de enviar não tem texto).
+      if (ehAppDeMensagem(p.appAtual)) {
+        if (!d.permiteMensagens) return nega("tocar em app de mensagem não é permitido neste aparelho");
+        c = subir(c, ok("HIGH", "COMMUNICATION"));
+      }
       return c;
     }
   }

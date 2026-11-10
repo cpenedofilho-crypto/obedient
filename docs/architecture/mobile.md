@@ -47,26 +47,43 @@ adaptador expõe:
 
 - **O texto do alvo só sobe o risco, nunca baixa.** Uma tela que diz "isto não é um pagamento" ainda
   contém "pagamento".
+- **O texto é normalizado antes da comparação:** NFKC, sem acento, sem caractere invisível, com letras
+  cirílicas e gregas parecidas trocadas pelas latinas. "Pa\u200Bgar" e "Pаgar" (com "а" cirílico)
+  contam como "Pagar". Valor em dinheiro no texto ("Continuar · R$ 49,90") também conta como
+  FINANCIAL. Um botão só com ícone continua sem texto para subir o risco: a defesa contra ele é a
+  lista de apps do aparelho e a aprovação, não o texto.
 - **Apps sempre negados:** configurações, loja, instalador de pacotes, autenticador e shell, mais os
   negados do aparelho. App fora da lista do aparelho também não abre.
 - **App negado em primeiro plano:** só sair dele é permitido (início ou voltar).
+- **App fora da lista em primeiro plano** (um link que abriu o navegador, uma folha de
+  compartilhamento) ou app desconhecido: o agente não toca nem digita nele. Pode voltar, ir ao início,
+  deslizar ou abrir um app da lista.
 - **App de mensagem:** negado por padrão (`permiteMensagens: false`). As réguas de envio dos produtos
   rodam no servidor, e um agente no aparelho passaria por fora delas. Com a permissão, digitar e
-  enviar nele são COMMUNICATION.
+  qualquer toque nele (o ícone de enviar não tem texto) são COMMUNICATION.
+- **Texto a digitar:** sem quebra de linha, caractere de controle ou invisível. O resumo que a pessoa
+  aprova mostra o texto inteiro, escapado, e não só o começo.
 
 ## A tela aprovada é a tela executada
 
-- **O hash da tela entra no payload que a pessoa aprova.** Ele é calculado depois da máscara, sobre
-  app, textos e posições arredondadas.
+- **O hash da tela entra no payload que a pessoa aprova.** Ele é calculado ANTES da máscara, sobre
+  app, textos brutos, posições arredondadas e o hash da imagem, quando o serviço do aparelho manda um
+  (`imagemHash`, 64 caracteres hexadecimais). Trocar o valor ou a chave PIX, que a máscara esconde
+  do modelo, muda o hash. É um HMAC com chave aleatória do processo, para o hash guardado no registro
+  e na proposta não servir para descobrir o texto mascarado.
 - **Na execução, o motor observa de novo.** Se a tela mudou (outro app na frente, uma notificação), a
   ação não acontece: o resultado é `tela_mudou`, com a tela nova para o agente pedir de novo.
 - **Só a observação mais recente vale para agir.**
+- **Parada no meio de uma ação:** antes de cada comando ao aparelho, o motor confere a sessão. Se a
+  parada chegou entre o toque e a digitação, o texto não é digitado.
 
 ## Parar
 
 - **Grant revogado ou parada acionada:** o Ethics Engine nega a próxima ação, e o motor fecha a sessão
   na hora e manda o adaptador encerrar.
-- **Parada de emergência** (`ligarParada`): fecha todas as sessões da pessoa no mesmo instante.
+- **Parada de emergência** (`ligarParada`): fecha todas as sessões da pessoa no mesmo instante, antes
+  de esperar qualquer aparelho, e avisa os aparelhos em paralelo. No servidor MCP (`servir.ts`) o
+  motor não liga a parada do OBEDIENT: ali a parada depende do Gateway.
 - **Prazo e limite de passos** fecham a sessão.
 
 ## O que vai ao modelo e o que fica guardado

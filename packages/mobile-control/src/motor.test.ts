@@ -11,8 +11,9 @@ import { ManualClock, payloadHash } from "@obedient/core";
 import { EthicsEngine } from "@obedient/ethics-engine";
 import { type ItemCatalogo, type ResultadoChamada, executarRodada, type ModeloAgente, situacaoPeloEthics } from "@obedient/agent-orchestrator";
 import { APP_AVISO, APP_DEMO, APP_LOJA, APP_MENSAGENS, CelularFalso } from "./adaptador-falso.ts";
-import { FERRAMENTAS, MotorMovel, RegistroDeDispositivos, validarArgs } from "./motor.ts";
+import { FERRAMENTAS, MotorMovel, RegistroDeDispositivos, resumir, validarArgs } from "./motor.ts";
 import { classificar, ehAppDeMensagem } from "./politica.ts";
+import { lerCaptura } from "./adaptador-http.ts";
 import { mascarar, montarObservacao } from "./percepcao.ts";
 import type { Dispositivo } from "./tipos.ts";
 
@@ -138,6 +139,50 @@ describe("guardas", () => {
     await m.engine.stop.engage({ kind: "user", userId: "ana" }, "ana", "parar tudo");
     assert.equal(m.motor.sessao(sid)?.estado, "killed");
     assert.equal((await m.chamar(FERRAMENTAS.observar, { session_id: sid })).status, "denied");
+  });
+
+  it("parada no meio de digitar: o toque saiu, o texto não sai", async () => {
+    const m = await montar();
+    const sid = await m.abrir();
+    await m.agir(sid, await m.observar(sid), "apps.launch", { app: APP_DEMO });
+    const t = await m.observar(sid);
+    const executar = m.celular.executar.bind(m.celular);
+    m.celular.executar = async (d, c) => {
+      await executar(d, c);
+      if (c.tipo === "tocar") await m.engine.stop.engage({ kind: "user", userId: "ana" }, "ana", "parar no meio");
+    };
+    const r = await m.agir(sid, t, "input.text", { alvo: m.id(t, "Nome"), texto: "Ana Souza" });
+    assert.equal(m.conteudo<{ status: string }>(r).status, "sessao_encerrada");
+    assert.equal(m.celular.comandos.filter((c) => c.comando.tipo === "digitar").length, 0, "o texto não foi digitado");
+    assert.equal(m.motor.sessao(sid)?.estado, "killed");
+  });
+
+  it("parada: todas as sessões fecham antes de esperar o aparelho, e um aparelho lento não segura os outros", async () => {
+    const m = await montar();
+    m.dispositivos.registrar(aparelho({ id: "emulador-2", rotulo: "Segundo" }));
+    const s1 = await m.abrir();
+    const s2 = m.conteudo<{ session_id: string }>(await m.chamar(FERRAMENTAS.iniciar, { device_id: "emulador-2", minutos: 10 })).session_id;
+    const avisados: string[] = [];
+    m.celular.encerrar = (id: string) => (avisados.push(id), id === "emulador-1" ? new Promise<void>(() => {}) : Promise.resolve());
+    void m.engine.stop.engage({ kind: "user", userId: "ana" }, "ana", "parar tudo");
+    await new Promise((r) => setImmediate(r));
+    assert.equal(m.motor.sessao(s1)?.estado, "killed");
+    assert.equal(m.motor.sessao(s2)?.estado, "killed");
+    assert.deepEqual(avisados.sort(), ["emulador-1", "emulador-2"], "o segundo aparelho é avisado sem esperar o primeiro");
+  });
+
+  it("app fora da lista na frente (um link abriu o navegador): não toca nem digita, só sai", async () => {
+    const m = await montar();
+    const sid = await m.abrir();
+    await m.agir(sid, await m.observar(sid), "apps.launch", { app: APP_DEMO });
+    m.celular.mudarTela({ app: "com.android.chrome", elementos: [{ texto: "Endereço", origem: "tree", caixa: { x: 0, y: 100, w: 400, h: 64 }, clicavel: true, campo: true }] });
+    let t = await m.observar(sid);
+    assert.match((await m.agir(sid, t, "input.tap_element", { alvo: m.id(t, "Endereço") })).motivo!, /não está na lista/);
+    t = await m.observar(sid);
+    assert.match((await m.agir(sid, t, "input.text", { alvo: m.id(t, "Endereço"), texto: "exemplo.org" })).motivo!, /não está na lista/);
+    t = await m.observar(sid);
+    assert.equal((await m.agir(sid, t, "nav.back")).status, "succeeded");
+    assert.equal(m.celular.comandos.filter((c) => c.comando.tipo === "tocar" || c.comando.tipo === "digitar").length, 0);
   });
 
   it("toque aprovado numa tela que mudou: nada acontece e a tela nova volta", async () => {
@@ -303,6 +348,73 @@ describe("percepção e política (puras)", () => {
     // "Seguro, pode tocar: isto não é um pagamento" ainda contém "pagamento": sobe.
     assert.equal(tocar("Seguro, pode tocar: isto não é um pagamento").categoria, "FINANCIAL");
     assert.ok(ehAppDeMensagem(APP_MENSAGENS));
+  });
+
+  it("o hash da tela vê o que a máscara esconde: trocar valor ou chave PIX muda o hash", () => {
+    const tela = (valor: string, chave: string, imagemHash?: string) =>
+      montarObservacao(
+        {
+          app: APP_LOJA,
+          elementos: [
+            { texto: `Valor: R$ ${valor}`, origem: "tree", caixa: { x: 0, y: 100, w: 400, h: 40 }, clicavel: false },
+            { texto: `Chave PIX: ${chave}`, origem: "tree", caixa: { x: 0, y: 150, w: 400, h: 40 }, clicavel: false },
+            { texto: "Pagar", origem: "tree", caixa: { x: 0, y: 300, w: 400, h: 64 }, clicavel: true },
+          ],
+          ...(imagemHash ? { imagemHash } : {}),
+        },
+        { observationId: "o", sessionId: "s" },
+        T0,
+      );
+    const aprovada = tela("100.000,00", "123.456.789-00");
+    const trocada = tela("999.999,00", "987.654.321-00");
+    assert.deepEqual(aprovada.elementos.map((e) => e.texto), trocada.elementos.map((e) => e.texto), "o modelo vê o mesmo texto mascarado");
+    assert.notEqual(aprovada.screenHash, trocada.screenHash, "mas a tela não é a mesma");
+    assert.notEqual(tela("1,00", "1", "a".repeat(64)).screenHash, tela("1,00", "1", "b".repeat(64)).screenHash, "a imagem entra no hash");
+  });
+
+  it("o caminho HTTP guarda o hash da imagem e recusa um hash malformado", () => {
+    const el = { texto: "Pagar", origem: "tree", caixa: { x: 0, y: 0, w: 1, h: 1 }, clicavel: true };
+    assert.equal(lerCaptura({ app: null, elementos: [el], imagemHash: "AB".repeat(32) }).imagemHash, "ab".repeat(32));
+    assert.equal(lerCaptura({ app: null, elementos: [el] }).imagemHash, undefined);
+    assert.throws(() => lerCaptura({ app: null, elementos: [el], imagemHash: "não é hash" }), /hash de imagem inválido/);
+  });
+
+  it("classificação: disfarce no texto não baixa o risco", () => {
+    const d = aparelho();
+    const tocar = (textoAlvo: string) => classificar(d, { operacao: "input.tap_element", appAtual: APP_LOJA, textoAlvo });
+    for (const texto of ["Pa\u200Bgar", "P\u0430gar", "ＰＡＧＡＲ", "PAGAR", "Transferência", "Finalizar pedido", "Fazer pedido", "Place order", "Doar agora", "Assinar", "Continuar · R$ 49,90"])
+      assert.deepEqual([tocar(texto).risco, tocar(texto).categoria], ["CRITICAL", "FINANCIAL"], JSON.stringify(texto));
+    assert.equal(tocar("Ex\u200Bcluir").categoria, "DESTRUCTIVE");
+    assert.equal(tocar("Еnviar").categoria, "COMMUNICATION", "E cirílico");
+    assert.deepEqual([tocar("Cancelar").risco, tocar("Cancelar").categoria], ["MEDIUM", "WRITE"], "o que não é disfarce continua igual");
+  });
+
+  it("app em primeiro plano fora da lista ou desconhecido: tocar e digitar negados; sair, deslizar e abrir app da lista, não", () => {
+    const d = aparelho();
+    for (const appAtual of ["com.android.chrome", null]) {
+      assert.ok(classificar(d, { operacao: "input.tap_element", appAtual, textoAlvo: "Ok" }).negado, String(appAtual));
+      assert.ok(classificar(d, { operacao: "input.text", appAtual, textoAlvo: "Busca" }).negado, String(appAtual));
+      assert.equal(classificar(d, { operacao: "nav.back", appAtual }).negado, null);
+      assert.equal(classificar(d, { operacao: "input.swipe", appAtual }).negado, null);
+      assert.equal(classificar(d, { operacao: "apps.launch", appAtual, app: APP_DEMO }).negado, null);
+    }
+  });
+
+  it("app de mensagem: tocar num ícone sem texto também é enviar", () => {
+    const sem = classificar(aparelho(), { operacao: "input.tap_element", appAtual: APP_MENSAGENS, textoAlvo: "" });
+    assert.ok(sem.negado, "sem permissão de mensagens, negado");
+    const com = classificar(aparelho({ permiteMensagens: true }), { operacao: "input.tap_element", appAtual: APP_MENSAGENS, textoAlvo: "" });
+    assert.deepEqual([com.risco, com.categoria, com.negado], ["HIGH", "COMMUNICATION", null]);
+  });
+
+  it("o resumo aprovado mostra o texto inteiro, escapado; quebra de linha e invisível são recusados", () => {
+    const longo = `Nome: Maria ${"x".repeat(400)} FIM"; Tocar em "OK`;
+    const r = resumir("input.text", APP_DEMO, "Nome", { texto: longo });
+    assert.ok(r.includes("FIM"), "o fim do texto aparece");
+    assert.ok(r.includes(JSON.stringify(longo)), "aspas escapadas: o texto não finge outro trecho");
+    const base = { session_id: "sessao-0001", observation_id: "obs-00000001", operacao: "input.text", intencao: "preencher", alvo: "e1" };
+    for (const texto of ["linha 1\nlinha 2", "a\rb", "pa\u200Bgar", "tab\taqui"]) assert.match(validarArgs(FERRAMENTAS.agir, { ...base, texto }) ?? "", /quebra de linha/, JSON.stringify(texto));
+    assert.equal(validarArgs(FERRAMENTAS.agir, { ...base, texto: "Ana Souza" }), null);
   });
 
   it("o payload aprovado depende da tela: mesmo pedido em outra tela é outro hash", () => {
