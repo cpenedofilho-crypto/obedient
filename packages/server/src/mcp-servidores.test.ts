@@ -112,6 +112,10 @@ describe("MCP genérico: configuração", () => {
     assert.throws(com({ ferramentas: [] }), /ferramentas/);
     assert.throws(com({ usuarios: [] }), /usuarios/);
     assert.throws(() => servidoresMcpDoAmbiente({ OBEDIENT_MCP_SERVIDORES: JSON.stringify([base, base]) }), /repetido/);
+    assert.throws(com({ cabecalhos: { authorization: "Bearer x" } }), /não permitido/);
+    assert.throws(com({ cabecalhos: { "x-api-token": "abc" } }), /não permitido/);
+    assert.throws(com({ cabecalhos: { "x-recupera-escola-id": "tem espaço" } }), /inválido/);
+    assert.deepEqual(com({ cabecalhos: { "x-recupera-escola-id": "11111111-2222-3333-4444-555555555555" } })()[0]!.cabecalhos, { "x-recupera-escola-id": "11111111-2222-3333-4444-555555555555" });
     const [s] = servidoresMcpDoAmbiente(ENV);
     assert.equal(s!.tokenEnv, "OBEDIENT_MCP_MOTOR_TOKEN");
     assert.doesNotMatch(JSON.stringify({ ...s, usuarios: [...s!.usuarios] }), new RegExp(TOKEN), "o token não fica na configuração");

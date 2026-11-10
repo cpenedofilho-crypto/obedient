@@ -32,6 +32,8 @@ export interface ServidorMcp {
    * Exatamente um dos dois: tokenEnv ou oauth.
    */
   oauth?: { clientId: string; issuer: string; escopos: readonly string[] };
+  /** Cabeçalhos fixos que NÃO são segredo (ex.: x-recupera-escola-id). Só `x-…`, nunca autenticação. */
+  cabecalhos?: Readonly<Record<string, string>>;
   usuarios: ReadonlySet<string>;
   ferramentas: readonly string[];
 }
@@ -88,7 +90,18 @@ export function servidoresMcpDoAmbiente(env: Record<string, string | undefined> 
       throw new Error(`${onde}: ferramentas precisa ser uma lista de 1 a ${MAX_FERRAMENTAS} nomes`);
     }
     const nome = String(o.nome ?? id).slice(0, 60);
-    return { id, nome, url: u.toString(), ...(tokenEnv ? { tokenEnv } : {}), ...(oauth ? { oauth } : {}), usuarios: new Set(usuarios), ferramentas: [...new Set(ferramentas)] };
+    let cabecalhos: Record<string, string> | undefined;
+    if (o.cabecalhos !== undefined) {
+      const c = (o.cabecalhos ?? {}) as Record<string, unknown>;
+      const pares = Object.entries(c);
+      if (pares.length > 5) throw new Error(`${onde}: no máximo 5 cabecalhos`);
+      for (const [k, v] of pares) {
+        if (!/^x-[a-z0-9-]{1,60}$/.test(k) || /auth|token|key|secret|senha|cookie/.test(k)) throw new Error(`${onde}: cabecalho ${k} não permitido (só x-… sem credencial)`);
+        if (typeof v !== "string" || !/^[A-Za-z0-9._:-]{1,200}$/.test(v)) throw new Error(`${onde}: valor do cabecalho ${k} inválido`);
+      }
+      cabecalhos = Object.fromEntries(pares as [string, string][]);
+    }
+    return { id, nome, url: u.toString(), ...(cabecalhos ? { cabecalhos } : {}), ...(tokenEnv ? { tokenEnv } : {}), ...(oauth ? { oauth } : {}), usuarios: new Set(usuarios), ferramentas: [...new Set(ferramentas)] };
   });
 }
 
@@ -143,7 +156,7 @@ export function conexaoMcp(s: ServidorMcp, token: () => Promise<string | null>, 
     const bearer = await token();
     if (!bearer) throw new ErroMcpSemToken(s.id);
     const transporte = new StreamableHTTPClientTransport(new URL(s.url), {
-      requestInit: { headers: { authorization: `Bearer ${bearer}` } },
+      requestInit: { headers: { ...s.cabecalhos, authorization: `Bearer ${bearer}` } },
       fetch: http,
     });
     const c = new Client({ name: "obedient", version: "0.0.0" });

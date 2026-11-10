@@ -237,7 +237,8 @@ Alguns servidores só aceitam o token de um **usuário**, emitido pelo Authoriza
 ```json
 {"id":"recupera","nome":"Recupera OS","url":"https://…/mcp","usuarios":["Juca"],
  "ferramentas":["recupera.minhas_capacidades","recupera.analisar_recuperacao"],
- "oauth":{"client_id":"<cliente público no Authorization Server>","issuer":"https://<projeto>.supabase.co/auth/v1","escopos":["openid"]}}
+ "oauth":{"client_id":"<cliente público no Authorization Server>","issuer":"https://<projeto>.supabase.co/auth/v1","escopos":["openid"]},
+ "cabecalhos":{"x-recupera-escola-id":"<uuid da escola do agente>"}}
 ```
 
 O código está em `packages/server/src/mcp-oauth.ts` e segue o mesmo desenho da conexão com o Google:
@@ -251,3 +252,7 @@ O código está em `packages/server/src/mcp-oauth.ts` e segue o mesmo desenho da
   - houver S256.
 - **A credencial fica cifrada no cofre** (`OBEDIENT_CHAVES_COFRE`, obrigatório nesse caso) e é renovada antes de vencer. Se a renovação for recusada (`invalid_grant`), a conexão cai.
 - **Sem endpoint de revogação:** ao desconectar, parar ou apagar, a credencial é descartada aqui. A fila de revogação do Google passou a levar **só** `google_*`. Antes, ela mandaria qualquer token ao endpoint do Google.
+- **`cabecalhos` (opcional):** cabeçalhos fixos que não são segredo, como `x-recupera-escola-id`.
+  - Só nomes `x-…`; o servidor não sobe com nome que pareça credencial (`auth`, `token`, `key`, `secret`, `cookie`).
+  - Nunca substituem o `authorization`.
+  - No Recupera, prendem a sessão à escola do agente cadastrado em `agentes_ia`.
