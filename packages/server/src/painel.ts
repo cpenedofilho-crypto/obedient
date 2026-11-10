@@ -16,8 +16,12 @@ export interface CartaoPedido {
   agente: string;
   sistema: string;
   acao: string;
-  /** Argumentos como a pessoa lê: chave e valor em texto curto. */
-  detalhes: { campo: string; valor: string }[];
+  /**
+   * TODOS os argumentos, com o valor INTEIRO: aprova-se o payload todo, então a pessoa vê o payload
+   * todo (o tamanho é limitado pelo esquema de cada ferramenta). Valor que é endereço de e-mail traz
+   * o domínio à parte, para o app destacar: "...@atacante.example" não some no fim de um texto longo.
+   */
+  detalhes: { campo: string; valor: string; dominio?: string }[];
   motivo: string;
   criadoEm: string;
   venceEm: string;
@@ -157,14 +161,22 @@ export function escopoParaPessoa(capacidade: string, sistema: string | null, nom
 }
 
 
-function cartao(p: Proposal): CartaoPedido {
+const EMAIL_INTEIRO = /^[^\s@]+@([^\s@]+\.[^\s@]+)$/;
+
+function detalhe(campo: string, v: unknown): CartaoPedido["detalhes"][number] {
+  const valor = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+  const m = typeof v === "string" ? v.trim().match(EMAIL_INTEIRO) : null;
+  return m ? { campo, valor, dominio: m[1]!.toLowerCase() } : { campo, valor };
+}
+
+export function cartao(p: Proposal): CartaoPedido {
   const chaves = Object.keys(p.payload.args).sort();
   return {
     id: p.id,
     agente: agenteDe(p.requestedBy),
     sistema: p.payload.systemId,
     acao: p.payload.tool,
-    detalhes: chaves.slice(0, 8).map((k) => ({ campo: k, valor: curto(p.payload.args[k]) })),
+    detalhes: chaves.map((k) => detalhe(k, p.payload.args[k])),
     motivo: motivoParaPessoa(p.reason),
     criadoEm: p.createdAt.toISOString(),
     venceEm: p.expiresAt.toISOString(),

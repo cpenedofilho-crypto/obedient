@@ -7,7 +7,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { type Action, type Policy, SYSTEM_DEFAULTS, decide, validateDefaults } from "@obedient/policy-engine";
-import { escopoParaPessoa, motivoParaPessoa, riscoEmPortugues } from "./painel.ts";
+import type { Proposal } from "@obedient/ethics-engine";
+import { cartao, escopoParaPessoa, motivoParaPessoa, riscoEmPortugues } from "./painel.ts";
 
 const INGLES = /\b(policy|risk|default|requires?|approval|privileged|allows?|blocks?|category|counts|amount|above|fixed rule)\b/i;
 const agora = new Date("2026-11-03T12:00:00Z");
@@ -76,5 +77,44 @@ describe("painel em português", () => {
     assert.equal(escopoParaPessoa("email.*", "email"), "qualquer ação em email");
     assert.equal(escopoParaPessoa("agenda.ler_*", "agenda"), "as ações que começam com agenda.ler_ em agenda");
     assert.equal(escopoParaPessoa("email.enviar", null), "email.enviar");
+  });
+});
+
+describe("cartão de aprovação", () => {
+  const proposta = (args: Record<string, unknown>): Proposal => ({
+    id: "p1",
+    userId: "ana",
+    requestedBy: "agent:obedient",
+    payload: { systemId: "google_gmail", tool: "google_gmail.enviar_mensagem", args },
+    payloadHash: "h".repeat(64),
+    summary: "",
+    approver: "user",
+    reason: "risk HIGH: default is require_approval",
+    grantId: "g1",
+    createdAt: new Date("2026-11-09T12:00:00Z"),
+    expiresAt: new Date("2026-11-09T12:30:00Z"),
+    status: "pending",
+    decidedBy: null,
+    decidedAt: null,
+    executedAt: null,
+  });
+
+  it("mostra o payload inteiro: destinatário comprido com o domínio à parte, corpo inteiro, todos os campos", () => {
+    const para = "contabilidade.escritorio-silva.com.br.financeiro.relatorios-mensais.2026@atacante.example";
+    const texto = `Oi, segue a confirmação. ${"Dados pessoais da Ana: … ".repeat(40)}FIM`;
+    const args: Record<string, unknown> = { para, assunto: "Confirmação", texto, identificacao: "Enviada pelo assistente da Ana" };
+    for (let i = 0; i < 10; i++) args[`extra${i}`] = i;
+    const c = cartao(proposta(args));
+    assert.equal(c.detalhes.length, 14, "todos os campos, não só os 8 primeiros");
+    const campo = (k: string) => c.detalhes.find((d) => d.campo === k)!;
+    assert.equal(campo("para").valor, para, "o endereço inteiro");
+    assert.equal(campo("para").dominio, "atacante.example", "o domínio de verdade, em destaque");
+    assert.equal(campo("texto").valor, texto, "o corpo inteiro, até o FIM");
+    assert.equal(campo("assunto").dominio, undefined);
+  });
+
+  it("objeto aninhado aparece inteiro, formatado", () => {
+    const c = cartao(proposta({ opcoes: { a: 1, b: "x".repeat(200) } }));
+    assert.ok(c.detalhes[0]!.valor.includes("x".repeat(200)));
   });
 });

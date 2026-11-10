@@ -73,7 +73,7 @@ app: "Conectar" ─► POST /api/conexoes/iniciar
 |---|---|---|
 | `google_agenda.listar_eventos` | READ, baixo | Período em UTC; devolve título, horário, local e número de participantes, nunca a descrição |
 | `google_agenda.criar_evento` | WRITE, médio | **Sem convidados e com `sendUpdates=none`:** criar compromisso não manda nada a ninguém (convidar seria comunicação) |
-| `google_agenda.apagar_evento` | DESTRUCTIVE, crítico | Pede passkey; o id é validado antes de virar URL |
+| `google_agenda.apagar_evento` | DESTRUCTIVE, crítico | Pede passkey; o pedido traz título e início (o cartão mostra o que será apagado, não só um id), conferidos com o Google antes de apagar; o id é validado antes de virar URL |
 | `google_gmail.buscar_mensagens` | READ, baixo | Até 10 mensagens; corpo em texto, cortado em 4.000 caracteres |
 | `google_gmail.enviar_mensagem` | COMMUNICATION, alto | **Um** destinatário; a assinatura da pessoa vai sempre no fim; cabeçalho com quebra de linha é recusado (sem `Bcc` injetado); sempre pede aprovação |
 | `google_drive.listar_arquivos` | READ, baixo | Só o que o app criou (`drive.file`) |

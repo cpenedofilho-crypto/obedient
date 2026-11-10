@@ -125,6 +125,20 @@ describe("app de ponta a ponta", { concurrency: false }, () => {
     await p.getByText("Você recusou um pedido").waitFor();
   });
 
+  it("cartão mostra o pedido inteiro: domínio do destinatário em destaque e corpo longo rolando, sem violação de acessibilidade", async () => {
+    const para = "contabilidade.escritorio-silva.com.br.financeiro.relatorios-mensais.2026@atacante.example";
+    const texto = `Oi, segue a confirmação. ${"Dados pessoais da Ana: endereço, telefone e documentos. ".repeat(20)}FIM-DO-TEXTO`;
+    await dev.pedir("email.enviar", "HIGH", "COMMUNICATION", { assunto: "Confirmação", para, texto });
+    await p.reload();
+    await p.getByText("domínio: atacante.example").waitFor();
+    await p.getByText(para).waitFor();
+    assert.equal(await p.getByText(/FIM-DO-TEXTO$/).count(), 1, "o corpo inteiro está no cartão (rolando dentro do campo)");
+    if (process.env.OBEDIENT_E2E_CAPTURA) await p.locator("#pedidos > li").last().screenshot({ path: process.env.OBEDIENT_E2E_CAPTURA });
+    assert.deepEqual(await axe(p), []);
+    await p.getByRole("button", { name: /^Recusar email\.enviar/ }).click();
+    await p.getByText("Nada esperando por você.").waitFor();
+  });
+
   it("sem internet: parar fica na fila, sobrevive a recarregar a página e chega quando a rede volta", async () => {
     await dev.pedir("email.enviar", "HIGH", "COMMUNICATION", { assunto: "Cardápio da semana", para: "equipe@exemplo.org" });
     await p.reload();

@@ -54,13 +54,23 @@ describe("ferramentas do Google: contrato", () => {
     await assert.rejects(executar("google_agenda.criar_evento", { titulo: "x", inicio: "2026-11-05T14:00:00Z", fim: "2026-11-05T15:00:00Z", convidados: "todos@empresa.com" }, token, http), /não previsto: convidados/);
   });
 
-  it("agenda.apagar_evento: id validado antes da URL", async () => {
-    const { http, pedidos } = apiFalsa(() => ({ status: 204 }));
-    assert.deepEqual(await executar("google_agenda.apagar_evento", { id: "abc123" }, token, http), { apagado: true });
-    assert.equal(pedidos[0]!.metodo, "DELETE");
-    assert.equal(pedidos[0]!.url.pathname, "/calendar/v3/calendars/primary/events/abc123");
-    await assert.rejects(executar("google_agenda.apagar_evento", { id: "../../outra-agenda" }, token, http), /id de compromisso inválido/);
-    assert.equal(pedidos.length, 1);
+  it("agenda.apagar_evento: id validado antes da URL; título e início conferidos antes de apagar", async () => {
+    const evento = { id: "abc123", summary: "Dentista", start: { dateTime: "2026-11-05T14:00:00-03:00" } };
+    const { http, pedidos } = apiFalsa((p) => (p.metodo === "GET" ? { json: evento } : { status: 204 }));
+    const certo = { id: "abc123", titulo: "Dentista", inicio: "2026-11-05T14:00:00-03:00" };
+    assert.deepEqual(await executar("google_agenda.apagar_evento", certo, token, http), { apagado: true });
+    assert.deepEqual(pedidos.map((p) => p.metodo), ["GET", "DELETE"]);
+    assert.equal(pedidos[1]!.url.pathname, "/calendar/v3/calendars/primary/events/abc123");
+    // O mesmo instante escrito em UTC também vale.
+    assert.deepEqual(await executar("google_agenda.apagar_evento", { ...certo, inicio: "2026-11-05T17:00:00Z" }, token, http), { apagado: true });
+    pedidos.length = 0;
+    // Título ou início diferentes do compromisso: nada é apagado.
+    await assert.rejects(executar("google_agenda.apagar_evento", { ...certo, titulo: "Reunião de rotina" }, token, http), /não é o que foi aprovado/);
+    await assert.rejects(executar("google_agenda.apagar_evento", { ...certo, inicio: "2026-11-06T14:00:00-03:00" }, token, http), /não é o que foi aprovado/);
+    assert.deepEqual(pedidos.map((p) => p.metodo), ["GET", "GET"], "nenhum DELETE");
+    await assert.rejects(executar("google_agenda.apagar_evento", { ...certo, id: "../../outra-agenda" }, token, http), /id de compromisso inválido/);
+    assert.equal(pedidos.length, 2);
+    await assert.rejects(executar("google_agenda.apagar_evento", { id: "abc123" }, token, http), /titulo/, "sem título e início, o pedido nem é aceito");
   });
 
   it("gmail.buscar_mensagens: busca, lê cada uma e corta o corpo", async () => {
