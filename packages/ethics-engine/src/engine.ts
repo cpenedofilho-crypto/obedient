@@ -214,6 +214,11 @@ export class EthicsEngine {
 
   async approve(proposalId: string, who: ApproverIdentity, shownHash: string): Promise<Proposal> {
     try {
+      // Art. 9º: durante a parada (da pessoa ou global) nada é aprovado; a parada da pessoa já cancela
+      // o que esperava, e a global deixa pendente, mas não aprovável, até ser liberada.
+      const alvo = await this.approvals.get(proposalId);
+      const stopped = alvo ? await this.stop.blocking(alvo.userId) : null;
+      if (stopped) throw new ObedientError("EMERGENCY_STOP", `parada de emergência acionada: ${stopped.reason}`);
       const p = await this.approvals.approve(proposalId, who, shownHash);
       await this.audit.record({ userId: p.userId, actor: `${who.kind}:${who.id}`, event: "proposal.approve", outcome: "approved", proposalId, tool: p.payload.tool, systemId: p.payload.systemId, constitutionVersion: CONSTITUTION_VERSION });
       return p;

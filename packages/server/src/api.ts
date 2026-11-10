@@ -242,6 +242,15 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
       await sessoes.encerrar(token);
       return json(200, { saiu: true }, { "set-cookie": cookieApagado });
     }
+    // Aparelho perdido: encerra todas as sessões da pessoa (esta inclusive). Tira poder: não pede passkey.
+    if (p.method === "POST" && caminho === "/api/sair-de-todos") {
+      const n = await comoUsuario(db, s.userId, async (tx) => {
+        const { rows } = await tx.query<{ n: number }>("select obedient.session_revoke_user($1) as n", [clock.now()]);
+        await motorNaTransacao(tx, opcoesMotor).audit.record({ userId: s.userId, actor: `user:${s.userId}`, event: "session.revoke_all", outcome: "revoked", reasons: [`${rows[0]?.n ?? 0} sessão(ões) encerrada(s)`], constitutionVersion: CONSTITUTION_VERSION });
+        return rows[0]?.n ?? 0;
+      });
+      return json(200, { saiu: true, sessoes: n }, { "set-cookie": cookieApagado });
+    }
     return erro(404, "rota", "não existe");
   }
 

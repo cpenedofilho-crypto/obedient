@@ -98,10 +98,10 @@ export class Conexoes {
     if (!state || !code || !nonce || state.length > 200 || code.length > 2000 || nonce.length > 200) throw new ObedientError("UNAUTHENTICATED", "retorno do Google incompleto");
     const agora = this.clock.now();
     const fluxo = await comoAutenticacao(this.db, async (tx) => {
-      const { rows } = await tx.query<{ user_id: string; integracao: string; verifier_cifra: Buffer; chave_id: string }>(
+      const { rows } = await tx.query<{ user_id: string; integracao: string; verifier_cifra: Buffer; chave_id: string; criado_em: unknown }>(
         `update obedient.oauth_states set usado_em = $3
           where state_hash = $1 and nonce_hash = $2 and usado_em is null and expira_em > $3
-          returning user_id, integracao, verifier_cifra, chave_id`,
+          returning user_id, integracao, verifier_cifra, chave_id, criado_em`,
         [sha(state), sha(nonce), agora],
       );
       return rows[0] ?? null;
@@ -115,13 +115,36 @@ export class Conexoes {
       throw new ObedientError("UNAUTHENTICATED", "esse pedido de conexão não vale mais: comece de novo");
     }
     const i = integracao(fluxo.integracao);
+    const iniciadoEm = new Date(fluxo.criado_em as string | Date);
+    // Antes de trocar o código por token: parado, nada é pedido ao Google.
+    const antes = await comoUsuario(this.db, fluxo.user_id, (tx) => conexaoBarrada(tx, fluxo.user_id, iniciadoEm));
+    if (antes) throw new ObedientError("EMERGENCY_STOP", antes);
     const verifier = this.cofre.decifrar({ chaveId: fluxo.chave_id, dados: Buffer.from(fluxo.verifier_cifra) }, fluxo.user_id, `oauth:${i.id}`);
 
     const r = await this.pedirToken({ grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: this.cliente.redirectUri });
     if (!r.refresh_token) throw new ObedientError("UNAUTHENTICATED", "o Google não devolveu acesso permanente: tente conectar de novo");
     this.conferirEscopos(i, r.scope);
     const cred: Credencial = { refreshToken: r.refresh_token, accessToken: r.access_token, expiraEm: agora.getTime() + r.expires_in * 1000 };
-    await comoUsuario(this.db, fluxo.user_id, (tx) => this.gravar(tx, fluxo.user_id, i, cred, true));
+    // De novo, na transação que grava: a parada pode ter chegado durante a troca. Aí a credencial
+    // recém-emitida vai direto para a fila de revogação, sem virar conexão.
+    const barrada = await comoUsuario(this.db, fluxo.user_id, async (tx) => {
+      const motivo = await conexaoBarrada(tx, fluxo.user_id, iniciadoEm);
+      if (!motivo) {
+        await this.gravar(tx, fluxo.user_id, i, cred, true);
+        return null;
+      }
+      const c = this.cofre.cifrar(JSON.stringify(cred), fluxo.user_id, i.id);
+      await tx.query("insert into obedient.token_revocations (id, user_id, integracao, cifra, chave_id, motivo, criada_em) values ($1,$2,$3,$4,$5,$6,now())", [
+        uuid(),
+        fluxo.user_id,
+        i.id,
+        c.dados,
+        c.chaveId,
+        "conexão recusada: parada durante o retorno",
+      ]);
+      return motivo;
+    });
+    if (barrada) throw new ObedientError("EMERGENCY_STOP", barrada);
     return { userId: fluxo.user_id, integracao: i.id };
   }
 
@@ -267,6 +290,26 @@ export async function voltaRepetida(db: Database, state: string, nonce: string, 
  * Tira as conexões da pessoa (todas, ou uma) e põe as credenciais na fila de revogação, na
  * transação de quem chama. Usada ao desconectar, ao apertar parar (Art. 9º) e ao apagar tudo.
  */
+/**
+ * Art. 9º: uma conexão (e a autoridade que ela concede) não nasce durante a parada, nem de um pedido
+ * de conexão iniciado antes de uma parada ou de "apagar o que o OBEDIENT sabe". O retorno do provedor
+ * pode chegar até 10 min depois de iniciado; sem isto, parar no meio deixaria a conexão e o grant
+ * voltarem. Roda na transação da pessoa (RLS): a parada global aparece para todos. Devolve o motivo,
+ * ou null quando pode conectar.
+ */
+export async function conexaoBarrada(tx: Executor, userId: string, iniciadoEm: Date): Promise<string | null> {
+  const parada = await tx.query("select 1 from obedient.emergency_stops where scope_key in ($1, 'global') limit 1", [`user:${userId}`]);
+  if (parada.rows.length) return "a parada de emergência está acionada: libere o agente e conecte de novo";
+  const depois = await tx.query(
+    `select 1 from obedient.audit_log
+      where user_id = $1 and entry->>'event' in ('emergency_stop.engaged', 'user.data_erased') and (entry->>'at')::timestamptz >= $2
+      limit 1`,
+    [userId, iniciadoEm],
+  );
+  if (depois.rows.length) return "o agente foi parado (ou seus dados apagados) depois que este pedido de conexão começou: conecte de novo";
+  return null;
+}
+
 export async function tirarConexoes(tx: Executor, userId: string, motivo: string, integracaoId?: string): Promise<string[]> {
   const { rows } = await tx.query<{ integracao: string; cifra: Buffer; chave_id: string }>(
     "delete from obedient.connections where user_id = $1 and ($2::text is null or integracao = $2) returning integracao, cifra, chave_id",

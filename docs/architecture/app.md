@@ -32,6 +32,7 @@ aperta parar. O servidor (`@obedient/server`) é o caminho entre o app e o Ethic
 | `POST /api/acoes` | sim | `aprovar`, `recusar`, `parar`, `liberar`, `revogar` |
 | `POST /api/reautenticar/opcoes`, `/api/reautenticar` | sim | reautenticar com a passkey |
 | `POST /api/sair` | sim | encerrar a sessão |
+| `POST /api/sair-de-todos` | sim | encerrar todas as sessões da pessoa, em qualquer aparelho (aparelho perdido) |
 
 **Barreiras.** Todo `POST` precisa de:
 
@@ -76,8 +77,11 @@ checado pelo TypeScript (`tsconfig.app.json`, `checkJs`) no `npm run typecheck`.
 | Painel | Botão de parar; pedidos esperando a pessoa; o que cada agente pode fazer; o que aconteceu |
 
 **Toques.** Parar é **um toque**. Aprovar é **um toque**; se a ação for sensível, mais a passkey do
-aparelho. Tirar uma autorização é **um toque**. Liberar o agente pede uma confirmação, porque é o
-único sentido inseguro. Não há botão de salvar nem modal de sucesso: o cartão muda para
+aparelho. Tirar uma autorização é **um toque**. Liberar o agente pede uma confirmação e a passkey,
+porque é o único sentido inseguro: sem a passkey, outra sessão aberta (um aparelho perdido) soltaria
+a parada acionada noutro aparelho. "Sair de todos os aparelhos" encerra as sessões abertas em
+qualquer lugar; sair (deste ou de todos) também esvazia a fila deste navegador, para quem entrar
+depois não mandar, com a sessão dele, o que ficou na fila. Não há botão de salvar nem modal de sucesso: o cartão muda para
 "Aprovado. Enviando…" e depois "Aprovado.".
 
 **Sem internet.**
@@ -154,7 +158,7 @@ desenvolvimento (`src/dev.ts`: banco em memória e dados fictícios). O que se c
 - **Texto do agente:** `<img onerror>` nos argumentos aparece como texto, e nenhum elemento é criado.
 - **Sem internet:** parar fica na fila e **sobrevive a recarregar a página**. A casca vem do service
   worker; o painel e a fila, do IndexedDB. Quando a rede volta, a parada chega e o agente é barrado.
-- **Liberar** pede confirmação.
+- **Liberar** pede confirmação e a passkey.
 - **Acessibilidade:** axe sem violação (WCAG 2.0, 2.1 e 2.2, níveis A e AA) na entrada e no painel.
   Nenhum controle visível tem menos de 44 px.
 - **Erros:** nenhum erro de JavaScript na página.

@@ -138,6 +138,9 @@ async function executar(ctx: Contexto, s: Sessao, a: Acao): Promise<void> {
       await m.stop.engage({ kind: "user", userId: s.userId }, s.userId, "acionada pela pessoa no app");
       return;
     case "liberar": {
+      // Liberar é o sentido inseguro: exige passkey recente. Sem isto, outra sessão aberta (um aparelho
+      // perdido) soltaria a parada que a pessoa acionou noutro aparelho.
+      if (!s.strongAuth) throw new ObedientError("STRONG_AUTH_REQUIRED", "liberar o agente exige confirmar que é você");
       const atual = await m.stop.blockingScope(s.userId);
       if (atual?.scope.kind === "global") throw new ObedientError("EMERGENCY_STOP", "parada global");
       if (!atual) return; // já liberada: nada a fazer

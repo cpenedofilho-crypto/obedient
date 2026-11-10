@@ -127,6 +127,14 @@ export class Fila {
     return (await this.armazem.all()).filter((o) => o.estado !== "pendente");
   }
 
+  /**
+   * Apaga tudo, pendente inclusive. Só ao SAIR: a fila é desta sessão, e quem entrar depois neste
+   * navegador não pode mandar, com a sessão dele, o que a pessoa anterior deixou na fila.
+   */
+  async esvaziar() {
+    for (const o of await this.armazem.all()) await this.armazem.delete(o.opId);
+  }
+
   /** Apaga desfechos antigos. Pendente nunca é apagado. */
   async limpar(idadeMs = 24 * 3600 * 1000) {
     const limite = this.agora() - idadeMs;

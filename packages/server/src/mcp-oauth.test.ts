@@ -13,7 +13,7 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ManualClock } from "@obedient/core";
 import { Cofre, Conexoes, lerChaves, tirarConexoes } from "@obedient/integrations";
-import { comoUsuario } from "@obedient/store-postgres";
+import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { ConexoesMcp, ROTA_RETORNO_MCP } from "./mcp-oauth.ts";
 import { servidoresMcpDoAmbiente } from "./mcp-servidores.ts";
@@ -172,5 +172,44 @@ describe("MCP com OAuth da pessoa: renovar e desconectar", () => {
     assert.equal(await c.conexoes.descartarRevogacoes("bia-oauth"), 1);
     const fila = await comoUsuario(banco.db, "bia-oauth", (tx) => tx.query("select 1 from obedient.token_revocations where user_id = $1", ["bia-oauth"]));
     assert.equal(fila.rows.length, 0);
+  });
+});
+
+describe("MCP com OAuth da pessoa: parada (Art. 9º)", () => {
+  it("parado, ou parado depois de iniciar, o retorno não conecta e nem troca o código", async () => {
+    const c = montar();
+    const u = "bia-oauth";
+    const motor = <T>(fn: (m: ReturnType<typeof motorNaTransacao>) => Promise<T>) => comoUsuario(banco.db, u, (tx) => fn(motorNaTransacao(tx, { clock: c.clock })));
+    const trocas = () => c.as.recebidos.filter((r) => r.corpo?.get("grant_type") === "authorization_code").length;
+    await comoUsuario(banco.db, u, (tx) => tirarConexoes(tx, u, "começo do teste", "recupera"));
+    const antes = trocas();
+
+    // Começou, parou, voltou: recusado antes de pedir token.
+    let ini = await c.conexoes.iniciar(u, "recupera");
+    let volta = c.as.autorizar(ini.url);
+    c.clock.advance(1000);
+    await motor((m) => m.stop.engage({ kind: "user", userId: u }, u, "parar no meio"));
+    await assert.rejects(c.conexoes.concluir(volta.state, volta.code, ini.nonce), /parada de emergência/);
+    assert.equal(trocas(), antes);
+
+    // Liberou; o pedido antigo continua sem valer.
+    c.clock.advance(1000);
+    await motor((m) => m.stop.release({ kind: "user", userId: u }, u, "user"));
+    await assert.rejects(c.conexoes.concluir(volta.state, volta.code, ini.nonce), /não vale mais/, "o state já foi gasto na tentativa recusada");
+    c.clock.advance(1000);
+    ini = await c.conexoes.iniciar(u, "recupera");
+    volta = c.as.autorizar(ini.url);
+    c.clock.advance(1000);
+    await motor((m) => m.stop.engage({ kind: "user", userId: u }, u, "de novo"));
+    c.clock.advance(1000);
+    await motor((m) => m.stop.release({ kind: "user", userId: u }, u, "user"));
+    c.clock.advance(1000);
+    await assert.rejects(c.conexoes.concluir(volta.state, volta.code, ini.nonce), /depois que este pedido de conexão começou/);
+    assert.equal(trocas(), antes);
+    await assert.rejects(c.conexoes.tokenDeAcesso(u, "recupera"), /não está conectado/);
+
+    // Pedido novo, depois de liberar: conecta.
+    c.clock.advance(1000);
+    assert.deepEqual(await c.conectar(u), { userId: u, integracao: "recupera" });
   });
 });
