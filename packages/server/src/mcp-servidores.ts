@@ -74,6 +74,35 @@ export function servidoresMcpDoAmbiente(env: Record<string, string | undefined> 
 /** Nome que o modelo vê: <servidor>__<ferramenta> (a API de modelos aceita só letras, números, _ e -). */
 export const nomeMcpParaModelo = (servidor: string, ferramenta: string) => `${servidor}__${ferramenta.replace(/[^A-Za-z0-9_-]/g, "_")}`.slice(0, 128);
 
+/** Token do servidor ausente no ambiente: falha de configuração, não de rede. */
+export class ErroMcpSemToken extends Error {
+  constructor(servidor: string) { super(`servidor ${servidor} sem token configurado`); this.name = "ErroMcpSemToken"; }
+}
+
+/**
+ * Motivo curto e seguro para o log quando um servidor MCP fica de fora (mcp.indisponivel). Só uma
+ * classe fechada, nunca a mensagem: a do servidor é texto de fora e poderia trazer o que não deve ir
+ * para o log. O token nunca está no erro.
+ */
+export type MotivoMcp = "sem_token" | "recusado_401" | "recusado_403" | "nao_encontrado_404" | "erro_servidor_5xx" | `http_${number}` | "destino_proibido" | "tempo_esgotado" | "rede" | "resposta_invalida" | "erro";
+export function motivoMcp(e: unknown): MotivoMcp {
+  if (e instanceof ErroMcpSemToken) return "sem_token";
+  const o = (e ?? {}) as { name?: unknown; code?: unknown; cause?: unknown };
+  if (o.code === "EDESTINOPROIBIDO" || (o.cause as { code?: unknown } | undefined)?.code === "EDESTINOPROIBIDO") return "destino_proibido";
+  if (o.name === "UnauthorizedError") return "recusado_401";
+  if (typeof o.code === "number") {
+    if (o.code === 401) return "recusado_401";
+    if (o.code === 403) return "recusado_403";
+    if (o.code === 404) return "nao_encontrado_404";
+    if (o.code >= 500 && o.code <= 599) return "erro_servidor_5xx";
+    if (o.code >= 400 && o.code <= 499) return `http_${o.code}`;
+  }
+  if (o.name === "TimeoutError" || o.name === "AbortError") return "tempo_esgotado";
+  if (o.name === "TypeError") return "rede";
+  if (o.name === "SyntaxError" || o.name === "ZodError") return "resposta_invalida";
+  return "erro";
+}
+
 const limpar = (s: unknown, max: number) => (typeof s === "string" ? s.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
 
 export interface ConexaoMcp {
@@ -85,7 +114,7 @@ export interface ConexaoMcp {
 export function conexaoMcp(s: ServidorMcp, env: Record<string, string | undefined> = process.env, http: typeof fetch = fetchSeguro): ConexaoMcp {
   const abrir = async <T>(fn: (c: Client) => Promise<T>): Promise<T> => {
     const token = env[s.tokenEnv]?.trim();
-    if (!token) throw new Error(`servidor ${s.id} sem token configurado`);
+    if (!token) throw new ErroMcpSemToken(s.id);
     const transporte = new StreamableHTTPClientTransport(new URL(s.url), {
       requestInit: { headers: { authorization: `Bearer ${token}` } },
       fetch: http,

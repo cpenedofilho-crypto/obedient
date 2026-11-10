@@ -18,7 +18,7 @@ import type { PedidoModelo, RespostaModelo, ResultadoFerramenta } from "@obedien
 import { comoUsuario, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { CONCLUIR, executorDeMissoes, type ModeloComGasto } from "./executor.ts";
-import { concederMcp, conexaoMcp, retirarMcp, servidoresMcpDoAmbiente } from "./mcp-servidores.ts";
+import { ErroMcpSemToken, concederMcp, conexaoMcp, motivoMcp, retirarMcp, servidoresMcpDoAmbiente } from "./mcp-servidores.ts";
 import { processarMissoes } from "./processador.ts";
 
 const T0 = new Date("2026-11-09T12:00:00Z");
@@ -84,7 +84,7 @@ const concluir = (explicacao: string) => usar("fim", CONCLUIR, { tipo: "feito", 
 const encerrar = () => resposta([{ type: "text", text: "Pronto." }], "end_turn");
 const resultados = (p: PedidoModelo) => p.messages.at(-1)!.content as ResultadoFerramenta[];
 
-function montar(o: { fora?: boolean } = {}) {
+function montar(o: { fora?: boolean; env?: Record<string, string | undefined> } = {}) {
   const clock = new ManualClock(T0);
   const servidores = servidoresMcpDoAmbiente(ENV);
   const srv = servidorFalso(o);
@@ -94,7 +94,7 @@ function montar(o: { fora?: boolean } = {}) {
   const processar = (u: string, r: ReturnType<typeof roteiro>) =>
     processarMissoes(banco.db, u, executorDeMissoes({
       db: banco.db, conexoes: null, novoModelo: r.novo, centavosPorDolar: 600, clock,
-      mcp: { servidores, conexao: (s) => conexaoMcp(s, ENV, srv.f) }, log: (e) => logs.push(e),
+      mcp: { servidores, conexao: (s) => conexaoMcp(s, o.env ?? ENV, srv.f) }, log: (e) => logs.push(e),
     }), {}, clock);
   return { clock, servidores, srv, logs, motor, missao, processar };
 }
@@ -184,6 +184,37 @@ describe("MCP genérico: ferramentas das missões", () => {
     await c.missao("ana-mcp", "Leads?");
     const [fim] = await c.processar("ana-mcp", roteiro((p) => { assert.ok(!p.tools.some((t) => t.name.startsWith("motor_iga__"))); return concluir("Sem acesso agora.")(); }, encerrar));
     assert.equal(fim!.estado, "completed");
-    assert.deepEqual(c.logs.map((l) => [l.evento, l.servidor]), [["mcp.indisponivel", "motor_iga"]]);
+    assert.deepEqual(c.logs, [{ evento: "mcp.indisponivel", servidor: "motor_iga", motivo: "rede" }]);
+  });
+
+  it("o log diz o motivo: sem token no ambiente (nem chega à rede) e token recusado pelo servidor", async () => {
+    for (const [env, motivo] of [
+      [{ OBEDIENT_MCP_SERVIDORES: CONFIG }, "sem_token"],
+      [{ ...ENV, OBEDIENT_MCP_MOTOR_TOKEN: "token-errado" }, "recusado_401"],
+    ] as const) {
+      const c = montar({ env });
+      await c.motor("ana-mcp", (m) => concederMcp(m, c.servidores[0]!, "ana-mcp", T0));
+      await c.missao("ana-mcp", "Leads?");
+      await c.processar("ana-mcp", roteiro(() => concluir("Sem acesso agora.")(), encerrar));
+      assert.deepEqual(c.logs, [{ evento: "mcp.indisponivel", servidor: "motor_iga", motivo }]);
+      assert.equal(c.srv.chamadas.length, 0);
+      assert.doesNotMatch(JSON.stringify(c.logs), /token-errado|token-de-teste/, "o token nunca vai para o log");
+    }
+  });
+});
+
+describe("MCP genérico: motivo do log", () => {
+  it("classe fechada, sem a mensagem do erro", () => {
+    assert.equal(motivoMcp(new ErroMcpSemToken("x")), "sem_token");
+    assert.equal(motivoMcp(Object.assign(new Error("Error POSTing: senha=abc"), { code: 401 })), "recusado_401");
+    assert.equal(motivoMcp(Object.assign(new Error("x"), { code: 403 })), "recusado_403");
+    assert.equal(motivoMcp(Object.assign(new Error("x"), { code: 404 })), "nao_encontrado_404");
+    assert.equal(motivoMcp(Object.assign(new Error("x"), { code: 502 })), "erro_servidor_5xx");
+    assert.equal(motivoMcp(Object.assign(new Error("x"), { code: 429 })), "http_429");
+    assert.equal(motivoMcp(Object.assign(new Error("x"), { code: "EDESTINOPROIBIDO" })), "destino_proibido");
+    assert.equal(motivoMcp(new TypeError("fetch failed")), "rede");
+    assert.equal(motivoMcp(Object.assign(new Error("x"), { name: "TimeoutError" })), "tempo_esgotado");
+    assert.equal(motivoMcp(new SyntaxError("json")), "resposta_invalida");
+    assert.equal(motivoMcp("qualquer coisa"), "erro");
   });
 });
