@@ -140,6 +140,7 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
       if (q.get("error")) return voltar("erro", { motivo: q.get("error") === "access_denied" ? "você não autorizou" : "o servidor recusou" });
       try {
         const r = await cfg.mcp.conexoes.concluir(q.get("state") ?? "", q.get("code") ?? "", lerCookie(p.headers.cookie, COOKIE_OAUTH));
+        if (r.repetida) return voltar("ok", { integracao: r.integracao });
         const sv = cfg.mcp.conexoes.servidor(r.integracao, r.userId);
         await comoUsuario(db, r.userId, async (tx) => {
           const m = motorNaTransacao(tx, opcoesMotor);
@@ -163,6 +164,7 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
       if (q.get("error")) return voltar("erro", { motivo: q.get("error") === "access_denied" ? "você não autorizou no Google" : "o Google recusou" });
       try {
         const r = await conexoes.concluir(q.get("state") ?? "", q.get("code") ?? "", lerCookie(p.headers.cookie, COOKIE_OAUTH));
+        if (r.repetida) return voltar("ok", { integracao: r.integracao });
         // Conectar concede ao agente a autoridade daquela integração (grant e consentimento), visível e revogável no app.
         await comoUsuario(db, r.userId, async (tx) => {
           const m = motorNaTransacao(tx, opcoesMotor);

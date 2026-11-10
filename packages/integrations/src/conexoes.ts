@@ -94,7 +94,7 @@ export class Conexoes {
   }
 
   /** O Google devolveu a pessoa com `code` e `state`; `nonce` vem do cookie do navegador. */
-  async concluir(state: string, code: string, nonce: string | null): Promise<{ userId: string; integracao: string }> {
+  async concluir(state: string, code: string, nonce: string | null): Promise<{ userId: string; integracao: string; repetida?: true }> {
     if (!state || !code || !nonce || state.length > 200 || code.length > 2000 || nonce.length > 200) throw new ObedientError("UNAUTHENTICATED", "retorno do Google incompleto");
     const agora = this.clock.now();
     const fluxo = await comoAutenticacao(this.db, async (tx) => {
@@ -106,8 +106,14 @@ export class Conexoes {
       );
       return rows[0] ?? null;
     });
-    // State desconhecido, vencido, já usado, ou de OUTRO navegador (nonce diferente): nada é conectado.
-    if (!fluxo) throw new ObedientError("UNAUTHENTICATED", "esse pedido de conexão não vale mais: comece de novo");
+    if (!fluxo) {
+      // A mesma volta chegando de novo (recarga, pré-carregamento do navegador): se ESTE navegador já
+      // concluiu esse pedido há pouco e a conexão existe, é "conectado", sem trocar token nem conceder de novo.
+      const ja = await voltaRepetida(this.db, state, nonce, agora);
+      if (ja) return { ...ja, repetida: true };
+      // State desconhecido, vencido, já usado, ou de OUTRO navegador (nonce diferente): nada é conectado.
+      throw new ObedientError("UNAUTHENTICATED", "esse pedido de conexão não vale mais: comece de novo");
+    }
     const i = integracao(fluxo.integracao);
     const verifier = this.cofre.decifrar({ chaveId: fluxo.chave_id, dados: Buffer.from(fluxo.verifier_cifra) }, fluxo.user_id, `oauth:${i.id}`);
 
@@ -236,6 +242,25 @@ export class Conexoes {
       ]);
     } else await tx.query("update obedient.connections set cifra = $3, chave_id = $4, atualizada_em = $5 where user_id = $1 and integracao = $2", [userId, i.id, c.dados, c.chaveId, agora]);
   }
+}
+
+/**
+ * O pedido (state + nonce DESTE navegador) já foi concluído nos últimos minutos e a conexão existe?
+ * Serve só para responder "conectado" a uma segunda volta igual; não dá acesso a nada.
+ */
+export async function voltaRepetida(db: Database, state: string, nonce: string, agora: Date): Promise<{ userId: string; integracao: string } | null> {
+  const usado = await comoAutenticacao(db, async (tx) => {
+    const { rows } = await tx.query<{ user_id: string; integracao: string }>(
+      "select user_id, integracao from obedient.oauth_states where state_hash = $1 and nonce_hash = $2 and usado_em is not null and usado_em > $3",
+      [sha(state), sha(nonce), new Date(agora.getTime() - STATE_TTL_MS)],
+    );
+    return rows[0] ?? null;
+  });
+  if (!usado) return null;
+  const conectada = await comoUsuario(db, usado.user_id, async (tx) =>
+    (await tx.query("select 1 from obedient.connections where user_id = $1 and integracao = $2", [usado.user_id, usado.integracao])).rows.length > 0,
+  );
+  return conectada ? { userId: usado.user_id, integracao: usado.integracao } : null;
 }
 
 /**

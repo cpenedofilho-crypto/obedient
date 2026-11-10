@@ -126,7 +126,13 @@ describe("MCP com OAuth da pessoa: conectar", () => {
     const outro = await c.conexoes.iniciar("bia-oauth", "recupera");
     const r = c.as.autorizar(outro.url);
     await c.conexoes.concluir(r.state, r.code, outro.nonce);
-    await assert.rejects(c.conexoes.concluir(r.state, r.code, outro.nonce), /não vale mais/, "o mesmo state não vale duas vezes");
+    // Segunda volta igual do MESMO navegador: "conectado", sem novo pedido de token.
+    const trocas = c.as.recebidos.filter((x) => x.url.endsWith("/oauth/token")).length;
+    assert.deepEqual(await c.conexoes.concluir(r.state, r.code, outro.nonce), { userId: "bia-oauth", integracao: "recupera", repetida: true });
+    assert.equal(c.as.recebidos.filter((x) => x.url.endsWith("/oauth/token")).length, trocas, "o código não foi trocado de novo");
+    await assert.rejects(c.conexoes.concluir(r.state, r.code, "nonce-de-outro-navegador"), /não vale mais/, "de outro navegador continua recusado");
+    c.clock.advance(11 * 60 * 1000);
+    await assert.rejects(c.conexoes.concluir(r.state, r.code, outro.nonce), /não vale mais/, "passados 10 minutos, vale a regra normal");
     void nonce;
   });
 
