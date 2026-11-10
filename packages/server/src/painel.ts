@@ -354,6 +354,11 @@ export interface ConexaoNoPainel {
   conectada: boolean;
   conectadaEm: string | null;
   ferramentas: { nome: string; descricao: string; risco: string }[];
+  /**
+   * Origem para onde o app pode mandar a pessoa ao conectar (a tela de autorização). O app só
+   * redireciona se a URL devolvida pelo servidor for https nesta origem exata.
+   */
+  autorizaEm: string;
 }
 
 /** As integrações do catálogo, cada uma com o estado da pessoa. Nunca leva credencial. */
@@ -368,13 +373,14 @@ export function conexoesNoPainel(conectadas: readonly { integracao: string; cone
       conectada: !!c,
       conectadaEm: c ? new Date(c.conectada_em as string | Date).toISOString() : null,
       ferramentas: i.ferramentas.map((f) => ({ nome: f.name, descricao: f.description, risco: riscoEmPortugues(f.category === "DESTRUCTIVE" || f.category === "FINANCIAL" || f.category === "LEGAL" ? "CRITICAL" : f.risk)! })),
+      autorizaEm: "https://accounts.google.com",
     };
   });
 }
 
 /** Cartões dos servidores MCP que a pessoa conecta com a conta dela (OAuth), só os da lista do dono. */
 export function conexoesMcpNoPainel(
-  servidores: readonly { id: string; nome: string; ferramentas: readonly string[]; usuarios: ReadonlySet<string>; oauth?: unknown }[],
+  servidores: readonly { id: string; nome: string; ferramentas: readonly string[]; usuarios: ReadonlySet<string>; oauth?: { issuer: string } }[],
   conectadas: readonly { integracao: string; conectada_em: unknown }[],
   userId: string,
 ): ConexaoNoPainel[] {
@@ -390,6 +396,8 @@ export function conexoesMcpNoPainel(
         conectada: !!c,
         conectadaEm: c ? new Date(c.conectada_em as string | Date).toISOString() : null,
         ferramentas: s.ferramentas.map((f) => ({ nome: f, descricao: "leitura", risco: riscoEmPortugues("LOW")! })),
+        // A tela de autorização é a do emissor que o DONO configurou (o endpoint da descoberta é conferido na mesma origem).
+        autorizaEm: new URL(s.oauth!.issuer).origin,
       };
     });
 }
