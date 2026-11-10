@@ -78,7 +78,8 @@ describe("0007: máquina de estados das propostas no banco", () => {
 
     // O caminho do motor continua: aprovar, executar uma vez.
     await como(u, (m) => m.approve(p.id, { id: u, kind: "user", strongAuth: false }, p.payloadHash));
-    assert.equal(await como(u, (m) => m.executeApproved(p.id, p.payloadHash, async () => "ok")), "ok");
+    await como(u, (m) => m.approvals.claim(p.id, p.payloadHash));
+    assert.equal((await como(u, (m) => m.approvals.complete(p.id, true))).status, "executed");
     await assert.rejects(mudar("status = 'approved'"), recusa, "executada não volta a aprovada");
     await assert.rejects(mudar("status = 'executing'"), recusa, "executada não volta a executar");
   });
