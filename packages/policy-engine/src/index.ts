@@ -18,7 +18,8 @@
 //   • deny sempre vence;
 //   • CRITICAL nunca roda sozinha: no mínimo aprovação privilegiada, ou bloqueio;
 //   • allow_autonomous só derruba o PADRÃO, nunca uma exigência de outra política;
-//   • política com condição de valor só casa quando o valor existe e é maior que o limite;
+//   • política com condição de valor casa quando o valor é maior que o limite; com o valor presente
+//     mas ilegível ou ambíguo, a que restringe casa e a que libera não;
 //   • categoria FINANCIAL, LEGAL ou DESTRUCTIVE conta como CRITICAL, qualquer que seja o risco
 //     informado.
 
@@ -111,16 +112,34 @@ function path(obj: unknown, dotted: string): unknown {
     .reduce<unknown>((o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined), obj);
 }
 
-/** Valor numérico da ação no campo indicado (aceita "1.234,56" e "1234.56"). null se não houver. */
+// Formatos aceitos para valor em texto. Qualquer outro (notação científica, hexadecimal, "1,000.50",
+// texto no meio) é ilegível: o limite não pode ser conferido e quem confere nega.
+const MOEDA = /^(?:R\$|US\$|\$|€)\s*/;
+const COM_PONTO = /^-?\d+(?:\.\d+)?$/; // 1234.56
+const BR_MILHAR = /^-?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/; // 1.234 ou 1.234,56
+const BR_VIRGULA = /^-?\d+,\d+$/; // 1234,56
+
+/**
+ * Valor numérico da ação no campo indicado. Aceita número finito, "1234.56", "1.234,56", "1234,56" e
+ * "R$ 1.234,56". Texto que dá dois valores diferentes conforme o formato ("1.000": mil ou um?) é
+ * ambíguo e volta null, como o ilegível e o ausente. Quem confere um limite trata null como negação.
+ */
 export function amountOf(args: Record<string, unknown>, field: string): number | null {
   const v = path(args, field);
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string") {
-    const clean = v.trim().replace(/[^\d,.-]/g, "");
-    const n = Number(clean.includes(",") ? clean.replace(/\./g, "").replace(",", ".") : clean);
-    return Number.isFinite(n) && clean !== "" ? n : null;
-  }
-  return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v !== "string") return null;
+  const s = v.trim().replace(MOEDA, "");
+  const comPonto = COM_PONTO.test(s) ? Number(s) : null;
+  const brasileiro = BR_MILHAR.test(s) || BR_VIRGULA.test(s) ? Number(s.replace(/\./g, "").replace(",", ".")) : null;
+  if (comPonto !== null && brasileiro !== null && comPonto !== brasileiro) return null;
+  const n = comPonto ?? brasileiro;
+  return n !== null && Number.isFinite(n) ? n : null;
+}
+
+/** O campo de valor veio preenchido (legível ou não)? */
+function amountPresent(args: Record<string, unknown>, field: string): boolean {
+  const v = path(args, field);
+  return v !== undefined && v !== null && v !== "";
 }
 
 function contains(context: Record<string, unknown>, expected: Record<string, unknown>): boolean {
@@ -149,7 +168,11 @@ export function matches(p: Policy, a: Action, now: Date): boolean {
   if (p.contextMatch && !contains(a.context, p.contextMatch)) return false;
   if (p.amountField && p.amountAbove !== null) {
     const v = amountOf(a.args, p.amountField);
-    if (v === null || !(v > p.amountAbove)) return false;
+    // Valor presente mas ilegível ou ambíguo: a política que restringe casa (não dá para provar que
+    // está abaixo do limite); a que libera não casa.
+    if (v === null) {
+      if (!amountPresent(a.args, p.amountField) || p.effect === "allow_autonomous") return false;
+    } else if (!(v > p.amountAbove)) return false;
   }
   return true;
 }
