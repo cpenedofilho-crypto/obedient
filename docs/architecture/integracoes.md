@@ -228,4 +228,4 @@ O OBEDIENT conversa com qualquer servidor MCP que fale Streamable HTTP, como o M
 
 **Resultado e falhas:**
 - O resultado volta ao modelo como `conteudo_externo`, com o texto e os dados estruturados cortados em 20 mil caracteres.
-- Servidor fora do ar não derruba a missão: as ferramentas dele ficam de fora daquela vez, e o motivo vai para o log (`mcp.indisponivel`).
+- Servidor fora do ar não derruba a missão: as ferramentas dele ficam de fora daquela vez, e o motivo vai para o log (`mcp.indisponivel`). O motivo é uma classe fechada: `sem_token`, `recusado_401`, `recusado_403`, `nao_encontrado_404`, `erro_servidor_5xx`, `http_<código>`, `destino_proibido`, `tempo_esgotado`, `rede`, `resposta_invalida` ou `erro`. A mensagem do erro nunca entra, porque é texto do servidor de fora, e o token também não.

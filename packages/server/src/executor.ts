@@ -40,7 +40,7 @@ import type { Licao } from "@obedient/memory";
 import type { Executor as ExecutorDeMissao, Missao, ResultadoTentativa, TipoDesfecho } from "@obedient/missions";
 import type { ClienteA2A } from "@obedient/a2a-client";
 import { SISTEMA_GROWTH_OS, executorGrowthOs, itensGrowthOs, temGrowthOs } from "./growth-os.ts";
-import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
+import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, motivoMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
 import { type Database, type OpcoesMotor, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 
 export const CONCLUIR = "concluir_missao";
@@ -237,7 +237,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
         for (const i of await itensMcp(s, c)) catalogo.set(i.definicao.name, i);
         conexoesMcp.set(s.id, c);
       } catch (e) {
-        d.log?.({ evento: "mcp.indisponivel", servidor: s.id, erro: e instanceof Error ? e.name : "erro" });
+        d.log?.({ evento: "mcp.indisponivel", servidor: s.id, motivo: motivoMcp(e) });
       }
     }
 
