@@ -66,7 +66,15 @@ describe("conexões OAuth (Fase 7)", () => {
     const { state, code } = c.google.autorizar(url);
     // Outro navegador (sem o cookie certo) com o mesmo state: nada conecta (CSRF de login OAuth).
     await assert.rejects(c.conexoes.concluir(state, code, "nonce-de-outro-navegador"), (e) => codigo(e) === "UNAUTHENTICATED");
-    await c.conexoes.concluir(state, code, nonce);
+    assert.deepEqual(await c.conexoes.concluir(state, code, nonce), { userId: ana, integracao: "google_agenda" });
+    // A mesma volta de novo, do MESMO navegador (recarga, pré-carregamento): "conectado", sem trocar
+    // código por token outra vez. De outro navegador, continua recusada.
+    const trocas = c.google.chamadas.length;
+    assert.deepEqual(await c.conexoes.concluir(state, code, nonce), { userId: ana, integracao: "google_agenda", repetida: true });
+    assert.equal(c.google.chamadas.length, trocas, "nada foi pedido de novo ao Google");
+    await assert.rejects(c.conexoes.concluir(state, code, "nonce-de-outro-navegador"), /não vale mais/);
+    // Desconectada, a volta repetida não diz mais "conectado".
+    await comoUsuario(banco.db, ana, (tx) => tirarConexoes(tx, ana, "teste", "google_agenda"));
     await assert.rejects(c.conexoes.concluir(state, code, nonce), /não vale mais/);
     const outro = await c.conexoes.iniciar(ana, "google_gmail");
     const a2 = c.google.autorizar(outro.url);

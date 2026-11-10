@@ -22,7 +22,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
 import { fetchSeguro } from "@obedient/integration-gateway";
 import type { Cofre } from "@obedient/integrations";
-import { tirarConexoes } from "@obedient/integrations";
+import { tirarConexoes, voltaRepetida } from "@obedient/integrations";
 import { type Database, type Executor, comoAutenticacao, comoUsuario } from "@obedient/store-postgres";
 import type { ServidorMcp } from "./mcp-servidores.ts";
 
@@ -115,7 +115,7 @@ export class ConexoesMcp {
     return { url: url.toString(), nonce };
   }
 
-  async concluir(state: string, code: string, nonce: string | null): Promise<{ userId: string; integracao: string }> {
+  async concluir(state: string, code: string, nonce: string | null): Promise<{ userId: string; integracao: string; repetida?: true }> {
     if (!state || !code || !nonce || state.length > 200 || code.length > 2000 || nonce.length > 200) throw new ObedientError("UNAUTHENTICATED", "retorno incompleto");
     const agora = this.clock.now();
     const ids = this.servidores.filter(comOAuth).map((s) => s.id);
@@ -128,7 +128,12 @@ export class ConexoesMcp {
       );
       return rows[0] ?? null;
     });
-    if (!fluxo) throw new ObedientError("UNAUTHENTICATED", "esse pedido de conexão não vale mais: comece de novo");
+    if (!fluxo) {
+      // Segunda volta igual do MESMO navegador, já conectada: "conectado", sem trocar token nem conceder de novo.
+      const ja = await voltaRepetida(this.db, state, nonce, agora);
+      if (ja && ids.includes(ja.integracao)) return { ...ja, repetida: true };
+      throw new ObedientError("UNAUTHENTICATED", "esse pedido de conexão não vale mais: comece de novo");
+    }
     const s = this.servidor(fluxo.integracao, fluxo.user_id);
     const verifier = this.cofre.decifrar({ chaveId: fluxo.chave_id, dados: Buffer.from(fluxo.verifier_cifra) }, fluxo.user_id, `oauth:${s.id}`);
     const r = await this.pedirToken(s, { grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: this.redirectUri });
