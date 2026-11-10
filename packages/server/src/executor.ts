@@ -72,7 +72,7 @@ export interface DepsExecutor {
   /** Growth OS por A2A (growth-os.ts). Ausente: a ferramenta não existe neste servidor. */
   growthOs?: { cliente: ClienteA2A; usuarios: ReadonlySet<string> } | null;
   /** Servidores MCP do dono (mcp-servidores.ts). Ausente: nenhum. */
-  mcp?: { servidores: readonly ServidorMcp[]; conexao(s: ServidorMcp): ConexaoMcp } | null;
+  mcp?: { servidores: readonly ServidorMcp[]; conexao(s: ServidorMcp, userId: string): ConexaoMcp } | null;
   log?: (e: Record<string, unknown>) => void;
 }
 
@@ -232,7 +232,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     // MCP: as ferramentas de cada servidor saem do tools/list, filtradas pela lista do dono. Servidor fora do ar fica de fora desta vez.
     const conexoesMcp = new Map<string, ConexaoMcp>();
     for (const s of ctx.mcp) {
-      const c = d.mcp!.conexao(s);
+      const c = d.mcp!.conexao(s, u);
       try {
         for (const i of await itensMcp(s, c)) catalogo.set(i.definicao.name, i);
         conexoesMcp.set(s.id, c);

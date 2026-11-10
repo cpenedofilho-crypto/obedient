@@ -18,7 +18,7 @@ import type { PedidoModelo, RespostaModelo, ResultadoFerramenta } from "@obedien
 import { comoUsuario, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { CONCLUIR, executorDeMissoes, type ModeloComGasto } from "./executor.ts";
-import { ErroMcpSemToken, concederMcp, conexaoMcp, motivoMcp, retirarMcp, servidoresMcpDoAmbiente } from "./mcp-servidores.ts";
+import { ErroMcpSemToken, concederMcp, conexaoMcp, motivoMcp, retirarMcp, servidoresMcpDoAmbiente, tokenDoAmbiente } from "./mcp-servidores.ts";
 import { processarMissoes } from "./processador.ts";
 
 const T0 = new Date("2026-11-09T12:00:00Z");
@@ -94,7 +94,7 @@ function montar(o: { fora?: boolean; env?: Record<string, string | undefined> } 
   const processar = (u: string, r: ReturnType<typeof roteiro>) =>
     processarMissoes(banco.db, u, executorDeMissoes({
       db: banco.db, conexoes: null, novoModelo: r.novo, centavosPorDolar: 600, clock,
-      mcp: { servidores, conexao: (s) => conexaoMcp(s, o.env ?? ENV, srv.f) }, log: (e) => logs.push(e),
+      mcp: { servidores, conexao: (s) => conexaoMcp(s, tokenDoAmbiente(s, o.env ?? ENV), srv.f) }, log: (e) => logs.push(e),
     }), {}, clock);
   return { clock, servidores, srv, logs, motor, missao, processar };
 }

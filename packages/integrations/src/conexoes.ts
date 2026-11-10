@@ -163,7 +163,9 @@ export class Conexoes {
   async revogarPendentes(userId: string): Promise<{ revogadas: number; pendentes: number }> {
     const fila = await comoUsuario(this.db, userId, async (tx) => {
       const { rows } = await tx.query<{ id: string; integracao: string; cifra: Buffer; chave_id: string }>(
-        "select id, integracao, cifra, chave_id from obedient.token_revocations where user_id = $1 order by criada_em",
+        // Só o que é do Google vai ao endpoint do Google. Credencial de outro provedor (servidor MCP
+        // com OAuth da pessoa) é tratada por quem a criou e nunca sai daqui para o Google.
+        "select id, integracao, cifra, chave_id from obedient.token_revocations where user_id = $1 and integracao like 'google\\_%' order by criada_em",
         [userId],
       );
       return rows;

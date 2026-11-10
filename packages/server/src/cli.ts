@@ -52,12 +52,13 @@ import { Passkeys } from "./passkeys.ts";
 import { Cofre, Conexoes, lerChaves } from "@obedient/integrations";
 import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
 import { clienteGrowthOs, concederGrowthOs, configGrowthOsDoAmbiente, retirarGrowthOs } from "./growth-os.ts";
-import { concederMcp, conexaoMcp, retirarMcp, servidoresMcpDoAmbiente } from "./mcp-servidores.ts";
+import { type ServidorMcp, concederMcp, conexaoMcp, retirarMcp, servidoresMcpDoAmbiente, tokenDoAmbiente } from "./mcp-servidores.ts";
+import { ConexoesMcp, comOAuth } from "./mcp-oauth.ts";
 
 const ESFORCOS: readonly Esforco[] = ["low", "medium", "high", "xhigh", "max"];
 
 /** O executor das missões, se o dono ligou. Erro de configuração para o servidor na subida, não depois. */
-function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null) {
+function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null, servidoresMcp: ServidorMcp[], conexoesMcp: ConexoesMcp | null) {
   if (env("OBEDIENT_AGENTE") !== "ligado") {
     console.log("executor das missões desligado (OBEDIENT_AGENTE=ligado para ligar)");
     return;
@@ -73,12 +74,13 @@ function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null) {
   const teste = new ModeloAnthropic({ cliente, ...(modelo ? { modelo } : {}), esforco, fallbacks });
   const growth = configGrowthOsDoAmbiente();
   console.log(growth ? `Growth OS por A2A ligado para ${growth.usuarios.size} pessoa(s)` : "Growth OS desligado (sem OBEDIENT_GROWTH_OS_*)");
-  const servidoresMcp = servidoresMcpDoAmbiente();
-  if (servidoresMcp.length) console.log(`servidores MCP: ${servidoresMcp.map((s) => `${s.id} (${s.ferramentas.length} ferramentas)`).join(", ")}`);
+  if (servidoresMcp.length) console.log(`servidores MCP: ${servidoresMcp.map((s) => `${s.id} (${s.ferramentas.length} ferramentas${comOAuth(s) ? ", OAuth da pessoa" : ""})`).join(", ")}`);
+  // Token de máquina (variável de ambiente) ou o da PESSOA, conectado no app (mcp-oauth.ts).
+  const tokenDe = (s: ServidorMcp, u: string) => (comOAuth(s) ? async () => (conexoesMcp ? conexoesMcp.tokenDeAcesso(u, s.id) : null) : tokenDoAmbiente(s));
   const executar = executorDeMissoes({
     db,
     conexoes,
-    mcp: servidoresMcp.length ? { servidores: servidoresMcp, conexao: (s) => conexaoMcp(s) } : null,
+    mcp: servidoresMcp.length ? { servidores: servidoresMcp, conexao: (s, u) => conexaoMcp(s, tokenDe(s, u)) } : null,
     log: (e) => console.log(JSON.stringify(e)),
     growthOs: growth ? { cliente: clienteGrowthOs(growth), usuarios: growth.usuarios } : null,
     novoModelo: () => new ModeloAnthropic({ cliente, modelo: teste.modelo, esforco, fallbacks }),
@@ -163,8 +165,12 @@ async function main(argv: string[]) {
         ? { cliente: { clientId: idGoogle, clientSecret: segredoGoogle, redirectUri: `${origin}/api/conexoes/retorno` }, cofre: new Cofre(lerChaves(env("OBEDIENT_CHAVES_COFRE"))) }
         : undefined;
     if (!google) console.log("integrações com o Google desligadas (sem OBEDIENT_GOOGLE_CLIENT_ID/SECRET)");
-    agente(db, google ? new Conexoes(db, google.cofre, google.cliente, fetch, systemClock) : null);
-    servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(google ? { google } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
+    const servidoresMcp = servidoresMcpDoAmbiente();
+    const comOAuthDaPessoa = servidoresMcp.filter(comOAuth);
+    if (comOAuthDaPessoa.length && !env("OBEDIENT_CHAVES_COFRE")) throw new Error("servidor MCP com oauth exige OBEDIENT_CHAVES_COFRE (a credencial da pessoa é guardada cifrada)");
+    const conexoesMcp = comOAuthDaPessoa.length ? new ConexoesMcp(db, google?.cofre ?? new Cofre(lerChaves(env("OBEDIENT_CHAVES_COFRE"))), servidoresMcp, origin) : null;
+    agente(db, google ? new Conexoes(db, google.cofre, google.cliente, fetch, systemClock) : null, servidoresMcp, conexoesMcp);
+    servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(google ? { google } : {}), ...(conexoesMcp ? { mcp: { conexoes: conexoesMcp, servidores: servidoresMcp } } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
     return;
   }
   throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | mcp conceder|retirar <servidor> <usuario> | servir");

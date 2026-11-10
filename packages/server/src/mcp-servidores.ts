@@ -25,8 +25,13 @@ export interface ServidorMcp {
   id: string;
   nome: string;
   url: string;
-  /** Nome da variável de ambiente com o token (Bearer). O valor é lido na hora de cada chamada. */
-  tokenEnv: string;
+  /** Token de máquina: nome da variável de ambiente com o token (Bearer), lido a cada chamada. */
+  tokenEnv?: string;
+  /**
+   * Ou token da PESSOA (mcp-oauth.ts): cliente público no Authorization Server do servidor, com PKCE.
+   * Exatamente um dos dois: tokenEnv ou oauth.
+   */
+  oauth?: { clientId: string; issuer: string; escopos: readonly string[] };
   usuarios: ReadonlySet<string>;
   ferramentas: readonly string[];
 }
@@ -58,8 +63,24 @@ export function servidoresMcpDoAmbiente(env: Record<string, string | undefined> 
     let u: URL;
     try { u = new URL(url); } catch { throw new Error(`${onde}: url inválida`); }
     if (u.protocol !== "https:" || u.username || u.password) throw new Error(`${onde}: url precisa ser https e sem credencial`);
-    const tokenEnv = String(o.token_env ?? "");
-    if (!TOKEN_ENV.test(tokenEnv)) throw new Error(`${onde}: token_env precisa ser o NOME de uma variável OBEDIENT_MCP_*`);
+    let tokenEnv: string | undefined;
+    let oauth: ServidorMcp["oauth"];
+    if (o.oauth !== undefined) {
+      if (o.token_env !== undefined) throw new Error(`${onde}: use token_env OU oauth, não os dois`);
+      const a = (o.oauth ?? {}) as Record<string, unknown>;
+      const clientId = String(a.client_id ?? "");
+      const issuer = String(a.issuer ?? "");
+      const escopos = Array.isArray(a.escopos) ? a.escopos.map(String) : ["openid"];
+      if (!/^[A-Za-z0-9._:-]{1,200}$/.test(clientId)) throw new Error(`${onde}: oauth.client_id inválido`);
+      let i: URL;
+      try { i = new URL(issuer); } catch { throw new Error(`${onde}: oauth.issuer inválido`); }
+      if (i.protocol !== "https:" || i.username || i.password || i.search || i.hash) throw new Error(`${onde}: oauth.issuer precisa ser https, sem credencial`);
+      if (!escopos.length || escopos.length > 10 || !escopos.every((e) => /^[A-Za-z0-9._:/-]{1,100}$/.test(e))) throw new Error(`${onde}: oauth.escopos inválidos`);
+      oauth = { clientId, issuer, escopos };
+    } else {
+      tokenEnv = String(o.token_env ?? "");
+      if (!TOKEN_ENV.test(tokenEnv)) throw new Error(`${onde}: token_env precisa ser o NOME de uma variável OBEDIENT_MCP_*`);
+    }
     const usuarios = Array.isArray(o.usuarios) ? o.usuarios.map(String).map((x) => x.trim()).filter(Boolean) : [];
     if (!usuarios.length) throw new Error(`${onde}: liste quem pode usar (usuarios)`);
     const ferramentas = Array.isArray(o.ferramentas) ? o.ferramentas.map(String) : [];
@@ -67,7 +88,7 @@ export function servidoresMcpDoAmbiente(env: Record<string, string | undefined> 
       throw new Error(`${onde}: ferramentas precisa ser uma lista de 1 a ${MAX_FERRAMENTAS} nomes`);
     }
     const nome = String(o.nome ?? id).slice(0, 60);
-    return { id, nome, url: u.toString(), tokenEnv, usuarios: new Set(usuarios), ferramentas: [...new Set(ferramentas)] };
+    return { id, nome, url: u.toString(), ...(tokenEnv ? { tokenEnv } : {}), ...(oauth ? { oauth } : {}), usuarios: new Set(usuarios), ferramentas: [...new Set(ferramentas)] };
   });
 }
 
@@ -110,13 +131,19 @@ export interface ConexaoMcp {
   chamar(nome: string, argumentos: Record<string, unknown>): Promise<unknown>;
 }
 
-/** Conexão pelo SDK oficial, Streamable HTTP, uma sessão por operação. `http` injetável para teste. */
-export function conexaoMcp(s: ServidorMcp, env: Record<string, string | undefined> = process.env, http: typeof fetch = fetchSeguro): ConexaoMcp {
+/** De onde vem o token de máquina (variável de ambiente); null sem a variável. */
+export const tokenDoAmbiente = (s: ServidorMcp, env: Record<string, string | undefined> = process.env) => async () => (s.tokenEnv ? env[s.tokenEnv]?.trim() || null : null);
+
+/**
+ * Conexão pelo SDK oficial, Streamable HTTP, uma sessão por operação. `token` dá o Bearer: o de
+ * máquina (tokenDoAmbiente) ou o da pessoa (ConexoesMcp.tokenDeAcesso). `http` injetável para teste.
+ */
+export function conexaoMcp(s: ServidorMcp, token: () => Promise<string | null>, http: typeof fetch = fetchSeguro): ConexaoMcp {
   const abrir = async <T>(fn: (c: Client) => Promise<T>): Promise<T> => {
-    const token = env[s.tokenEnv]?.trim();
-    if (!token) throw new ErroMcpSemToken(s.id);
+    const bearer = await token();
+    if (!bearer) throw new ErroMcpSemToken(s.id);
     const transporte = new StreamableHTTPClientTransport(new URL(s.url), {
-      requestInit: { headers: { authorization: `Bearer ${token}` } },
+      requestInit: { headers: { authorization: `Bearer ${bearer}` } },
       fetch: http,
     });
     const c = new Client({ name: "obedient", version: "0.0.0" });

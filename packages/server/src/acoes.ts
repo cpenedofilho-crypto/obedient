@@ -43,7 +43,8 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const HASH = /^[0-9a-f]{64}$/;
 
 /** Validação da entrada. Devolve a ação tipada ou a lista de problemas. */
-export function lerAcao(corpo: unknown): Acao | string[] {
+/** `outras`: ids de conexão que não são do Google (servidores MCP com OAuth da pessoa). */
+export function lerAcao(corpo: unknown, outras: readonly string[] = []): Acao | string[] {
   const o = (corpo && typeof corpo === "object" ? corpo : {}) as Record<string, unknown>;
   const erros: string[] = [];
   if (typeof o.opId !== "string" || !OP_ID.test(o.opId)) erros.push("opId inválido");
@@ -88,7 +89,7 @@ export function lerAcao(corpo: unknown): Acao | string[] {
       if (typeof o.texto !== "string" || o.texto.length > 400) erros.push("identificação inválida");
       break;
     case "desconectar":
-      if (typeof o.integracao !== "string" || !INTEGRACOES.some((i) => i.id === o.integracao)) erros.push("integração desconhecida");
+      if (typeof o.integracao !== "string" || !(INTEGRACOES.some((i) => i.id === o.integracao) || outras.includes(o.integracao))) erros.push("integração desconhecida");
       break;
     case "parar":
     case "liberar":
