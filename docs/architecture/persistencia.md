@@ -60,6 +60,32 @@ API: não existe caminho no pacote que abra transação de usuário sem `comoUsu
   transação). Duas gravações simultâneas do mesmo usuário entram uma depois da outra.
 - **O hash em si é conferido pelo motor** (`verify(userId)`), porque o JSON canônico vive no código.
   O banco garante a ordem e a continuidade; o motor, o conteúdo.
+- **A entrada tem de bater com as colunas** (`seq`, `hash`, `prevHash`, `userId`, e `event` e `at`
+  presentes), com `is distinct from` (migration 0007): uma entrada `'{}'` com a cadeia certa não
+  entra mais.
+- **Limite conhecido:** o dono das tabelas (o papel que migra) pode desligar os gatilhos, reescrever
+  a trilha e recalcular a cadeia, e `verify()` não acusa. Fechar isso exige ancorar a cabeça fora do
+  banco (assinatura com chave fora do Postgres, ou checkpoints publicados), ainda não feito.
+
+## Propostas: máquina de estados no banco
+
+Migration 0007, por gatilho, para todo papel (o dono inclusive):
+
+- **Toda proposta nasce `pending`,** sem decisão nem execução, e com grant.
+- **Só as transições do motor valem:**
+  - `pending` → `approved`, `rejected` ou `expired`;
+  - `approved` → `executing`, `rejected` ou `expired`;
+  - `executing` → `executed` ou `failed`.
+- **Aprovar exige `decided_by` igual a `user_id`.**
+- **Com o status igual** (o "apagar o que o OBEDIENT sabe" esvazia o conteúdo), decisão e execução não
+  mudam.
+
+Isto fecha atalhos que nem o motor permite. Uma proposta forjada já aprovada, ou sem grant, ou um
+status que pula etapa, era aceita pelo papel do app. Quem tem SQL na transação da pessoa ainda pode
+aprovar em nome dela: essa barreira é o servidor.
+
+`missions.proposta_id` aponta para `(user_id, id)`: o id de uma proposta de outra pessoa é recusado
+igual a um id inexistente, sem servir para descobrir se ele existe.
 
 ## Execução única
 
