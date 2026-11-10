@@ -22,7 +22,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
 import { fetchSeguro } from "@obedient/integration-gateway";
 import type { Cofre } from "@obedient/integrations";
-import { tirarConexoes, voltaRepetida } from "@obedient/integrations";
+import { conexaoBarrada, tirarConexoes, voltaRepetida } from "@obedient/integrations";
 import { type Database, type Executor, comoAutenticacao, comoUsuario } from "@obedient/store-postgres";
 import type { ServidorMcp } from "./mcp-servidores.ts";
 
@@ -120,10 +120,10 @@ export class ConexoesMcp {
     const agora = this.clock.now();
     const ids = this.servidores.filter(comOAuth).map((s) => s.id);
     const fluxo = await comoAutenticacao(this.db, async (tx) => {
-      const { rows } = await tx.query<{ user_id: string; integracao: string; verifier_cifra: Buffer; chave_id: string }>(
+      const { rows } = await tx.query<{ user_id: string; integracao: string; verifier_cifra: Buffer; chave_id: string; criado_em: unknown }>(
         `update obedient.oauth_states set usado_em = $3
           where state_hash = $1 and nonce_hash = $2 and usado_em is null and expira_em > $3 and integracao = any($4)
-          returning user_id, integracao, verifier_cifra, chave_id`,
+          returning user_id, integracao, verifier_cifra, chave_id, criado_em`,
         [sha(state), sha(nonce), agora, ids],
       );
       return rows[0] ?? null;
@@ -135,11 +135,22 @@ export class ConexoesMcp {
       throw new ObedientError("UNAUTHENTICATED", "esse pedido de conexão não vale mais: comece de novo");
     }
     const s = this.servidor(fluxo.integracao, fluxo.user_id);
+    // Art. 9º: parado (ou parado/apagado depois de iniciar), nada é pedido ao servidor nem gravado.
+    const iniciadoEm = new Date(fluxo.criado_em as string | Date);
+    const antes = await comoUsuario(this.db, fluxo.user_id, (tx) => conexaoBarrada(tx, fluxo.user_id, iniciadoEm));
+    if (antes) throw new ObedientError("EMERGENCY_STOP", antes);
     const verifier = this.cofre.decifrar({ chaveId: fluxo.chave_id, dados: Buffer.from(fluxo.verifier_cifra) }, fluxo.user_id, `oauth:${s.id}`);
     const r = await this.pedirToken(s, { grant_type: "authorization_code", code, code_verifier: verifier, redirect_uri: this.redirectUri });
     if (!r.refresh_token) throw new ObedientError("UNAUTHENTICATED", `${s.nome} não devolveu acesso permanente: tente conectar de novo`);
     const cred: Credencial = { refreshToken: r.refresh_token, accessToken: r.access_token, expiraEm: agora.getTime() + r.expires_in * 1000 };
-    await comoUsuario(this.db, fluxo.user_id, (tx) => this.gravar(tx, fluxo.user_id, s, cred, true));
+    // De novo, na transação que grava (a parada pode ter chegado durante a troca). Sem endpoint de
+    // revogação nesses servidores, a credencial recusada é só descartada (como em descartarRevogacoes).
+    const barrada = await comoUsuario(this.db, fluxo.user_id, async (tx) => {
+      const motivo = await conexaoBarrada(tx, fluxo.user_id, iniciadoEm);
+      if (!motivo) await this.gravar(tx, fluxo.user_id, s, cred, true);
+      return motivo;
+    });
+    if (barrada) throw new ObedientError("EMERGENCY_STOP", barrada);
     return { userId: fluxo.user_id, integracao: s.id };
   }
 

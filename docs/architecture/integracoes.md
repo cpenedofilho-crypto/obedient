@@ -66,6 +66,11 @@ app: "Conectar" ─► POST /api/conexoes/iniciar
   - sem rede, fica na fila para a próxima vez, mas a conexão já não serve desde o commit.
 - **Na parada,** a retirada das conexões roda num `SAVEPOINT`: um erro nela não pode impedir a parada
   de ser gravada.
+- **Conexão não nasce na parada** (`conexaoBarrada`, também no OAuth dos servidores MCP): o retorno do
+  provedor é recusado se a parada estiver acionada, ou se houve parada ou "apagar o que o OBEDIENT
+  sabe" depois que o pedido de conexão começou. A checagem roda antes de trocar o código por token e
+  de novo na transação que grava; se a parada chegou durante a troca, a credencial recém-emitida vai
+  direto para a fila de revogação.
 
 ## Ferramentas (7.2)
 

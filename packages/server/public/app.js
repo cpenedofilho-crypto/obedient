@@ -338,7 +338,7 @@ function renderParada(/** @type {Op[]} */ ops) {
       conteudo.push(
         confirmandoLiberar
           ? el("div", { classe: "acoes" }, [
-              botao("Sim, liberar o agente", () => agir({ tipo: "liberar" }).then(() => (confirmandoLiberar = false))),
+              botao("Sim, liberar o agente", () => liberar().then(() => (confirmandoLiberar = false))),
               botao("Não, manter parado", () => ((confirmandoLiberar = false), render()), "botao discreto"),
             ])
           : botao("Liberar o agente", () => ((confirmandoLiberar = true), render()), "botao"),
@@ -419,21 +419,40 @@ async function drenar() {
   else await render();
 }
 
+/**
+ * Passkey agora, se esta sessão não confirmou há pouco.
+ * @param {string} paraQue "aprovar uma ação sensível", "liberar o agente"
+ * @param {string} seFalhar o que continua como estava
+ */
+async function confirmarQueEVoce(paraQue, seFalhar) {
+  if (painel.reautenticado) return true;
+  if (!online) {
+    avisar(`Para ${paraQue}, este aparelho precisa de internet para confirmar que é você.`);
+    return false;
+  }
+  try {
+    const o = await enviarJson("/api/reautenticar/opcoes");
+    if (o.status !== 200) throw new Error(o.j.mensagem ?? "não deu para confirmar");
+    const r = await enviarJson("/api/reautenticar", { resposta: await usar(o.j) });
+    if (r.status !== 200) throw new Error(r.j.mensagem ?? "não deu para confirmar");
+    painel.reautenticado = true;
+    return true;
+  } catch {
+    avisar(`Não deu para confirmar que é você. ${seFalhar}`);
+    return false;
+  }
+}
+
 /** @param {any} c */
 async function aprovar(c) {
-  if (c.exigeReautenticacao && !painel.reautenticado) {
-    if (!online) return avisar("Para aprovar uma ação sensível, este aparelho precisa de internet para confirmar que é você.");
-    try {
-      const o = await enviarJson("/api/reautenticar/opcoes");
-      if (o.status !== 200) throw new Error(o.j.mensagem ?? "não deu para confirmar");
-      const r = await enviarJson("/api/reautenticar", { resposta: await usar(o.j) });
-      if (r.status !== 200) throw new Error(r.j.mensagem ?? "não deu para confirmar");
-      painel.reautenticado = true;
-    } catch {
-      return avisar("Não deu para confirmar que é você. O pedido continua esperando.");
-    }
-  }
+  if (c.exigeReautenticacao && !(await confirmarQueEVoce("aprovar uma ação sensível", "O pedido continua esperando."))) return;
   await agir({ tipo: "aprovar", propostaId: c.id, hash: c.hash });
+}
+
+/** Liberar é o sentido inseguro: sempre com passkey (o servidor exige). */
+async function liberar() {
+  if (!(await confirmarQueEVoce("liberar o agente", "O agente continua parado."))) return;
+  await agir({ tipo: "liberar" });
 }
 
 function avisar(/** @type {string} */ m) {
@@ -499,18 +518,21 @@ async function convite(/** @type {SubmitEvent} */ ev) {
   }
 }
 
-async function sair() {
-  await enviarJson("/api/sair").catch(() => {});
+/** @param {"/api/sair" | "/api/sair-de-todos"} rota */
+async function sair(rota = "/api/sair") {
+  await enviarJson(rota).catch(() => {});
   await copiaDoPainel.apagar().catch(() => {});
+  await fila.esvaziar().catch(() => {});
   painel = null;
-  mostrarEntrada();
+  mostrarEntrada(rota === "/api/sair-de-todos" ? "Você saiu de todos os aparelhos. Para entrar de novo, use a sua passkey." : undefined);
 }
 
 // ----------------------------------------------------------------------------------------- início
 
 $("b-entrar").addEventListener("click", entrar);
 $("f-convite").addEventListener("submit", convite);
-$("b-sair").addEventListener("click", sair);
+$("b-sair").addEventListener("click", () => sair());
+$("b-sair-todos").addEventListener("click", () => sair("/api/sair-de-todos"));
 $("f-missao").addEventListener("submit", (ev) => {
   ev.preventDefault();
   const campo = /** @type {HTMLTextAreaElement} */ ($("m-objetivo"));

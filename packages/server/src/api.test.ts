@@ -252,6 +252,37 @@ describe("painel e ações", () => {
     }
   });
 
+  it("liberar exige passkey recente: outra sessão aberta não solta a parada sozinha", async () => {
+    const u = usuario("ana");
+    const { aut, token } = await cadastrar(u);
+    assert.equal(corpo<{ resultado: { ok: boolean } }>(await api(post("/api/acoes", { opId: opId(), tipo: "parar" }, token))).resultado.ok, true);
+    clock.advance(6 * 60 * 1000); // a sessão deixou de ser forte (aparelho perdido com sessão aberta)
+    const sem = corpo<{ resultado: { ok: boolean; codigo?: string } }>(await api(post("/api/acoes", { opId: opId(), tipo: "liberar" }, token)));
+    assert.deepEqual([sem.resultado.ok, sem.resultado.codigo], [false, "STRONG_AUTH_REQUIRED"]);
+    assert.ok(corpo<{ parada: unknown }>(await api(get("/api/painel", token))).parada, "continua parado");
+    const o = corpo<{ challenge: string }>(await api(post("/api/reautenticar/opcoes", {}, token)));
+    assert.equal((await api(post("/api/reautenticar", { resposta: aut.entrar(o) }, token))).status, 200);
+    assert.equal(corpo<{ resultado: { ok: boolean } }>(await api(post("/api/acoes", { opId: opId(), tipo: "liberar" }, token))).resultado.ok, true);
+    assert.equal(corpo<{ parada: unknown }>(await api(get("/api/painel", token))).parada, null);
+  });
+
+  it("sair de todos os aparelhos encerra todas as sessões da pessoa, e só as dela", async () => {
+    const u = usuario("ana");
+    const { aut, token: primeiro } = await cadastrar(u);
+    const o = corpo<{ challenge: string }>(await api(post("/api/entrar/opcoes", {})));
+    const entrou = await api(post("/api/entrar", { resposta: aut.entrar(o) }));
+    const segundo = lerCookie(entrou.headers["set-cookie"]?.split(";")[0], COOKIE)!;
+    const { token: daBia } = await cadastrar(usuario("bia"));
+    const r = await api(post("/api/sair-de-todos", {}, segundo));
+    assert.equal(r.status, 200);
+    assert.equal(corpo<{ sessoes: number }>(r).sessoes, 2);
+    assert.match(r.headers["set-cookie"] ?? "", /Max-Age=0/);
+    assert.equal((await api(get("/api/painel", primeiro))).status, 401);
+    assert.equal((await api(get("/api/painel", segundo))).status, 401);
+    assert.equal((await api(get("/api/painel", daBia))).status, 200, "a sessão de outra pessoa continua");
+    assert.equal((await api(post("/api/sair-de-todos", {}, primeiro))).status, 401);
+  });
+
   it("tirar uma autorização: some do painel e o agente perde o acesso", async () => {
     const u = usuario("ana");
     const { token } = await cadastrar(u);
@@ -554,6 +585,51 @@ describe("conexões com o Google pelo app (Fase 7)", () => {
     assert.deepEqual(await autorizacoes(), [], "e as autorizações delas");
     await new Promise((ok) => setTimeout(ok, 50)); // a revogação roda depois do commit
     assert.equal(google.revogados.length - antes, 2);
+  });
+
+  it("parar no meio da conexão: o retorno do Google não conecta nem concede, nem depois de liberar", async () => {
+    const a = apiG();
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    const trocas = () => google.chamadas.filter((c) => c.corpo.get("grant_type") === "authorization_code").length;
+    const iniciar = async () => {
+      const ini = await a(post("/api/conexoes/iniciar", { integracao: "google_agenda" }, token));
+      const { state, code } = google.autorizar(corpo<{ url: string }>(ini).url);
+      const nonce = ini.headers["set-cookie"]!.split(";")[0]!.split("=")[1]!;
+      return () => a({ method: "GET", path: `/api/conexoes/retorno?state=${state}&code=${code}`, headers: { cookie: `__Host-obedient-oauth=${nonce}` }, body: "" });
+    };
+    const autorizacoes = async () => corpo<{ autorizacoes: unknown[] }>(await a(get("/api/painel", token))).autorizacoes;
+    const antes = trocas();
+
+    // 1. Começou a conectar, apertou parar, o Google devolve: nada.
+    let voltar = await iniciar();
+    await acaoG(a, token, { tipo: "parar" });
+    let r = await voltar();
+    assert.match(r.headers.location ?? "", /^\/\?conexao=erro&motivo=/);
+    const motivo = (x: typeof r) => new URLSearchParams((x.headers.location ?? "").split("?")[1]).get("motivo") ?? "";
+    assert.match(motivo(r), /parada de emergência/);
+    assert.ok((await conexoesDo(a, token)).every((x) => !x.conectada));
+    assert.deepEqual(await autorizacoes(), []);
+    assert.equal(trocas(), antes, "o código nem é trocado por token");
+
+    // 2. Começou, parou, liberou, e só então o Google devolve: também não (o pedido é de antes da parada).
+    clock.advance(1000);
+    voltar = await iniciar();
+    clock.advance(1000);
+    await acaoG(a, token, { tipo: "parar" });
+    assert.equal((await acaoG(a, token, { tipo: "liberar" })).ok, true);
+    clock.advance(1000);
+    r = await voltar();
+    assert.match(motivo(r), /depois que este pedido de conexão começou/);
+    assert.ok((await conexoesDo(a, token)).every((x) => !x.conectada));
+    assert.deepEqual(await autorizacoes(), []);
+
+    // 3. Um pedido novo, depois de liberar, conecta normalmente.
+    clock.advance(1000);
+    voltar = await iniciar();
+    clock.advance(1000);
+    r = await voltar();
+    assert.equal(r.headers.location, "/?conexao=ok&integracao=google_agenda");
   });
 
   it("servidor sem integração configurada: o painel mostra, mas não conecta", async () => {

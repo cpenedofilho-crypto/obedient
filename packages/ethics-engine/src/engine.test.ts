@@ -232,6 +232,18 @@ describe("emergency stop (Art. 9º)", () => {
     assert.equal((await engine.authorize(req())).outcome, "allowed");
   });
 
+  it("nothing is approved during a global stop (the proposal stays pending, not approvable)", async () => {
+    const { engine, spec } = setup();
+    await engine.grants.grant(spec(), "u1");
+    const a = await engine.authorize(req({ risk: "HIGH" }));
+    if (a.outcome !== "approval_required") throw new Error("esperava aprovação");
+    await engine.stop.engage({ kind: "global" }, "monitor", "incidente");
+    await assert.rejects(engine.approve(a.proposal.id, { id: "u1", kind: "user", strongAuth: true }, a.proposal.payloadHash), (e: unknown) => e instanceof ObedientError && e.code === "EMERGENCY_STOP");
+    assert.equal((await engine.approvals.get(a.proposal.id))?.status, "pending");
+    await engine.stop.release({ kind: "global" }, "op-1", "operator");
+    assert.equal((await engine.approve(a.proposal.id, { id: "u1", kind: "user", strongAuth: true }, a.proposal.payloadHash)).status, "approved");
+  });
+
   it("global stop blocks everyone and only an operator releases it", async () => {
     const { engine, spec } = setup();
     await engine.grants.grant(spec(), "u1");

@@ -297,6 +297,8 @@ export function textoDaAtividade(e: AuditEntry): Pick<ItemAtividade, "texto" | "
       return { texto: `Você conectou ${nomeDaIntegracao(e.systemId)}`, tom: "bom" };
     case "connection.removed:revoked":
       return { texto: `Você desconectou ${nomeDaIntegracao(e.systemId)}`, tom: "neutro" };
+    case "session.revoke_all:revoked":
+      return { texto: `Você saiu de todos os aparelhos${motivo}`, tom: "neutro" };
     case "user.data_erased:info":
       return { texto: `Você apagou o que o OBEDIENT sabia sobre você${motivo}`, tom: "neutro" };
     default:
