@@ -132,7 +132,7 @@ describe("store-postgres: o motor decide igual sobre o banco", () => {
     await assert.rejects(como(u, (m) => m.approve(p.id, { id: u, kind: "user", strongAuth: false }, p.payloadHash)), (e) => codigo(e) === "PROPOSAL_NOT_PENDING");
 
     let execucoes = 0;
-    const executar = () => como(u, (m) => m.executeApproved(p.id, p.payloadHash, async () => ++execucoes));
+    const executar = () => como(u, (m) => m.executeApproved(p.id, p.payloadHash, { risk: "HIGH", category: "COMMUNICATION" }, async () => ++execucoes));
     assert.equal(await executar(), 1);
     await assert.rejects(executar(), (e) => codigo(e) === "ALREADY_EXECUTED");
     assert.equal(execucoes, 1);
@@ -147,7 +147,7 @@ describe("store-postgres: o motor decide igual sobre o banco", () => {
     await como(u, (m) => m.approve(a.proposal.id, { id: u, kind: "user", strongAuth: false }, a.proposal.payloadHash));
     let execucoes = 0;
     const r = await Promise.allSettled(
-      Array.from({ length: 4 }, () => como(u, (m) => m.executeApproved(a.proposal.id, a.proposal.payloadHash, async () => ++execucoes))),
+      Array.from({ length: 4 }, () => como(u, (m) => m.executeApproved(a.proposal.id, a.proposal.payloadHash, { risk: "HIGH", category: "COMMUNICATION" }, async () => ++execucoes))),
     );
     assert.equal(r.filter((x) => x.status === "fulfilled").length, 1, JSON.stringify(r.map((x) => x.status)));
     assert.equal(execucoes, 1);

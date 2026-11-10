@@ -20,7 +20,7 @@ import { AuditTrail } from "./audit.ts";
 import { ConsentManager } from "./consent.ts";
 import { CONSTITUTION_VERSION } from "./constitution.ts";
 import { EmergencyStop } from "./emergency-stop.ts";
-import { type Grant, GrantRegistry } from "./grants.ts";
+import { type Grant, GrantRegistry, capabilityMatches } from "./grants.ts";
 
 export interface ActionRequest {
   userId: string;
@@ -38,6 +38,15 @@ export interface ActionRequest {
   purpose?: string;
   correlationId?: string;
 }
+
+/**
+ * O que a execução de uma proposta aprovada precisa saber da ferramenta para reconferir tudo: o
+ * mesmo registro (risco, categoria, dados pessoais, finalidade) que foi ao authorize. Sistema,
+ * ferramenta, argumentos e agente vêm da própria proposta.
+ */
+export type ApprovedExecution = Pick<ActionRequest, "risk" | "category" | "context" | "dataCategories" | "purpose">;
+
+type Conferencia = { negado: string[]; decision: Decision | null } | { negado: null; decision: Decision };
 
 export type Authorization =
   | { outcome: "allowed"; grantId: string; decision: Decision; inputHash: string }
@@ -148,43 +157,9 @@ export class EthicsEngine {
       const grant = await this.grants.findCovering(req.userId, req.agentId, req.systemId, req.tool);
       if (!grant) return deny(["nenhum grant vigente cobre esta ferramenta (Art. 3º)"], null, null);
 
-      const risk = effectiveRisk(req.risk, req.category);
-      if (riskRank(risk) > riskRank(grant.limits.maxRisk))
-        return deny([`risco ${risk} acima do máximo do grant (${grant.limits.maxRisk})`], null, grant.id);
-
-      if (grant.limits.maxAmount !== null && grant.limits.amountField) {
-        const v = amountOf(req.args, grant.limits.amountField);
-        if (v === null) return deny([`valor ilegível em ${grant.limits.amountField}: sem valor, sem limite conferível`], null, grant.id);
-        if (v > grant.limits.maxAmount) return deny([`valor ${v} acima do limite do grant (${grant.limits.maxAmount})`], null, grant.id);
-      }
-
-      // Art. 5º: mensagem em nome da pessoa leva a identificação que ela configurou, exatamente.
-      if (req.category === "COMMUNICATION" && this.identificacaoDe) {
-        const id = await this.identificacaoDe(req.userId);
-        if (!id) return deny(["configure como as mensagens enviadas em seu nome se identificam (Art. 5º)"], null, grant.id);
-        if (req.args.identificacao !== id) return deny(["mensagem sem a identificação que você configurou (Art. 5º)"], null, grant.id);
-      }
-
-      if (req.dataCategories?.length) {
-        if (!req.purpose) return deny(["ação toca dado pessoal sem finalidade declarada (Art. 4º)"], null, grant.id);
-        const c = await this.consent.check(req.userId, req.purpose, req.dataCategories);
-        if (!c.ok) return deny([`sem consentimento para: ${c.missing.join(", ")} (finalidade ${req.purpose})`], null, grant.id);
-      }
-
-      const auto = autonomyPolicy(grant);
-      const policies = [...this.policiesFor(req.userId), ...(auto ? [auto] : [])];
-      const action: Action = {
-        systemId: req.systemId,
-        tool: req.tool,
-        risk: req.risk,
-        ...(req.category ? { category: req.category } : {}),
-        principal: { kind: "agent", id: req.agentId, role: null },
-        args: req.args,
-        context: req.context ?? {},
-      };
-      const decision = decide(action, policies, this.defaultsFor(req.userId), this.clock.now());
-
-      if (decision.effect === "deny") return deny([decision.reason], decision, grant.id);
+      const c = await this.conferir(req, grant);
+      if (c.negado) return deny(c.negado, c.decision, grant.id);
+      const { decision } = c;
 
       if (decision.effect === "allow") {
         await this.audit.record({ ...base, outcome: "allowed", grantId: grant.id, policyId: decision.policyId, reasons: [decision.reason] });
@@ -212,6 +187,51 @@ export class EthicsEngine {
     }
   }
 
+  /**
+   * Tudo o que o grant, a pessoa e as políticas exigem, com o grant já escolhido. Roda no authorize e
+   * de novo na execução de proposta aprovada: o que deixou de valer depois da aprovação (limite do
+   * grant, consentimento, identificação, política que nega) impede a execução (Arts. 2º, 4º e 5º).
+   */
+  private async conferir(req: ActionRequest, grant: Grant): Promise<Conferencia> {
+    const nega = (motivo: string, decision: Decision | null = null): Conferencia => ({ negado: [motivo], decision });
+    const risk = effectiveRisk(req.risk, req.category);
+    if (riskRank(risk) > riskRank(grant.limits.maxRisk)) return nega(`risco ${risk} acima do máximo do grant (${grant.limits.maxRisk})`);
+
+    if (grant.limits.maxAmount !== null && grant.limits.amountField) {
+      const v = amountOf(req.args, grant.limits.amountField);
+      if (v === null) return nega(`valor ilegível em ${grant.limits.amountField}: sem valor, sem limite conferível`);
+      if (v > grant.limits.maxAmount) return nega(`valor ${v} acima do limite do grant (${grant.limits.maxAmount})`);
+    }
+
+    // Art. 5º: mensagem em nome da pessoa leva a identificação que ela configurou, exatamente.
+    if (req.category === "COMMUNICATION" && this.identificacaoDe) {
+      const id = await this.identificacaoDe(req.userId);
+      if (!id) return nega("configure como as mensagens enviadas em seu nome se identificam (Art. 5º)");
+      if (req.args.identificacao !== id) return nega("mensagem sem a identificação que você configurou (Art. 5º)");
+    }
+
+    if (req.dataCategories?.length) {
+      if (!req.purpose) return nega("ação toca dado pessoal sem finalidade declarada (Art. 4º)");
+      const c = await this.consent.check(req.userId, req.purpose, req.dataCategories);
+      if (!c.ok) return nega(`sem consentimento para: ${c.missing.join(", ")} (finalidade ${req.purpose})`);
+    }
+
+    const auto = autonomyPolicy(grant);
+    const policies = [...this.policiesFor(req.userId), ...(auto ? [auto] : [])];
+    const action: Action = {
+      systemId: req.systemId,
+      tool: req.tool,
+      risk: req.risk,
+      ...(req.category ? { category: req.category } : {}),
+      principal: { kind: "agent", id: req.agentId, role: null },
+      args: req.args,
+      context: req.context ?? {},
+    };
+    const decision = decide(action, policies, this.defaultsFor(req.userId), this.clock.now());
+    if (decision.effect === "deny") return nega(decision.reason, decision);
+    return { negado: null, decision };
+  }
+
   async approve(proposalId: string, who: ApproverIdentity, shownHash: string): Promise<Proposal> {
     try {
       const p = await this.approvals.approve(proposalId, who, shownHash);
@@ -237,11 +257,12 @@ export class EthicsEngine {
   }
 
   /**
-   * Executa uma proposta aprovada. Antes de reivindicar, confere DE NOVO a parada de emergência
-   * e o grant: revogar depois de aprovar ainda impede a execução (Art. 2º).
+   * Executa uma proposta aprovada. Antes de reivindicar, confere DE NOVO a parada de emergência, o
+   * grant da proposta e tudo o que o authorize confere: revogar depois de aprovar ainda impede a
+   * execução (Arts. 2º e 4º).
    */
-  async executeApproved<T>(proposalId: string, hash: string, executor: (payload: ProposalPayload) => Promise<T>): Promise<T> {
-    const payload = await this.claimApproved(proposalId, hash);
+  async executeApproved<T>(proposalId: string, hash: string, exec: ApprovedExecution, executor: (payload: ProposalPayload) => Promise<T>): Promise<T> {
+    const payload = await this.claimApproved(proposalId, hash, exec);
     let out: T;
     try {
       out = await executor(payload);
@@ -254,11 +275,14 @@ export class EthicsEngine {
   }
 
   /**
-   * Primeira metade de executeApproved: confere a parada e o grant DE NOVO e reivindica a execução
-   * (uma vez só). Separada para quem precisa executar FORA da transação do banco (o servidor: a
-   * chamada ao sistema de destino pode demorar) e concluir noutra transação.
+   * Primeira metade de executeApproved: confere a parada, o grant e o resto DE NOVO e reivindica a
+   * execução (uma vez só). Separada para quem precisa executar FORA da transação do banco (o
+   * servidor: a chamada ao sistema de destino pode demorar) e concluir noutra transação.
+   *
+   * O grant que vale é o da proposta, vigente com toda a cadeia de pais. Outro grant que cubra a
+   * mesma ferramenta não o substitui: a pessoa aprovou sob aquele.
    */
-  async claimApproved(proposalId: string, hash: string): Promise<ProposalPayload> {
+  async claimApproved(proposalId: string, hash: string, exec: ApprovedExecution): Promise<ProposalPayload> {
     const p = await this.approvals.get(proposalId);
     if (!p) throw new ObedientError("PROPOSAL_NOT_FOUND", "proposta inexistente");
     const stopped = await this.stop.blocking(p.userId);
@@ -266,14 +290,16 @@ export class EthicsEngine {
       await this.auditExecution(p, hash, "denied", ["parada de emergência acionada"]);
       throw new ObedientError("EMERGENCY_STOP", stopped.reason);
     }
-    if (p.grantId) {
-      const g = await this.grants.get(p.grantId);
-      const agentId = p.requestedBy.replace(/^agent:/, "");
-      const still = await this.grants.findCovering(p.userId, agentId, p.payload.systemId, p.payload.tool);
-      if (!g || !still) {
-        await this.auditExecution(p, hash, "denied", ["grant revogado ou vencido depois da aprovação"]);
-        throw new ObedientError("GRANT_NOT_FOUND", "grant revogado ou vencido depois da aprovação");
-      }
+    const agentId = p.requestedBy.replace(/^agent:/, "");
+    const g = p.grantId ? await this.grants.inForce(p.userId, p.grantId) : null;
+    if (!g || g.agentId !== agentId || (g.systemId !== null && g.systemId !== p.payload.systemId) || !capabilityMatches(g.capability, p.payload.tool)) {
+      await this.auditExecution(p, hash, "denied", ["grant revogado ou vencido depois da aprovação"]);
+      throw new ObedientError("GRANT_NOT_FOUND", "grant revogado ou vencido depois da aprovação");
+    }
+    const c = await this.conferir({ ...exec, userId: p.userId, agentId, systemId: p.payload.systemId, tool: p.payload.tool, args: p.payload.args }, g);
+    if (c.negado) {
+      await this.auditExecution(p, hash, "denied", c.negado);
+      throw new ObedientError("NO_LONGER_AUTHORIZED", `deixou de valer depois da aprovação: ${c.negado.join("; ")}`);
     }
     return this.approvals.claim(proposalId, hash);
   }

@@ -33,6 +33,7 @@ function setup() {
   return { clock, engine, sink, spec };
 }
 
+const HIGH_WRITE = { risk: "HIGH" as const, category: "WRITE" };
 const req = (extra: Record<string, unknown> = {}) => ({
   userId: "u1",
   agentId: "obedient",
@@ -185,12 +186,12 @@ describe("approval gateway (Art. 1º e 12)", () => {
 
     await engine.approve(proposal.id, { id: "u1", kind: "user", strongAuth: false }, proposal.payloadHash);
     let runs = 0;
-    const out = await engine.executeApproved(proposal.id, proposal.payloadHash, async (p) => {
+    const out = await engine.executeApproved(proposal.id, proposal.payloadHash, HIGH_WRITE, async (p) => {
       runs++;
       return p.args.title;
     });
     assert.equal(out, "Dentista");
-    await assert.rejects(engine.executeApproved(proposal.id, proposal.payloadHash, async () => runs++), /já executada/);
+    await assert.rejects(engine.executeApproved(proposal.id, proposal.payloadHash, HIGH_WRITE, async () => runs++), /já executada/);
     assert.equal(runs, 1);
   });
 
@@ -213,7 +214,50 @@ describe("approval gateway (Art. 1º e 12)", () => {
     if (a.outcome !== "approval_required") throw new Error("esperava aprovação");
     await engine.approve(a.proposal.id, { id: "u1", kind: "user", strongAuth: false }, a.proposal.payloadHash);
     await engine.grants.revoke(g.id, "u1");
-    await assert.rejects(engine.executeApproved(a.proposal.id, a.proposal.payloadHash, async () => "x"), /revogado/);
+    await assert.rejects(engine.executeApproved(a.proposal.id, a.proposal.payloadHash, HIGH_WRITE, async () => "x"), /revogado/);
+  });
+
+  it("another grant covering the same tool does not replace the revoked one (Art. 2º)", async () => {
+    const { engine, spec } = setup();
+    const amplo = await engine.grants.grant(spec({ capability: "calendar.*", limits: { maxRisk: "HIGH", autonomousUpTo: null, maxAmount: null, amountField: null } }), "u1");
+    const a = await engine.authorize(req({ risk: "HIGH" }));
+    if (a.outcome !== "approval_required") throw new Error("esperava aprovação");
+    assert.equal(a.proposal.grantId, amplo.id);
+    await engine.approve(a.proposal.id, { id: "u1", kind: "user", strongAuth: false }, a.proposal.payloadHash);
+    // A pessoa troca o grant amplo por um estreito, só LOW, e revoga o amplo.
+    await engine.grants.grant(spec({ capability: "calendar.create_event", limits: { maxRisk: "LOW", autonomousUpTo: "LOW", maxAmount: null, amountField: null } }), "u1");
+    await engine.grants.revoke(amplo.id, "u1");
+    let runs = 0;
+    await assert.rejects(engine.executeApproved(a.proposal.id, a.proposal.payloadHash, HIGH_WRITE, async () => runs++), /revogado/);
+    assert.equal(runs, 0);
+  });
+
+  it("consent revoked after approval blocks execution (Art. 4º)", async () => {
+    const { engine, spec } = setup();
+    await engine.grants.grant(spec(), "u1");
+    await engine.consent.give("u1", "agendar consultas", "health", { specific: true });
+    const pede = { risk: "HIGH" as const, category: "WRITE", dataCategories: ["health"], purpose: "agendar consultas" };
+    const a = await engine.authorize(req(pede));
+    if (a.outcome !== "approval_required") throw new Error(`esperava aprovação, veio ${a.outcome}`);
+    await engine.approve(a.proposal.id, { id: "u1", kind: "user", strongAuth: false }, a.proposal.payloadHash);
+    await engine.consent.revoke("u1", "agendar consultas", "health");
+    let runs = 0;
+    await assert.rejects(engine.executeApproved(a.proposal.id, a.proposal.payloadHash, pede, async () => runs++), (e: unknown) => e instanceof ObedientError && e.code === "NO_LONGER_AUTHORIZED" && /consentimento/.test(e.message));
+    assert.equal(runs, 0);
+    assert.equal((await engine.audit.forUser("u1")).at(-1)?.outcome, "denied");
+  });
+
+  it("a grant lowered below the action's risk after approval blocks execution", async () => {
+    const { engine, spec } = setup();
+    const g = await engine.grants.grant(spec(), "u1");
+    const a = await engine.authorize(req({ risk: "HIGH" }));
+    if (a.outcome !== "approval_required") throw new Error("esperava aprovação");
+    await engine.approve(a.proposal.id, { id: "u1", kind: "user", strongAuth: false }, a.proposal.payloadHash);
+    // O registro da ferramenta passou a dizer CRITICAL; o grant (HIGH) não cobre mais.
+    await assert.rejects(engine.executeApproved(a.proposal.id, a.proposal.payloadHash, { risk: "CRITICAL", category: "WRITE" }, async () => "x"), (e: unknown) => e instanceof ObedientError && e.code === "NO_LONGER_AUTHORIZED");
+    // Com o registro certo, ainda executa: o grant segue vigente.
+    assert.equal(await engine.executeApproved(a.proposal.id, a.proposal.payloadHash, HIGH_WRITE, async () => "ok"), "ok");
+    assert.ok(g);
   });
 });
 

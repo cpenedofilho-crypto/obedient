@@ -89,7 +89,8 @@ export type ErrorCode =
   | "NOT_READ_ONLY"
   | "AUDIT_TAMPERED"
   | "UNAUTHENTICATED"
-  | "CONSENT_REQUIRED";
+  | "CONSENT_REQUIRED"
+  | "NO_LONGER_AUTHORIZED";
 
 export class ObedientError extends Error {
   constructor(

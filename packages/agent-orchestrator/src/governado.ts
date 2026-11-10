@@ -12,7 +12,7 @@
 //   • o que a ferramenta devolve vai marcado como conteúdo externo: é dado, nunca instrução.
 
 import { ObedientError, payloadHash, type RiskLevel, type ToolCategory } from "@obedient/core";
-import type { EthicsEngine } from "@obedient/ethics-engine";
+import type { ApprovedExecution, EthicsEngine } from "@obedient/ethics-engine";
 import type { ItemCatalogo, ResultadoChamada, SituacaoAprovacao } from "./rodada.ts";
 
 /** Ferramenta com o que o registro diz dela (nunca o modelo): sistema, risco, categoria, dados pessoais. */
@@ -50,6 +50,17 @@ function ehGovernado(item: ItemCatalogo): item is ItemGovernado {
  */
 export type AbrirMotor = <T>(fn: (engine: EthicsEngine) => Promise<T>) => Promise<T>;
 
+/** O registro da ferramenta que o motor confere: no authorize e, de novo, na execução aprovada. */
+function registro(item: ItemGovernado, quem: Quem): ApprovedExecution {
+  const purpose = item.finalidade ?? quem.finalidade;
+  return {
+    risk: item.risco,
+    category: item.categoria,
+    ...(item.dadosPessoais?.length ? { dataCategories: item.dadosPessoais } : {}),
+    ...(purpose ? { purpose } : {}),
+  };
+}
+
 /** Porta chamarFerramenta da rodada, governada pelo Ethics Engine. */
 export function chamarComEthics(engine: EthicsEngine, quem: Quem, executor: Executor) {
   return chamarComEthicsEmEtapas((fn) => fn(engine), quem, executor);
@@ -69,7 +80,7 @@ export function chamarComEthicsEmEtapas(abrir: AbrirMotor, quem: Quem, executor:
         // O id certo não basta: o payload tem de ser o que a pessoa viu.
         if (payloadHash({ systemId: item.sistema, tool: item.ferramenta, args: argumentos }) !== p.payloadHash) return { negado: "payload_diferente_do_aprovado" } as const;
         try {
-          return { payload: await engine.claimApproved(approvalId, p.payloadHash), hash: p.payloadHash } as const;
+          return { payload: await engine.claimApproved(approvalId, p.payloadHash, registro(item, quem)), hash: p.payloadHash } as const;
         } catch (e) {
           if (e instanceof ObedientError) return { negado: e.code } as const;
           throw e;
@@ -95,11 +106,8 @@ export function chamarComEthicsEmEtapas(abrir: AbrirMotor, quem: Quem, executor:
         agentId: quem.agentId,
         systemId: item.sistema,
         tool: item.ferramenta,
-        risk: item.risco,
-        category: item.categoria,
         args: argumentos,
-        ...(item.dadosPessoais?.length ? { dataCategories: item.dadosPessoais } : {}),
-        ...((item.finalidade ?? quem.finalidade) ? { purpose: item.finalidade ?? quem.finalidade } : {}),
+        ...registro(item, quem),
         ...(quem.correlationId ? { correlationId: quem.correlationId } : {}),
       }),
     );
