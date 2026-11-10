@@ -155,7 +155,11 @@ function renderConexoes(ops) {
 /** Vai para o Google; a volta cai em /api/conexoes/retorno e depois aqui, com o desfecho na URL. */
 async function conectar(/** @type {string} */ integracao) {
   const r = await enviarJson("/api/conexoes/iniciar", { integracao }).catch(() => ({ status: 0, j: {} }));
-  if (r.status === 200 && typeof r.j.url === "string" && r.j.url.startsWith("https://accounts.google.com/")) location.assign(r.j.url);
+  // Só vai para a tela de autorização da própria conexão: https, na origem que o painel declarou para ela.
+  const origem = (painel?.conexoes ?? []).find((/** @type {any} */ c) => c.id === integracao)?.autorizaEm;
+  let destino = null;
+  try { destino = typeof r.j.url === "string" ? new URL(r.j.url) : null; } catch { destino = null; }
+  if (r.status === 200 && destino && destino.protocol === "https:" && typeof origem === "string" && destino.origin === origem) location.assign(destino.toString());
   else avisar("Não deu para começar a conexão. Tente de novo.");
 }
 
