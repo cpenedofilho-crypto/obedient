@@ -38,7 +38,7 @@ export interface ServidorMcp {
   ferramentas: readonly string[];
 }
 
-const RESERVADOS = new Set(["obedient", "growth_os", "google_agenda", "google_gmail", "google_drive"]);
+const RESERVADOS = new Set(["obedient", "growth_os", "growth_os_compras", "google_agenda", "google_gmail", "google_drive"]);
 const ID = /^[a-z][a-z0-9_]{1,30}$/;
 const FERRAMENTA = /^[A-Za-z0-9_.-]{1,64}$/;
 const TOKEN_ENV = /^OBEDIENT_MCP_[A-Z0-9_]{1,60}$/;

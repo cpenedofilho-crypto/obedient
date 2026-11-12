@@ -44,6 +44,8 @@ export interface Tarefa {
   estado: string;
   artefatos: { nome: string | null; partes: Parte[] }[];
   skillId: string | null;
+  /** Código de erro do servidor quando a tarefa falha (metadata.erro). Só letras minúsculas e "_". */
+  erro: string | null;
 }
 
 /** Fonte do token de máquina. Use `fonteClientCredentials` com o segredo vindo do cofre. */
@@ -106,7 +108,8 @@ export function validarTarefa(v: unknown): Tarefa {
     })),
   }));
   const skillId = objeto(v.metadata) && texto(v.metadata.skillId, 64) ? v.metadata.skillId : null;
-  return { id: v.id, contextId: texto(v.contextId) ? v.contextId : "", estado: v.status.state, artefatos, skillId };
+  const erro = objeto(v.metadata) && typeof v.metadata.erro === "string" && /^[a-z_]{1,60}$/.test(v.metadata.erro) ? v.metadata.erro : null;
+  return { id: v.id, contextId: texto(v.contextId) ? v.contextId : "", estado: v.status.state, artefatos, skillId, erro };
 }
 
 export class ClienteA2A {
@@ -146,12 +149,16 @@ export class ClienteA2A {
     return corpo.result;
   }
 
-  /** Pede uma skill. `messageId` estável torna o reenvio idempotente no servidor. */
-  async enviar(skill: string, o: { messageId?: string; retornarImediato?: boolean } = {}): Promise<Tarefa> {
+  /**
+   * Pede uma skill. `messageId` estável torna o reenvio idempotente no servidor. `dados` são os
+   * campos estruturados da skill (quem chama decide quais; nunca repasse argumento de modelo sem
+   * validar). O campo `skill` é sempre o do primeiro parâmetro.
+   */
+  async enviar(skill: string, o: { messageId?: string; retornarImediato?: boolean; dados?: Record<string, unknown> } = {}): Promise<Tarefa> {
     const { skills } = await this.card();
     if (!skills.includes(skill)) throw new ErroClienteA2A("skill_ausente_no_card", `o servidor não anuncia a skill ${skill}`);
     const r = await this.rpc("SendMessage", {
-      message: { messageId: o.messageId ?? randomUUID(), role: "ROLE_USER", parts: [{ data: { skill }, mediaType: "application/json" }] },
+      message: { messageId: o.messageId ?? randomUUID(), role: "ROLE_USER", parts: [{ data: { ...(o.dados ?? {}), skill }, mediaType: "application/json" }] },
       configuration: { acceptedOutputModes: ["application/json"], ...(o.retornarImediato ? { returnImmediately: true } : {}) },
     });
     if (!objeto(r) || !("task" in r)) throw new ErroClienteA2A("resposta_invalida", "SendMessage sem task");
