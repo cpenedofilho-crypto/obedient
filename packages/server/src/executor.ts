@@ -39,7 +39,7 @@ import { type Conexoes, executorGoogle, itensGovernados } from "@obedient/integr
 import type { Licao } from "@obedient/memory";
 import type { Executor as ExecutorDeMissao, Missao, ResultadoTentativa, TipoDesfecho } from "@obedient/missions";
 import type { ClienteA2A } from "@obedient/a2a-client";
-import { SISTEMA_GROWTH_OS, executorGrowthOs, itensGrowthOs, temGrowthOs } from "./growth-os.ts";
+import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCompras, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
 import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, motivoMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
 import { type Database, type OpcoesMotor, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 
@@ -205,12 +205,14 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       const google = d.conexoes ? (await tx.query<{ integracao: string }>("select integracao from obedient.connections where user_id = $1 order by integracao", [u])).rows.map((r) => r.integracao) : [];
       // Growth OS: só quem o dono listou E tem grant vigente (concedido pela linha de comando).
       const growthOs = Boolean(d.growthOs?.usuarios.has(u)) && (await temGrowthOs(motor, u, d.clock.now()));
+      // Comprar no Growth OS é um grant à parte, com teto de valor; cada compra pede aprovação.
+      const growthCompras = Boolean(d.growthOs?.usuarios.has(u)) && (await temComprasGrowthOs(motor, u, d.clock.now()));
       // MCP: servidores em que a pessoa está na lista do dono E tem grant vigente.
       const mcp = d.mcp ? await servidoresDaPessoa(motor, d.mcp.servidores, u, d.clock.now()) : [];
-      const conectadas = [...google, ...(growthOs ? [SISTEMA_GROWTH_OS] : []), ...mcp.map((s) => s.id)];
+      const conectadas = [...google, ...(growthOs ? [SISTEMA_GROWTH_OS] : []), ...(growthCompras ? [SISTEMA_GROWTH_OS_COMPRAS] : []), ...mcp.map((s) => s.id)];
       const memoria = memoriaNaTransacao(tx, motor, d.clock);
       const categorias = (await memoria.categorias(u)).filter((c) => c.ligada).map((c) => c.id);
-      return { google, growthOs, mcp, conectadas, categorias, identificacao: await lerIdentificacao(tx, u), licoes: await memoria.paraContexto(u) };
+      return { google, growthOs, growthCompras, mcp, conectadas, categorias, identificacao: await lerIdentificacao(tx, u), licoes: await memoria.paraContexto(u) };
     });
 
     const salva = lerRodada(missao.rodada);
@@ -229,6 +231,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     if (ctx.categorias.length) catalogo.set(LEMBRAR, ferramentaLembrar(ctx.categorias));
     for (const i of itensGovernados(ctx.google)) catalogo.set(i.definicao.name, i);
     if (ctx.growthOs) for (const i of itensGrowthOs()) catalogo.set(i.definicao.name, i);
+    if (ctx.growthCompras) for (const i of itensGrowthOsCompras()) catalogo.set(i.definicao.name, i);
     // MCP: as ferramentas de cada servidor saem do tools/list, filtradas pela lista do dono. Servidor fora do ar fica de fora desta vez.
     const conexoesMcp = new Map<string, ConexaoMcp>();
     for (const s of ctx.mcp) {
@@ -250,12 +253,12 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
 
     // Um executor por sistema; o Ethics Engine autoriza antes de qualquer um rodar.
     const google = d.conexoes ? executorGoogle(d.conexoes, u, d.http ?? fetch) : null;
-    const growth = ctx.growthOs && d.growthOs ? executorGrowthOs(d.growthOs.cliente) : null;
+    const growth = (ctx.growthOs || ctx.growthCompras) && d.growthOs ? executorGrowthOs(d.growthOs.cliente) : null;
     const mcp = conexoesMcp.size ? executorMcp(ctx.mcp, conexoesMcp) : null;
     const governada = google || growth || mcp
       ? chamarComEthicsEmEtapas(abrir, { userId: u, agentId: missao.agente, correlationId: missao.id }, (sistema, ferramenta, args) => {
         if (conexoesMcp.has(sistema)) return mcp!(sistema, ferramenta, args);
-        if (sistema === SISTEMA_GROWTH_OS) {
+        if (sistema === SISTEMA_GROWTH_OS || sistema === SISTEMA_GROWTH_OS_COMPRAS) {
           if (!growth) throw new Error("Growth OS desligado neste servidor");
           return growth(sistema, ferramenta, args);
         }

@@ -188,9 +188,17 @@ O Growth OS é o servidor A2A da casa. O OBEDIENT fala com ele como cliente, pel
 - Tira-se pelo app ou com `growth-os retirar`.
 - Sem grant vigente, a ferramenta nem é oferecida ao modelo.
 
-**O que a ferramenta faz:** `growth_os.resumo_operacional` é só leitura.
+**O que as ferramentas fazem:** `growth_os.resumo_operacional` e `growth_os.catalogo_marketplace` são só leitura.
 - O executor escolhe a skill pela ferramenta autorizada. O que o modelo põe nos argumentos não chega ao Growth OS.
 - Volta ao modelo só o estado e as partes `data`, como `conteudo_externo`. Texto livre do servidor não volta.
+
+**Comprar no marketplace do Growth OS (12/11/2026)** é um sistema à parte para o Ethics Engine, `growth_os_compras`, para o grant de leitura nunca cobrir uma ação que gasta. O pagamento lá é simulado (carteiras contábeis), mas a regra aqui é a de dinheiro.
+- O ato é outro: `cli.ts growth-os conceder-compras <usuario> <teto_em_micro_unidades>` (e `retirar-compras`). Só para quem está em `OBEDIENT_GROWTH_OS_USUARIOS`.
+- O grant é `growth_os_compras.*`, 30 dias, **sem autonomia** e com teto de valor por compra no campo `preco_maximo_micros`. Acima do teto, o Ethics Engine nega sem criar proposta.
+- A ferramenta `growth_os_compras.comprar_conhecimento` é categoria `FINANCIAL`: toda compra para e pede a aprovação da pessoa, com reautenticação. Sem o grant, ela nem é oferecida.
+- Depois de aprovada, o executor lê o catálogo e só compra se a oferta está à venda, a compra está ligada lá e o preço não passa do que a pessoa aprovou. Preço de oferta não muda no Growth OS: preço novo é oferta nova.
+- Ao Growth OS vão só a oferta e a consulta. Quem paga e o teto de lá saem do cadastro do cliente A2A no Growth OS, feito por pessoa.
+- Se o Growth OS recusa (sem saldo, acima do teto de lá), o código do erro volta ao modelo.
 
 **Configuração:** todas as variáveis ou nenhuma, senão o servidor não sobe.
 - `OBEDIENT_GROWTH_OS_CARD_URL`, `_TOKEN_URL`, `_CLIENT_ID`, `_SEGREDO` e `_USUARIOS`.

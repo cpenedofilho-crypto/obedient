@@ -51,7 +51,7 @@ import { servidorHttp } from "./http.ts";
 import { Passkeys } from "./passkeys.ts";
 import { Cofre, Conexoes, lerChaves } from "@obedient/integrations";
 import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
-import { clienteGrowthOs, concederGrowthOs, configGrowthOsDoAmbiente, retirarGrowthOs } from "./growth-os.ts";
+import { clienteGrowthOs, concederComprasGrowthOs, concederGrowthOs, retirarComprasGrowthOs, configGrowthOsDoAmbiente, retirarGrowthOs } from "./growth-os.ts";
 import { type ServidorMcp, concederMcp, conexaoMcp, retirarMcp, servidoresMcpDoAmbiente, tokenDoAmbiente } from "./mcp-servidores.ts";
 import { ConexoesMcp, comOAuth } from "./mcp-oauth.ts";
 
@@ -125,17 +125,27 @@ async function main(argv: string[]) {
     return;
   }
   if (comando === "growth-os") {
-    const [acao, usuario] = resto;
-    if ((acao !== "conceder" && acao !== "retirar") || !usuario) throw new Error("uso: growth-os conceder|retirar <usuario>");
+    const [acao, usuario, teto] = resto;
+    const acoes = ["conceder", "retirar", "conceder-compras", "retirar-compras"];
+    if (!acao || !acoes.includes(acao) || !usuario) throw new Error("uso: growth-os conceder|retirar <usuario>  |  growth-os conceder-compras <usuario> <teto_em_micro_unidades>  |  growth-os retirar-compras <usuario>");
     const cfg = configGrowthOsDoAmbiente();
     if (!cfg) throw new Error("Growth OS desligado: defina as OBEDIENT_GROWTH_OS_*");
+    const tetoMicros = Number(teto);
+    if (acao === "conceder-compras" && !/^[0-9]+$/.test(teto ?? "")) throw new Error("conceder-compras pede o teto por compra, em micro-unidades (ex.: 100000)");
     const { db, fechar } = banco("OBEDIENT_DATABASE_URL");
     await comoUsuario(db, usuario, async (tx) => {
       const motor = motorNaTransacao(tx, { clock: systemClock });
       if (acao === "conceder") await concederGrowthOs(motor, cfg, usuario, systemClock.now());
-      else await retirarGrowthOs(motor, usuario);
+      else if (acao === "retirar") await retirarGrowthOs(motor, usuario);
+      else if (acao === "conceder-compras") await concederComprasGrowthOs(motor, cfg, usuario, tetoMicros, systemClock.now());
+      else await retirarComprasGrowthOs(motor, usuario);
     });
-    console.log(acao === "conceder" ? `${usuario}: o agente pode ler o Growth OS por 30 dias (aparece no app e pode ser tirado)` : `${usuario}: autoridade no Growth OS retirada`);
+    console.log({
+      conceder: `${usuario}: o agente pode ler o Growth OS por 30 dias (aparece no app e pode ser tirado)`,
+      retirar: `${usuario}: autoridade no Growth OS retirada`,
+      "conceder-compras": `${usuario}: o agente pode PROPOR compras no marketplace do Growth OS por 30 dias, até ${tetoMicros} micro-unidades cada; toda compra pede aprovação no app`,
+      "retirar-compras": `${usuario}: autoridade de compra no Growth OS retirada`,
+    }[acao]);
     return fechar();
   }
   if (comando === "mcp") {
