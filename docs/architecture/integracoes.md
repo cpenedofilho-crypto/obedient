@@ -183,7 +183,7 @@ O Growth OS é o servidor A2A da casa. O OBEDIENT fala com ele como cliente, pel
 - só as pessoas que o dono do servidor lista em `OBEDIENT_GROWTH_OS_USUARIOS`;
 - e só depois de um ato explícito: `cli.ts growth-os conceder <usuario>`.
 
-**O que o ato cria:** um grant do Ethics Engine (`growth_os.*`, risco máximo LOW, autonomia até LOW, 30 dias), com a finalidade escrita.
+**O que o ato cria:** um grant do Ethics Engine (`growth_os.*`, risco máximo LOW, autonomia até LOW, 30 dias), com a finalidade escrita. Ele cobre toda ferramenta de leitura do Growth OS, e a finalidade cita cada uma: ferramenta de leitura nova entra no texto também. Grant concedido antes de 13/11/2026 mostra o texto antigo (só o resumo) até ser concedido de novo.
 - O grant aparece no app como o de qualquer integração.
 - Tira-se pelo app ou com `growth-os retirar`.
 - Sem grant vigente, a ferramenta nem é oferecida ao modelo.
