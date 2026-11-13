@@ -14,7 +14,7 @@ import type { PedidoModelo, RespostaModelo, ResultadoFerramenta } from "@obedien
 import { comoUsuario, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { CONCLUIR, LEMBRAR, executorDeMissoes, type ModeloComGasto } from "./executor.ts";
-import { clienteGrowthOs, concederComprasGrowthOs, concederGrowthOs, configGrowthOsDoAmbiente, retirarComprasGrowthOs, retirarGrowthOs, type ConfigGrowthOs } from "./growth-os.ts";
+import { clienteGrowthOs, concederComprasGrowthOs, itensGrowthOs, concederGrowthOs, configGrowthOsDoAmbiente, retirarComprasGrowthOs, retirarGrowthOs, type ConfigGrowthOs } from "./growth-os.ts";
 import { processarMissoes } from "./processador.ts";
 
 const T0 = new Date("2026-11-08T12:00:00Z");
@@ -169,6 +169,9 @@ describe("Growth OS: ferramenta das missões", () => {
     const [g] = (await c.motor("ana-growth", (m) => m.grants.list("ana-growth"))).filter((x) => x.systemId === "growth_os" && !x.revokedAt);
     assert.equal(g!.capability, "growth_os.*");
     assert.deepEqual([g!.limits.maxRisk, g!.limits.autonomousUpTo], ["LOW", "LOW"]);
+    // A finalidade cita cada ferramenta que o grant cobre: o que a pessoa lê no app é o que o agente pode.
+    for (const i of itensGrowthOs()) assert.match(g!.purpose, i.ferramenta === "growth_os.resumo_operacional" ? /números da operação/ : /ofertas à venda no marketplace/);
+    assert.match(g!.purpose, /Não compra nada/);
     assert.equal(g!.expiresAt.getTime() - T0.getTime(), 30 * 24 * 3600 * 1000);
   });
 });

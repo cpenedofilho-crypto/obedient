@@ -44,8 +44,12 @@ export const explicacaoCompras = (tetoMicros: number) =>
   `Comprar, no marketplace interno do Growth OS, consultas ao conhecimento aprovado da organização, até ${tetoMicros} micro-unidades por compra. Pagamento simulado entre carteiras contábeis. Cada compra pede a sua aprovação.`;
 
 export const FINALIDADE_GROWTH_OS = `integracao:${SISTEMA_GROWTH_OS}`;
+/**
+ * Finalidade do grant de leitura. Ele cobre TODA ferramenta de leitura do Growth OS (`growth_os.*`, risco
+ * baixo), então o texto lista todas: ferramenta de leitura nova entra aqui também. Comprar é outro grant.
+ */
 export const EXPLICACAO_GROWTH_OS =
-  "Ler, no Growth OS, os números da operação da organização nas últimas 24 horas (agentes, execuções, eventos, aprovações e desempenho). Só leitura, sem dado pessoal.";
+  "Ler no Growth OS, só leitura e sem dado pessoal: os números da operação da organização nas últimas 24 horas (agentes, execuções, eventos, aprovações e desempenho) e as ofertas à venda no marketplace interno. Não compra nada.";
 
 export interface ConfigGrowthOs {
   cardUrl: string;
