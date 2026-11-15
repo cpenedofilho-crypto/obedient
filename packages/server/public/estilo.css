@@ -762,3 +762,23 @@ select:focus-visible, a:focus-visible {
 @media (prefers-reduced-transparency: reduce) {
   .obedient-home, .obedient-quick a, .obedient-voice-link { background-color: #222333; }
 }
+
+
+/* Approved composition: compact brand bar and intentional separation between home and dashboard. */
+.obedient-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 8px 14px;
+  color: #f1ebff;
+  text-decoration: none;
+  font-size: 12px;
+  letter-spacing: .22em;
+}
+.obedient-brand img { width: 29px; height: 29px; filter: drop-shadow(0 0 7px #9d7aff); }
+.obedient-brand:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; border-radius: 12px; }
+.obedient-home { scroll-margin-top: 20px; }
+@media (min-width: 760px) {
+  .obedient-nav { max-width: 860px; }
+}
