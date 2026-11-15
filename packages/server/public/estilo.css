@@ -529,3 +529,64 @@ select:focus-visible, a:focus-visible {
 @media (prefers-reduced-transparency: reduce) {
   #tela-painel > section { background: #222333; -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
+
+
+/* Immersive passkey entry. Existing passkey and invitation flows remain intact. */
+#tela-entrada {
+  position: relative;
+  isolation: isolate;
+  min-height: min(760px, calc(100dvh - 150px));
+  padding: clamp(24px, 7vw, 56px) clamp(18px, 6vw, 44px);
+  border: 1px solid #d9c7ff3d;
+  border-radius: 34px;
+  background:
+    radial-gradient(circle at 50% 23%, #c8a4ff4a 0, #8265d82a 18%, transparent 48%),
+    linear-gradient(155deg, #ffffff17, #ffffff06 62%);
+  box-shadow: 0 30px 80px #0007, inset 0 1px #ffffff38;
+  -webkit-backdrop-filter: blur(26px);
+  backdrop-filter: blur(26px);
+  overflow: hidden;
+}
+#tela-entrada::before {
+  content: "";
+  display: block;
+  width: clamp(120px, 32vw, 188px);
+  aspect-ratio: 1;
+  margin: 0 auto 32px;
+  border-radius: 38%;
+  background:
+    radial-gradient(circle at 34% 26%, #f6edff 0, #c3a0ff 17%, #7a62db 47%, #34285e 74%, #151328 100%);
+  box-shadow: 0 0 34px #b99aff9e, 0 0 105px #8365d96b, inset 0 2px 18px #ffffff70;
+  transform: rotate(-12deg);
+}
+#tela-entrada > h2 {
+  margin: 0 0 10px;
+  font-size: clamp(30px, 7vw, 44px);
+  letter-spacing: -.04em;
+  text-align: center;
+}
+#tela-entrada > p:not(.erro) {
+  max-width: 360px;
+  margin: 0 auto 26px;
+  color: var(--suave);
+  text-align: center;
+}
+#tela-entrada > #b-entrar {
+  display: block;
+  width: 100%;
+  max-width: 380px;
+  margin: 0 auto;
+  min-height: 58px;
+}
+#tela-entrada .convite {
+  max-width: 380px;
+  margin: 20px auto 0;
+  padding: 8px 18px 18px;
+}
+#tela-entrada .erro { text-align: center; }
+@media (prefers-reduced-transparency: reduce) {
+  #tela-entrada { background: #222333; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (max-width: 390px) {
+  #tela-entrada { border-radius: 24px; padding: 28px 18px; }
+}
