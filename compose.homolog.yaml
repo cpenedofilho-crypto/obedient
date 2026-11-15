@@ -1,0 +1,25 @@
+services:
+  obedient-readiness:
+    build:
+      context: .
+      dockerfile: Dockerfile.homolog
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      PORT: "8080"
+      HOST: "0.0.0.0"
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
