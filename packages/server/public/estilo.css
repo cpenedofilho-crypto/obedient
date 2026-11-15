@@ -423,55 +423,6 @@ select:focus-visible, a:focus-visible {
 }
 
 
-/* Expandable navigation: no JavaScript and no new privileges. */
-.obedient-nav { margin: 14px 0 24px; }
-.obedient-menu {
-  border: 1px solid #ded0ff45;
-  border-radius: 24px;
-  background: linear-gradient(135deg, #ffffff20, #ffffff08);
-  -webkit-backdrop-filter: blur(22px);
-  backdrop-filter: blur(22px);
-  box-shadow: 0 12px 36px #0005;
-  overflow: hidden;
-}
-.obedient-menu summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  padding: 12px 18px;
-  cursor: pointer;
-  color: var(--texto);
-  font-weight: 650;
-  list-style: none;
-}
-.obedient-menu summary::-webkit-details-marker { display: none; }
-.obedient-menu summary span { letter-spacing: .03em; }
-.obedient-menu-links {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
-  padding: 0 12px 14px;
-}
-.obedient-menu-links a {
-  display: flex;
-  align-items: center;
-  min-height: 48px;
-  padding: 10px 14px;
-  border-radius: 14px;
-  color: var(--texto);
-  text-decoration: none;
-  background: #ffffff12;
-  border: 1px solid #ffffff20;
-}
-.obedient-menu-links a:hover { background: #bfa4ff30; }
-.obedient-menu-links a:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
-#tela-painel > section { scroll-margin-top: 24px; }
-@media (prefers-reduced-transparency: reduce) {
-  .obedient-menu { background: #222333; -webkit-backdrop-filter: none; backdrop-filter: none; }
-}
-
-
 /* Mission Control: existing server-backed sections, no fabricated statistics. */
 #tela-painel { position: relative; }
 #tela-painel > section {
@@ -589,49 +540,6 @@ select:focus-visible, a:focus-visible {
 }
 @media (max-width: 390px) {
   #tela-entrada { border-radius: 24px; padding: 28px 18px; }
-}
-
-
-/* Floating mobile sidebar, progressive enhancement of native details/summary. */
-.obedient-nav { position: relative; z-index: 30; }
-.obedient-menu { position: relative; overflow: visible; }
-.obedient-menu[open] {
-  border-color: #d8baff8c;
-  box-shadow: 0 22px 70px #0009, 0 0 36px #9f79ff2b;
-}
-.obedient-menu[open] > summary {
-  border-bottom: 1px solid #d8baff35;
-}
-@media (max-width: 759px) {
-  .obedient-menu[open] {
-    position: fixed;
-    top: max(16px, env(safe-area-inset-top));
-    left: 12px;
-    right: 12px;
-    max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    border-radius: 26px;
-    background: #1c1a2cf0;
-    -webkit-backdrop-filter: blur(28px);
-    backdrop-filter: blur(28px);
-  }
-  .obedient-menu[open] .obedient-menu-links {
-    grid-template-columns: 1fr;
-    padding: 12px 14px 18px;
-  }
-  .obedient-menu[open] .obedient-menu-links a {
-    min-height: 52px;
-    background: #ffffff0d;
-  }
-}
-@media (min-width: 760px) {
-  .obedient-menu[open] .obedient-menu-links {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .obedient-menu[open] { background: #222333; }
 }
 
 
@@ -764,34 +672,210 @@ select:focus-visible, a:focus-visible {
 }
 
 
-/* Approved composition: compact brand bar and intentional separation between home and dashboard. */
-.obedient-brand {
+/* Referência aprovada (15/11): trilho de ícones no início, menu de vidro e Mission Control.
+   Só apresentação. Os controles com consequência (parar, aprovar, revogar, apagar) continuam os mesmos. */
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+#tela-painel svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+#tela-painel .sprite { width: 0; height: 0; }
+
+/* Vistas: o início tem trilho e herói; o Mission Control tem topo, saudação, ações rápidas e as seções. */
+#tela-painel.obedient-view-home > section,
+#tela-painel.obedient-view-home .mc-topo,
+#tela-painel.obedient-view-home .mc-saudacao,
+#tela-painel.obedient-view-home .obedient-quick,
+#tela-painel.obedient-view-home .rodape,
+#tela-painel.obedient-view-dashboard .obedient-home,
+#tela-painel.obedient-view-dashboard .trilho { display: none; }
+#tela-painel.obedient-view-home #parada:not(:empty) { display: block; }
+/* No painel a marca já aparece no topo e no herói; o h1 fica só para leitor de tela. O aviso de conexão continua. */
+body:has(#tela-painel:not([hidden])) .topo h1 {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+body:has(#tela-painel:not([hidden])) .topo { padding-block: 0; }
+body:has(#tela-painel:not([hidden])) .conexao:not(:empty) { padding-top: max(12px, env(safe-area-inset-top)); }
+
+/* Início imersivo com trilho de vidro à esquerda */
+#tela-painel.obedient-view-home {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding-top: max(12px, env(safe-area-inset-top));
+}
+#tela-painel.obedient-view-home[hidden] { display: none; }
+#tela-painel.obedient-view-home #parada { grid-column: 1 / -1; }
+#tela-painel.obedient-view-home .obedient-home {
+  margin: 0;
+  min-height: calc(100dvh - 48px);
+}
+.trilho {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  border-radius: 36px;
+  border: 1px solid #ded0ff3d;
+  background: linear-gradient(180deg, #ffffff1f, #ffffff08);
+  box-shadow: 0 18px 48px #0007, inset 0 1px #ffffff2a;
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+}
+.trilho-item {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--suave);
+  cursor: pointer;
+  text-decoration: none;
+}
+.trilho-item:hover { color: var(--texto); background: #ffffff12; }
+.trilho-item.atual {
+  color: #f3ecff;
+  border-color: #c9adff8c;
+  background: linear-gradient(145deg, #a37cff4d, #ffffff10);
+  box-shadow: 0 0 18px #9b74ff55;
+}
+.trilho-logo { margin-bottom: 6px; }
+.trilho-logo img { width: 34px; height: 34px; filter: drop-shadow(0 0 8px #9d7aff); }
+.ponto-pedidos {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--bom);
+  box-shadow: 0 0 0 2px #14131f;
+}
+.ponto-pedidos[hidden] { display: none; }
+
+/* Menu de vidro expandido */
+.menu-vidro {
+  position: fixed;
+  z-index: 40;
+  top: max(12px, env(safe-area-inset-top));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: 12px;
+  width: min(320px, calc(100vw - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 16px 22px;
+  border-radius: 30px;
+  border: 1px solid #d8baff70;
+  background: linear-gradient(170deg, #2a2640f2, #15131ff5);
+  box-shadow: 0 30px 90px #000b, 0 0 40px #9f79ff26, inset 0 1px #ffffff2a;
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+}
+.menu-vidro[hidden] { display: none; }
+.menu-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.menu-marca { display: flex; align-items: center; gap: 10px; font-size: 13px; letter-spacing: .22em; color: var(--texto); }
+.menu-marca img { width: 34px; height: 34px; filter: drop-shadow(0 0 8px #9d7aff); }
+.menu-fechar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 1px solid #ffffff30;
+  background: #ffffff10;
+  color: var(--texto);
+  cursor: pointer;
+}
+.menu-lema { margin: 18px 4px 4px; color: var(--suave); font-size: 15px; }
+.menu-rotulo { margin: 22px 4px 8px; color: var(--suave); font-size: 13px; letter-spacing: .18em; text-transform: uppercase; }
+.menu-links { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.menu-links a {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 50px;
-  padding: 8px 14px;
-  color: #f1ebff;
+  gap: 14px;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  color: var(--texto);
   text-decoration: none;
-  font-size: 12px;
-  letter-spacing: .22em;
 }
-.obedient-brand img { width: 29px; height: 29px; filter: drop-shadow(0 0 7px #9d7aff); }
-.obedient-brand:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; border-radius: 12px; }
-.obedient-home { scroll-margin-top: 20px; }
-@media (min-width: 760px) {
-  .obedient-nav { max-width: 860px; }
+.menu-links a:hover { background: #ffffff10; }
+.menu-links a.atual {
+  border-color: #c9adff8c;
+  background: linear-gradient(145deg, #a37cff40, #ffffff0a);
+}
+.menu-links svg { color: #d6c2ff; }
+
+/* Mission Control */
+.mc-topo {
+  display: grid;
+  grid-template-columns: 52px 1fr 52px;
+  align-items: center;
+  margin: 8px 0 4px;
+}
+.mc-icone {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid #ffffff2a;
+  background: linear-gradient(145deg, #ffffff1a, #ffffff06);
+  color: var(--texto);
+  cursor: pointer;
+  text-decoration: none;
+}
+.mc-sino .ponto-pedidos { top: 12px; right: 13px; }
+.mc-marca { justify-self: center; display: grid; place-items: center; min-width: 52px; min-height: 52px; border-radius: 16px; }
+.mc-marca img { width: 40px; height: 40px; filter: drop-shadow(0 0 10px #9d7aff); }
+.mc-saudacao { margin: 18px 4px 8px; }
+.mc-ola { margin: 0; font-size: clamp(24px, 6vw, 30px); font-weight: 650; letter-spacing: -.02em; }
+.mc-pergunta { margin: 2px 0 0; color: var(--suave); }
+.obedient-quick a { font-size: 13px; min-height: 84px; }
+.obedient-quick a svg { color: #d6c2ff; width: 26px; height: 26px; }
+#tela-painel.obedient-view-dashboard > section { margin-block: 18px; }
+
+/* Missões e sistemas no jeito da referência, com o texto dizendo o estado (cor nunca sozinha). */
+#missoes > li { position: relative; padding-left: 52px; }
+#missoes > li::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 18px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #c9adffaa;
+}
+#conexoes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#conexoes > li.sistema { position: relative; display: flex; flex-direction: column; gap: 4px; }
+#conexoes > li.sistema > p:first-child { padding-right: 20px; }
+#conexoes > li.sistema::after {
+  content: "";
+  position: absolute;
+  top: 20px;
+  right: 16px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--borda);
+}
+#conexoes > li.sistema.ligado::after { background: var(--bom); box-shadow: 0 0 10px #9ae6b488; }
+#conexoes > li.sistema .botao { margin-top: auto; }
+@media (max-width: 420px) {
+  #conexoes { grid-template-columns: 1fr; }
 }
 
-
-/* Explicit visual views. Security-critical stop and connectivity remain visible in both. */
-#tela-painel.obedient-view-dashboard .obedient-home { display: none; }
-#tela-painel.obedient-view-home > section:not(.obedient-quick) { display: none; }
-#tela-painel.obedient-view-home .obedient-home { display: flex; }
-#tela-painel.obedient-view-home .obedient-quick { margin-top: 0; }
-#tela-painel.obedient-view-home #parada { display: block; }
-#tela-painel.obedient-view-home #parada:empty { display: none; }
-#tela-painel.obedient-view-home .rodape { display: block; }
-@media (min-width: 760px) {
-  #tela-painel.obedient-view-home .obedient-home { min-height: 570px; }
+@media (min-width: 900px) {
+  #tela-painel.obedient-view-home { grid-template-columns: 84px 1fr; }
+  .menu-vidro { width: 340px; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .trilho, .menu-vidro, .mc-icone { background: #222333; -webkit-backdrop-filter: none; backdrop-filter: none; }
 }

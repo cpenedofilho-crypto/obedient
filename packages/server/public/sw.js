@@ -7,8 +7,8 @@
 // fila de ações moram no IndexedDB, sob controle do app. Cachear resposta de API aqui criaria uma
 // segunda fonte de verdade offline, e um pedido aprovado poderia "voltar" para a tela.
 
-const VERSAO = "obedient-casca-1";
-const CASCA = ["/", "/index.html", "/app.js", "/fila.js", "/armazem-idb.js", "/passkey.js", "/estilo.css", "/manifest.webmanifest", "/icone.svg", "/icone-192.png", "/icone-512.png"];
+const VERSAO = "obedient-casca-2";
+const CASCA = ["/", "/index.html", "/app.js", "/fila.js", "/armazem-idb.js", "/passkey.js", "/estilo.css", "/visual-nav.js", "/simbolo-liquid.svg", "/manifest.webmanifest", "/icone.svg", "/icone-192.png", "/icone-512.png"];
 
 self.addEventListener("install", (ev) => {
   ev.waitUntil(caches.open(VERSAO).then((c) => c.addAll(CASCA)).then(() => self.skipWaiting()));

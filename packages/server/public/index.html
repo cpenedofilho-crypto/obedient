@@ -38,24 +38,57 @@
       </section>
 
       <!-- Painel -->
-      <section id="tela-painel" class="tela" hidden aria-labelledby="t-painel">
+      <section id="tela-painel" class="tela obedient-view-dashboard" hidden aria-labelledby="t-painel">
         <h2 id="t-painel" class="visualmente-oculto">Painel</h2>
 
-        <nav class="obedient-nav" aria-label="Navegação do OBEDIENT">
-          <a class="obedient-brand" href="#inicio-obedient" aria-label="Voltar ao início"><img src="/simbolo-liquid.svg" alt="" /> <span>OBEDIENT</span></a>
-          <details class="obedient-menu">
-            <summary aria-label="Abrir menu de navegação">☰ <span>Explorar OBEDIENT</span></summary>
-            <div class="obedient-menu-links">
-              <a href="#t-missoes">Missões</a>
-              <a href="#t-pedidos">Aprovações</a>
-              <a href="#t-autorizacoes">Agentes e permissões</a>
-              <a href="#t-atividade">Atividade</a>
-              <a href="#t-conexoes">Conexões</a>
-              <a href="#t-aprendizado">Memória</a>
-              <a href="#t-dados">Seus dados</a>
-            </div>
-          </details>
+        <svg class="sprite" aria-hidden="true" focusable="false">
+          <symbol id="i-inicio" viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V20h-5.5v-5h-5v5H4z"/></symbol>
+          <symbol id="i-pedidos" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20.5h4"/></symbol>
+          <symbol id="i-missoes" viewBox="0 0 24 24"><path d="M5 6h14v14H5zM5 10h14M9 3.5v4M15 3.5v4M9 14.5l2 2 4-4"/></symbol>
+          <symbol id="i-sistemas" viewBox="0 0 24 24"><path d="M12 4 21 8.5 12 13 3 8.5zM3 12.5 12 17l9-4.5M3 16.5 12 21l9-4.5"/></symbol>
+          <symbol id="i-agentes" viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6zM9 12l2 2 4-4"/></symbol>
+          <symbol id="i-atividade" viewBox="0 0 24 24"><path d="M4 19h16M7 16v-5M12 16V7M17 16v-8"/></symbol>
+          <symbol id="i-memoria" viewBox="0 0 24 24"><path d="M7 4h10l4 5-9 11L3 9zM3 9h18M9.5 4 12 20 14.5 4"/></symbol>
+          <symbol id="i-dados" viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></symbol>
+          <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+          <symbol id="i-fechar" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+          <symbol id="i-executar" viewBox="0 0 24 24"><path d="M13 3 5 13.5h6L10 21l8-10.5h-6z"/></symbol>
+          <symbol id="i-fale" viewBox="0 0 24 24"><path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2-5.2-1.8 5.2-1.8zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></symbol>
+        </svg>
+
+        <!-- Trilho de ícones (início). Só navega: não muda permissão, sessão nem dado. -->
+        <nav class="trilho" aria-label="Atalhos do OBEDIENT">
+          <button class="trilho-item trilho-logo abre-menu" type="button" aria-label="Abrir o menu" aria-expanded="false" aria-controls="menu-obedient"><img src="/simbolo-liquid.svg" alt="" /></button>
+          <a class="trilho-item atual" href="#inicio-obedient" aria-label="Início"><svg aria-hidden="true"><use href="#i-inicio" /></svg></a>
+          <a class="trilho-item" href="#t-pedidos" aria-label="Esperando você"><svg aria-hidden="true"><use href="#i-pedidos" /></svg><span class="ponto-pedidos" hidden></span></a>
+          <a class="trilho-item" href="#t-missoes" aria-label="Missões"><svg aria-hidden="true"><use href="#i-missoes" /></svg></a>
+          <a class="trilho-item" href="#t-conexoes" aria-label="Sistemas conectados"><svg aria-hidden="true"><use href="#i-sistemas" /></svg></a>
+          <a class="trilho-item" href="#t-autorizacoes" aria-label="Agentes e permissões"><svg aria-hidden="true"><use href="#i-agentes" /></svg></a>
+          <a class="trilho-item" href="#t-aprendizado" aria-label="Memória"><svg aria-hidden="true"><use href="#i-memoria" /></svg></a>
+          <a class="trilho-item" href="#t-dados" aria-label="Seus dados"><svg aria-hidden="true"><use href="#i-dados" /></svg></a>
         </nav>
+
+        <!-- Menu de vidro expandido. -->
+        <div id="menu-obedient" class="menu-vidro" hidden>
+          <div class="menu-topo">
+            <span class="menu-marca"><img src="/simbolo-liquid.svg" alt="" /> OBEDIENT</span>
+            <button class="menu-fechar" type="button" aria-label="Fechar o menu"><svg aria-hidden="true"><use href="#i-fechar" /></svg></button>
+          </div>
+          <p class="menu-lema">Você decide o que os seus agentes fazem.</p>
+          <nav aria-labelledby="t-menu">
+            <p id="t-menu" class="menu-rotulo">Menu</p>
+            <ul class="menu-links">
+              <li><a href="#inicio-obedient"><svg aria-hidden="true"><use href="#i-inicio" /></svg>Início</a></li>
+              <li><a href="#t-pedidos"><svg aria-hidden="true"><use href="#i-pedidos" /></svg>Esperando você</a></li>
+              <li><a href="#t-missoes"><svg aria-hidden="true"><use href="#i-missoes" /></svg>Missões</a></li>
+              <li><a href="#t-conexoes"><svg aria-hidden="true"><use href="#i-sistemas" /></svg>Sistemas</a></li>
+              <li><a href="#t-autorizacoes"><svg aria-hidden="true"><use href="#i-agentes" /></svg>Agentes e permissões</a></li>
+              <li><a href="#t-atividade"><svg aria-hidden="true"><use href="#i-atividade" /></svg>O que aconteceu</a></li>
+              <li><a href="#t-aprendizado"><svg aria-hidden="true"><use href="#i-memoria" /></svg>Memória</a></li>
+              <li><a href="#t-dados"><svg aria-hidden="true"><use href="#i-dados" /></svg>Seus dados</a></li>
+            </ul>
+          </nav>
+        </div>
 
         <div id="inicio-obedient" class="obedient-home" aria-label="OBEDIENT — início">
           <div class="obedient-home-symbol" aria-hidden="true">
@@ -64,15 +97,26 @@
           <p class="obedient-wordmark">O B E D I E N T</p>
           <p class="obedient-tagline">SEU AGENTE PESSOAL<br />DE ALTA PERFORMANCE</p>
           <div class="obedient-wave" aria-hidden="true"></div>
-          <a class="obedient-voice-link" href="#m-objetivo" aria-label="Ir ao campo para pedir uma missão">✦ <span>Fale comigo...</span></a>
+          <a class="obedient-voice-link" href="#m-objetivo"><svg aria-hidden="true"><use href="#i-fale" /></svg><span>Fale comigo...</span></a>
         </div>
 
-        <section class="obedient-quick" aria-label="Ações rápidas">
-          <a href="#m-objetivo"><span aria-hidden="true">ϟ</span>Executar</a>
-          <a href="#t-missoes"><span aria-hidden="true">▦</span>Planejar</a>
-          <a href="#t-atividade"><span aria-hidden="true">▥</span>Analisar</a>
-          <a href="#t-conexoes"><span aria-hidden="true">✧</span>Explorar</a>
-        </section>
+        <!-- Mission Control -->
+        <header class="mc-topo">
+          <button class="mc-icone abre-menu" type="button" aria-label="Abrir o menu" aria-expanded="false" aria-controls="menu-obedient"><svg aria-hidden="true"><use href="#i-menu" /></svg></button>
+          <a class="mc-marca" href="#inicio-obedient" aria-label="Voltar ao início"><img src="/simbolo-liquid.svg" alt="" /></a>
+          <a class="mc-icone mc-sino" href="#t-pedidos" aria-label="Esperando você"><svg aria-hidden="true"><use href="#i-pedidos" /></svg><span class="ponto-pedidos" hidden></span></a>
+        </header>
+        <div class="mc-saudacao">
+          <p id="saudacao" class="mc-ola">Olá</p>
+          <p class="mc-pergunta">O que vamos resolver hoje?</p>
+        </div>
+
+        <nav class="obedient-quick" aria-label="Ações rápidas">
+          <a href="#m-objetivo"><svg aria-hidden="true"><use href="#i-executar" /></svg>Executar</a>
+          <a href="#t-missoes"><svg aria-hidden="true"><use href="#i-missoes" /></svg>Planejar</a>
+          <a href="#t-atividade"><svg aria-hidden="true"><use href="#i-atividade" /></svg>Analisar</a>
+          <a href="#t-pedidos"><svg aria-hidden="true"><use href="#i-agentes" /></svg>Aprovar</a>
+        </nav>
 
         <div id="parada" class="parada" aria-live="assertive"></div>
 
@@ -86,7 +130,7 @@
           <h3 id="t-missoes">Missões</h3>
           <form id="f-missao" class="formulario">
             <label for="m-objetivo">O que você quer que o agente faça?</label>
-            <textarea id="m-objetivo" rows="3" maxlength="2000" required></textarea>
+            <textarea id="m-objetivo" rows="3" maxlength="2000" required placeholder="Fale comigo..."></textarea>
             <label for="m-teto">Gastar no máximo</label>
             <select id="m-teto">
               <option value="100">R$ 1,00</option>
@@ -96,6 +140,13 @@
             <button class="botao principal" type="submit">Pedir ao agente</button>
           </form>
           <ul id="missoes" class="lista"></ul>
+        </section>
+
+        <section aria-labelledby="t-conexoes">
+          <h3 id="t-conexoes">Sistemas integrados</h3>
+          <p class="ajuda">O que o agente pode usar fora daqui. Ele só faz o que cada conexão permite, e o que é sensível passa por você.</p>
+          <p id="aviso-conexao" class="estado" role="status" hidden></p>
+          <ul id="conexoes" class="lista"></ul>
         </section>
 
         <section aria-labelledby="t-autorizacoes">
@@ -109,12 +160,6 @@
           <ol id="atividade" class="lista atividade"></ol>
         </section>
 
-        <section aria-labelledby="t-conexoes">
-          <h3 id="t-conexoes">Conexões</h3>
-          <p class="ajuda">O que o agente pode usar fora daqui. Ele só faz o que cada conexão permite, e o que é sensível passa por você.</p>
-          <p id="aviso-conexao" class="estado" role="status" hidden></p>
-          <ul id="conexoes" class="lista"></ul>
-        </section>
 
         <section aria-labelledby="t-aprendizado">
           <h3 id="t-aprendizado">O que o agente aprende sobre você</h3>

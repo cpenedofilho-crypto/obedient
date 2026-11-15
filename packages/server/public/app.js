@@ -147,7 +147,7 @@ function renderConexoes(ops) {
       else if (!c.disponivel) filhos.push(el("p", { classe: "ajuda", texto: "Este servidor ainda não tem conexão com o Google configurada." }));
       else if (!online) filhos.push(el("p", { classe: "ajuda", texto: "Conectar precisa de internet." }));
       else filhos.push(botao("Conectar", () => conectar(c.id), "botao principal", `Conectar ${c.nome}`));
-      return el("li", { classe: "autorizacao" }, filhos);
+      return el("li", { classe: `autorizacao sistema${c.conectada && !saindo.has(c.id) ? " ligado" : ""}` }, filhos);
     }),
   );
 }
