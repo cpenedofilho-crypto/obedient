@@ -1,0 +1,34 @@
+name: homolog-container
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile.homolog'
+      - 'compose.homolog.yaml'
+      - 'packages/runtime-server/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/homolog-container.yml'
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build homologation image
+        run: docker build --pull -f Dockerfile.homolog -t obedient-readiness:ci .
+      - name: Start and probe loopback-only service
+        run: |
+          set -eu
+          docker compose -f compose.homolog.yaml up -d --build
+          trap 'docker compose -f compose.homolog.yaml down --remove-orphans' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8080/health/live | grep -q '"status":"ok"'; then
+              curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8080/payments | grep -q '^404$'
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f compose.homolog.yaml logs --no-color
+          exit 1
