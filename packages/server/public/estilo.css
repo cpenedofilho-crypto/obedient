@@ -590,3 +590,46 @@ select:focus-visible, a:focus-visible {
 @media (max-width: 390px) {
   #tela-entrada { border-radius: 24px; padding: 28px 18px; }
 }
+
+
+/* Floating mobile sidebar, progressive enhancement of native details/summary. */
+.obedient-nav { position: relative; z-index: 30; }
+.obedient-menu { position: relative; overflow: visible; }
+.obedient-menu[open] {
+  border-color: #d8baff8c;
+  box-shadow: 0 22px 70px #0009, 0 0 36px #9f79ff2b;
+}
+.obedient-menu[open] > summary {
+  border-bottom: 1px solid #d8baff35;
+}
+@media (max-width: 759px) {
+  .obedient-menu[open] {
+    position: fixed;
+    top: max(16px, env(safe-area-inset-top));
+    left: 12px;
+    right: 12px;
+    max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: 26px;
+    background: #1c1a2cf0;
+    -webkit-backdrop-filter: blur(28px);
+    backdrop-filter: blur(28px);
+  }
+  .obedient-menu[open] .obedient-menu-links {
+    grid-template-columns: 1fr;
+    padding: 12px 14px 18px;
+  }
+  .obedient-menu[open] .obedient-menu-links a {
+    min-height: 52px;
+    background: #ffffff0d;
+  }
+}
+@media (min-width: 760px) {
+  .obedient-menu[open] .obedient-menu-links {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .obedient-menu[open] { background: #222333; }
+}
