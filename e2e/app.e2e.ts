@@ -102,6 +102,34 @@ describe("app de ponta a ponta", { concurrency: false }, () => {
     assert.deepEqual(pequenos, []);
   });
 
+  it("início e menu de vidro: sem violação, toque de 48 px, Esc fecha e devolve o foco", async () => {
+    const pequenosVisiveis = () =>
+      p.locator("button, summary, input, .trilho-item, .menu-links a, .mc-icone").evaluateAll((els) =>
+        els
+          .filter((e) => (e as HTMLElement).offsetParent !== null)
+          .map((e) => ({ t: (e.textContent || e.getAttribute("aria-label") || e.id).trim(), ...e.getBoundingClientRect().toJSON() }))
+          .filter((r) => r.height < 44 || r.width < 44)
+          .map((r) => `${r.t} ${Math.round(r.width)}×${Math.round(r.height)}`),
+      );
+    await p.evaluate(() => (location.hash = "inicio-obedient"));
+    await p.getByRole("navigation", { name: "Atalhos do OBEDIENT" }).waitFor();
+    assert.equal(await p.getByRole("heading", { name: "Esperando você" }).isVisible(), false);
+    assert.deepEqual(await axe(p), []);
+    assert.deepEqual(await pequenosVisiveis(), []);
+    const abrir = p.getByRole("button", { name: "Abrir o menu" });
+    await abrir.click();
+    await p.locator("#menu-obedient").getByRole("link", { name: "Missões", exact: true }).waitFor();
+    assert.equal(await abrir.getAttribute("aria-expanded"), "true");
+    assert.deepEqual(await axe(p), []);
+    assert.deepEqual(await pequenosVisiveis(), []);
+    await p.keyboard.press("Escape");
+    assert.equal(await p.locator("#menu-obedient").isHidden(), true);
+    assert.equal(await abrir.evaluate((b) => b === document.activeElement), true);
+    // Um item do trilho abre o Mission Control na seção certa.
+    await p.locator(".trilho").getByRole("link", { name: /^Esperando você/ }).click();
+    await p.getByRole("heading", { name: "Esperando você" }).waitFor();
+  });
+
   it("aprovar é um toque; o desfecho aparece sem esperar e a trilha registra", async () => {
     await p.getByRole("button", { name: /^Aprovar email\.enviar/ }).click();
     await p.getByText("Aprovado.").or(p.getByText("Aprovado. Enviando…")).first().waitFor();
