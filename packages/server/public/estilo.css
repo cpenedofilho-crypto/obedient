@@ -470,3 +470,62 @@ select:focus-visible, a:focus-visible {
 @media (prefers-reduced-transparency: reduce) {
   .obedient-menu { background: #222333; -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
+
+
+/* Mission Control: existing server-backed sections, no fabricated statistics. */
+#tela-painel { position: relative; }
+#tela-painel > section {
+  margin-block: 22px;
+  padding: 18px;
+  border: 1px solid #ded0ff30;
+  border-radius: 24px;
+  background: linear-gradient(150deg, #ffffff12, #ffffff06 68%);
+  box-shadow: 0 14px 34px #0003, inset 0 1px #ffffff12;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+#tela-painel > section > h3 {
+  margin: 0 0 16px;
+  font-size: clamp(18px, 3.5vw, 22px);
+  letter-spacing: -.015em;
+}
+#tela-painel > section[aria-labelledby="t-missoes"] {
+  border-color: #c5a9ff65;
+  background:
+    radial-gradient(ellipse at 90% 0%, #8f64e02b, transparent 60%),
+    linear-gradient(150deg, #ffffff16, #ffffff06);
+}
+#f-missao {
+  gap: 12px;
+}
+#f-missao textarea {
+  min-height: 112px;
+  resize: vertical;
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: #0d0d1a9c;
+  border: 1px solid #c5a9ff6b;
+}
+#f-missao .botao.principal {
+  min-height: 56px;
+}
+#tela-painel .lista { gap: 12px; }
+#tela-painel .vazio { padding: 8px 0; }
+#tela-painel .cartao {
+  border-radius: 20px;
+}
+#tela-painel .cartao.sensivel {
+  border-left-color: var(--perigo);
+}
+#parada { margin-bottom: 20px; }
+#parada:empty { display: none; }
+@media (min-width: 760px) {
+  main, .topo { max-width: 860px; }
+  #tela-painel > section { padding: 24px; }
+  #f-missao { grid-template-columns: 1fr auto; align-items: end; }
+  #f-missao label[for="m-objetivo"], #f-missao textarea { grid-column: 1 / -1; }
+  #f-missao label[for="m-teto"] { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  #tela-painel > section { background: #222333; -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
