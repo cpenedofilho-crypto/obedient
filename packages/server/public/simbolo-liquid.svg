@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Símbolo OBEDIENT">
+<defs><linearGradient id="l" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f1ddff"/><stop offset=".48" stop-color="#ac8aff"/><stop offset="1" stop-color="#546bff"/></linearGradient><filter id="g" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="5"/></filter></defs>
+<path d="M54 22 Q61 13 70 23 L102 77 Q111 92 94 98 L80 102 Q70 105 64 94 L57 81 L46 96 Q40 103 30 99 L19 94 Q9 89 17 75 Z" fill="none" stroke="#9979ff" stroke-width="11" stroke-linejoin="round" filter="url(#g)" opacity=".6"/>
+<path d="M54 22 Q61 13 70 23 L102 77 Q111 92 94 98 L80 102 Q70 105 64 94 L57 81 L46 96 Q40 103 30 99 L19 94 Q9 89 17 75 Z" fill="none" stroke="url(#l)" stroke-width="11" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
