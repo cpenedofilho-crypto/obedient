@@ -350,3 +350,74 @@ a.botao {
   outline: 3px solid var(--foco);
   outline-offset: 3px;
 }
+
+
+/* OBEDIENT visual foundation — preserves all existing semantic controls and safety flows. */
+:root {
+  --fundo: #0b0c15;
+  --superficie: #222333;
+  --texto: #f6f3ff;
+  --suave: #c6c0d8;
+  --borda: #69627e;
+  --primario: #c5a9ff;
+  --primario-texto: #141020;
+  --perigo: #ff9fa8;
+  --perigo-texto: #25090f;
+  --bom: #9ae6b4;
+  --atencao: #ffd28b;
+  --foco: #e0c8ff;
+  --raio: 22px;
+  color-scheme: dark;
+}
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse 85% 42% at 85% 4%, #45405e80, transparent 75%),
+    radial-gradient(ellipse 65% 40% at 5% 70%, #242b5b66, transparent 75%),
+    linear-gradient(160deg, #141521, #080910 70%);
+  background-attachment: fixed;
+}
+.topo {
+  max-width: 640px;
+  margin: 0 auto;
+  padding-top: max(22px, env(safe-area-inset-top));
+}
+.topo h1 {
+  letter-spacing: .24em;
+  font-size: 18px;
+  font-weight: 650;
+}
+main { padding-bottom: max(48px, env(safe-area-inset-bottom)); }
+.cartao, .autorizacao, .parada, .convite {
+  background: linear-gradient(145deg, #ffffff1c, #ffffff08);
+  border: 1px solid #ded0ff45;
+  box-shadow: 0 12px 36px #0005, inset 0 1px #ffffff20;
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
+}
+.botao.principal {
+  box-shadow: 0 0 22px #a77bff3d;
+}
+.botao:focus-visible, summary:focus-visible,
+input:focus-visible, textarea:focus-visible,
+select:focus-visible, a:focus-visible {
+  outline: 3px solid var(--foco);
+  outline-offset: 3px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fundo: #0b0c15; --superficie: #222333;
+    --texto: #f6f3ff; --suave: #c6c0d8;
+    --borda: #69627e; --primario: #c5a9ff;
+    --primario-texto: #141020; --perigo: #ff9fa8;
+    --perigo-texto: #25090f; --bom: #9ae6b4;
+    --atencao: #ffd28b; --foco: #e0c8ff;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .cartao, .autorizacao, .parada, .convite {
+    background: #222333;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
