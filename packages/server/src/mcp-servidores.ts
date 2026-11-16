@@ -9,8 +9,13 @@
 //   • só as ferramentas listadas existem para o agente. A lista é do dono, não do servidor: ferramenta
 //     nova no servidor não aparece sozinha. Do servidor vem só o esquema de entrada (tools/list) e uma
 //     descrição curta, cortada; o que ele devolve volta como conteúdo externo, nunca instrução;
-//   • nesta fase toda ferramenta é tratada como LEITURA de risco BAIXO, e o grant (concedido pela
-//     linha de comando, por pessoa listada) só autoriza isso. Escrita fica para depois, com aprovação;
+//   • o risco e a categoria de cada ferramenta saem do classificador do gateway (integration-gateway,
+//     risco.ts) pelo NOME, pelo esquema e pelas anotações do servidor, que são dado não confiável: só
+//     booleano conta, e dica do servidor nunca rebaixa o que o nome entrega. O dono só ENDURECE (sobe o
+//     risco ou marca escrita), nunca rebaixa. Ferramenta não classificável não é oferecida;
+//   • o grant (concedido pela linha de comando, por pessoa listada) só cobre risco BAIXO: na prática,
+//     leitura confirmada (verbo de leitura + readOnlyHint). O resto é negado pelo Ethics Engine antes
+//     da rede. Escrita fica para depois, com aprovação;
 //   • a saída é pelo fetchSeguro (IP conferido na conexão, sem redirect para fora da origem).
 // Servidor fora do ar não derruba a missão: as ferramentas dele só não são oferecidas naquela vez.
 
@@ -18,7 +23,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Executor, ItemGovernado } from "@obedient/agent-orchestrator";
 import type { EthicsEngine } from "@obedient/ethics-engine";
-import { fetchSeguro } from "@obedient/integration-gateway";
+import { RISK_LEVELS, type RiskLevel, type ToolCategory, riskRank } from "@obedient/core";
+import { classificar, classificarCategoria, fetchSeguro, type FerramentaDescoberta } from "@obedient/integration-gateway";
 import { AGENTE, PRAZO_DO_GRANT_MS } from "@obedient/integrations";
 
 export interface ServidorMcp {
@@ -36,6 +42,14 @@ export interface ServidorMcp {
   cabecalhos?: Readonly<Record<string, string>>;
   usuarios: ReadonlySet<string>;
   ferramentas: readonly string[];
+  /** O que o dono endurece por ferramenta (só sobe: classificarFerramentaMcp). */
+  endurecer?: Readonly<Record<string, Endurecimento>>;
+}
+
+/** Endurecimento do dono para uma ferramenta: risco mínimo e/ou "é escrita". Nunca rebaixa. */
+export interface Endurecimento {
+  risco?: RiskLevel;
+  escrita?: boolean;
 }
 
 const RESERVADOS = new Set(["obedient", "growth_os", "growth_os_compras", "google_agenda", "google_gmail", "google_drive"]);
@@ -85,7 +99,20 @@ export function servidoresMcpDoAmbiente(env: Record<string, string | undefined> 
     }
     const usuarios = Array.isArray(o.usuarios) ? o.usuarios.map(String).map((x) => x.trim()).filter(Boolean) : [];
     if (!usuarios.length) throw new Error(`${onde}: liste quem pode usar (usuarios)`);
-    const ferramentas = Array.isArray(o.ferramentas) ? o.ferramentas.map(String) : [];
+    // Cada ferramenta: o nome, ou { nome, risco?, escrita? } para o dono endurecer (nunca rebaixar).
+    const endurecer: Record<string, Endurecimento> = {};
+    const ferramentas = Array.isArray(o.ferramentas)
+      ? o.ferramentas.map((f) => {
+        if (typeof f !== "object" || f === null) return String(f);
+        const e = f as Record<string, unknown>;
+        const nome = String(e.nome ?? "");
+        if (Object.keys(e).some((k) => k !== "nome" && k !== "risco" && k !== "escrita")) throw new Error(`${onde}: ferramenta ${nome}: campo não previsto (só nome, risco e escrita)`);
+        if (e.risco !== undefined && !(RISK_LEVELS as readonly unknown[]).includes(e.risco)) throw new Error(`${onde}: ferramenta ${nome}: risco precisa ser ${RISK_LEVELS.join(", ")}`);
+        if (e.escrita !== undefined && typeof e.escrita !== "boolean") throw new Error(`${onde}: ferramenta ${nome}: escrita precisa ser true ou false`);
+        if (FERRAMENTA.test(nome)) endurecer[nome] = { ...(e.risco !== undefined ? { risco: e.risco as RiskLevel } : {}), ...(e.escrita !== undefined ? { escrita: e.escrita as boolean } : {}) };
+        return nome;
+      })
+      : [];
     if (!ferramentas.length || ferramentas.length > MAX_FERRAMENTAS || !ferramentas.every((f) => FERRAMENTA.test(f))) {
       throw new Error(`${onde}: ferramentas precisa ser uma lista de 1 a ${MAX_FERRAMENTAS} nomes`);
     }
@@ -101,7 +128,7 @@ export function servidoresMcpDoAmbiente(env: Record<string, string | undefined> 
       }
       cabecalhos = Object.fromEntries(pares as [string, string][]);
     }
-    return { id, nome, url: u.toString(), ...(cabecalhos ? { cabecalhos } : {}), ...(tokenEnv ? { tokenEnv } : {}), ...(oauth ? { oauth } : {}), usuarios: new Set(usuarios), ferramentas: [...new Set(ferramentas)] };
+    return { id, nome, url: u.toString(), ...(cabecalhos ? { cabecalhos } : {}), ...(tokenEnv ? { tokenEnv } : {}), ...(oauth ? { oauth } : {}), usuarios: new Set(usuarios), ferramentas: [...new Set(ferramentas)], ...(Object.keys(endurecer).length ? { endurecer } : {}) };
   });
 }
 
@@ -139,8 +166,16 @@ export function motivoMcp(e: unknown): MotivoMcp {
 
 const limpar = (s: unknown, max: number) => (typeof s === "string" ? s.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, max) : "");
 
+/** Como o servidor anuncia uma ferramenta (tools/list). Tudo dado não confiável. */
+export interface FerramentaAnunciada {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  annotations?: unknown;
+}
+
 export interface ConexaoMcp {
-  listar(): Promise<{ name: string; description?: string; inputSchema?: Record<string, unknown> }[]>;
+  listar(): Promise<FerramentaAnunciada[]>;
   chamar(nome: string, argumentos: Record<string, unknown>): Promise<unknown>;
 }
 
@@ -164,9 +199,63 @@ export function conexaoMcp(s: ServidorMcp, token: () => Promise<string | null>, 
     try { return await fn(c); } finally { await c.close().catch(() => {}); }
   };
   return {
-    listar: () => abrir(async (c) => (await c.listTools()).tools as { name: string; description?: string; inputSchema?: Record<string, unknown> }[]),
+    listar: () => abrir(async (c) => (await c.listTools()).tools as FerramentaAnunciada[]),
     chamar: (nome, argumentos) => abrir((c) => c.callTool({ name: nome, arguments: argumentos })),
   };
+}
+
+/** Das anotações do servidor, só o que é booleano (o resto é ignorado: não confiável). */
+function dicas(a: unknown): NonNullable<FerramentaDescoberta["annotations"]> {
+  if (typeof a !== "object" || a === null || Array.isArray(a)) return {};
+  const o = a as Record<string, unknown>;
+  const out: NonNullable<FerramentaDescoberta["annotations"]> = {};
+  for (const k of ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"] as const) if (typeof o[k] === "boolean") out[k] = o[k] as boolean;
+  return out;
+}
+
+export interface ClassificacaoMcp {
+  risco: RiskLevel;
+  categoria: ToolCategory;
+  motivo: string;
+}
+
+/**
+ * Risco e categoria de uma ferramenta de servidor MCP de terceiro, pelo classificador do gateway
+ * (risco.ts), que não confia em anotação e, na dúvida, sobe. Por cima dele, aqui:
+ *   • a dica do servidor nunca rebaixa o que o NOME entrega (apagar_x com readOnlyHint segue destrutiva);
+ *   • readOnlyHint:false é o servidor dizendo que escreve: vale (sobe para HIGH/WRITE);
+ *   • o dono só endurece: risco = o maior; escrita tira de READ;
+ *   • o que não é leitura nunca fica abaixo de HIGH.
+ * Sem esquema de entrada de objeto, ou se a classificação falhar: null (a ferramenta não é oferecida).
+ */
+export function classificarFerramentaMcp(t: FerramentaAnunciada, dono: Endurecimento = {}): ClassificacaoMcp | null {
+  try {
+    const esquema = t.inputSchema;
+    if (!esquema || typeof esquema !== "object" || Array.isArray(esquema) || esquema.type !== "object") return null;
+    const annotations = dicas(t.annotations);
+    const comDicas = classificar({ name: t.name, annotations });
+    const soNome = classificar({ name: t.name });
+    let risco: RiskLevel = comDicas.nivel;
+    let motivo = comDicas.motivo;
+    // O nome entrega escrita, comunicação ou domínio crítico: a dica de leitura não desfaz.
+    if (riskRank(soNome.nivel) > riskRank(risco) && riskRank(soNome.nivel) >= riskRank("HIGH")) {
+      risco = soNome.nivel;
+      motivo = `${soNome.motivo} (a anotação do servidor não rebaixa)`;
+    }
+    let categoria: ToolCategory = classificarCategoria({ name: t.name, annotations }).categoria;
+    const categoriaDoNome = classificarCategoria({ name: t.name }).categoria;
+    if (categoria === "READ" && categoriaDoNome !== "READ") categoria = categoriaDoNome;
+    if (annotations.readOnlyHint === false) {
+      if (categoria === "READ") categoria = "WRITE";
+      if (riskRank(risco) < riskRank("HIGH")) { risco = "HIGH"; motivo = "o servidor anota readOnlyHint:false (escreve)"; }
+    }
+    if (dono.escrita === true && categoria === "READ") { categoria = "WRITE"; motivo = "o dono marcou escrita"; }
+    if (dono.risco && riskRank(dono.risco) > riskRank(risco)) { risco = dono.risco; motivo = `o dono endureceu para ${dono.risco}`; }
+    if (categoria !== "READ" && riskRank(risco) < riskRank("HIGH")) risco = "HIGH";
+    return { risco, categoria, motivo };
+  } catch {
+    return null;
+  }
 }
 
 /** As ferramentas do servidor que o dono listou E o servidor anuncia, como o laço do agente as quer. */
@@ -175,18 +264,21 @@ export async function itensMcp(s: ServidorMcp, conexao: ConexaoMcp): Promise<Ite
   return s.ferramentas.flatMap((f) => {
     const t = anunciadas.get(f);
     if (!t) return [];
-    const esquema = t.inputSchema && t.inputSchema.type === "object" ? t.inputSchema : { type: "object", properties: {} };
+    const c = classificarFerramentaMcp(t, s.endurecer?.[f]);
+    // Não classificável: na dúvida, não age (Art. 6º).
+    if (!c) return [];
+    const rotulo = c.categoria === "READ" && c.risco === "LOW" ? "só leitura" : `risco ${c.risco}, ${c.categoria}`;
     return [{
       definicao: {
         name: nomeMcpParaModelo(s.id, f),
-        description: `[${s.nome}, só leitura] ${limpar(t.description, MAX_DESCRICAO) || f}`,
-        input_schema: esquema as Record<string, unknown>,
+        description: `[${s.nome}, ${rotulo}] ${limpar(t.description, MAX_DESCRICAO) || f}`,
+        input_schema: t.inputSchema as Record<string, unknown>,
       },
       chave: `${s.id}/${f}`,
       sistema: s.id,
       ferramenta: `${s.id}.${f}`,
-      risco: "LOW" as const,
-      categoria: "READ" as const,
+      risco: c.risco,
+      categoria: c.categoria,
       finalidade: `integracao:${s.id}`,
     }];
   });
