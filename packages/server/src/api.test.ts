@@ -403,6 +403,32 @@ describe("memória e direitos pelo app (Arts. 10 e 13)", () => {
   });
 });
 
+describe("limite de taxa", () => {
+  it("pedir missão para depois do limite; parar o agente nunca espera; a janela passa e volta", async () => {
+    const apiL = criarApi(banco.db, { rpName: "OBEDIENT", rpId: RP_ID, origin: ORIGIN, limites: { missoes: { maximo: 2, janelaMs: H } } }, clock);
+    const u = usuario("lia");
+    const { token } = await cadastrar(u);
+    const pedir = () => apiL(post("/api/acoes", { opId: opId(), tipo: "criar_missao", objetivo: "Resumir a semana" }, token));
+    assert.equal((await pedir()).status, 200);
+    assert.equal((await pedir()).status, 200);
+    const barrado = await pedir();
+    assert.equal(barrado.status, 429);
+    assert.ok(Number(barrado.headers["retry-after"]) > 0);
+    const parar = await apiL(post("/api/acoes", { opId: opId(), tipo: "parar" }, token));
+    assert.equal(parar.status, 200, "o que tira poder do agente nunca é limitado");
+    assert.equal(corpo<{ resultado: { ok: boolean } }>(parar).resultado.ok, true);
+    await apiL(post("/api/acoes", { opId: opId(), tipo: "liberar" }, token));
+    clock.advance(H + 1000);
+    assert.equal((await pedir()).status, 200, "passada a janela, pede de novo");
+  });
+
+  it("entrada e convite: limite global, o mesmo para todos", async () => {
+    const apiL = criarApi(banco.db, { rpName: "OBEDIENT", rpId: RP_ID, origin: ORIGIN, limites: { entrada: { maximo: 3, janelaMs: 60_000 } } }, clock);
+    for (let i = 0; i < 3; i++) assert.equal((await apiL(post("/api/entrar/opcoes", {}))).status, 200);
+    assert.equal((await apiL(post("/api/convite/opcoes", { codigo: "QUALQUER1" }))).status, 429, "convite conta junto com a entrada");
+  });
+});
+
 describe("missões e identificação pelo app (Arts. 5º, 7º e 9º)", () => {
   const acao = (token: string, a: Record<string, unknown>) => api(post("/api/acoes", { opId: opId(), ...a }, token)).then((r) => corpo<{ resultado: { ok: boolean; codigo?: string; mensagem?: string } }>(r).resultado);
   type M = { id: string; objetivo: string; situacao: string; estado: string; impedimento: string | null; desfecho: { tipo: string; explicacao: string } | null; teto: string };
