@@ -9,6 +9,7 @@
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ManualClock } from "@obedient/core";
+import { PRAZO_RESERVA_MS } from "@obedient/missions";
 import { ErroModelo, type PedidoModelo, type RespostaModelo, type ResultadoFerramenta } from "@obedient/agent-orchestrator";
 import { Cofre, Conexoes, concederAoConectar, lerChaves } from "@obedient/integrations";
 import { comoUsuario, gravarIdentificacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
@@ -274,5 +275,140 @@ describe("executor das missões", () => {
     assert.equal(m!.estado, "completed");
     // O log diz o que aconteceu, nunca o conteúdo da missão.
     assert.doesNotMatch(JSON.stringify(eventos), /cachorro|Dante/);
+  });
+});
+
+describe("executor das missões: reinício do processo e aprovações", () => {
+  const aprovar = (c: ReturnType<typeof montar>, u: string, id: string) => c.motor(u, async (mt) => mt.approve(id, { id: u, kind: "user", strongAuth: true }, (await mt.approvals.get(id))!.payloadHash));
+  const apagar = usar("t1", "google_agenda__apagar_evento", { id: "ev1" });
+  const deletes = (c: ReturnType<typeof montar>) => c.google.api.filter((x) => x.metodo === "DELETE").length;
+
+  it("pedido pendente sobrevive ao reinício: aprovado depois, um executor NOVO continua a conversa e apaga uma vez", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    c.google.responderApi = () => ({ status: 204 });
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Apague o compromisso ev1", { maxTentativas: 1 }));
+    const antes = roteiro(0, apagar);
+    const [esperando] = await c.processar(u, antes);
+    assert.equal(esperando!.estado, "waiting_approval");
+    // "Reinício": nada do executor, do modelo nem do roteiro anterior é reaproveitado.
+    const depois = roteiro(
+      0,
+      (p) => {
+        assert.equal(p.messages[0]!.role, "user");
+        assert.match(String(p.messages[0]!.content), /Apague o compromisso ev1/, "a conversa veio do banco");
+        assert.equal(resultados(p)[0]!.tool_use_id, "t1");
+        assert.equal(resultados(p)[0]!.is_error, false);
+        return concluir("feito", "Apaguei.")();
+      },
+      encerrar,
+    );
+    await aprovar(c, u, esperando!.propostaId!);
+    const [fim] = await c.processar(u, depois);
+    assert.deepEqual([fim!.estado, fim!.tentativas, deletes(c)], ["completed", 1, 1]);
+    assert.equal(antes.chamadas(), 1);
+  });
+
+  it("o processo cai no meio da ação aprovada: depois do prazo a missão volta, e a ação reivindicada NÃO roda de novo", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    c.google.responderApi = () => ({ status: 204 });
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Apague o compromisso ev1", { maxTentativas: 2 }));
+    const [esperando] = await c.processar(u, roteiro(0, apagar));
+    await aprovar(c, u, esperando!.propostaId!);
+
+    // O DELETE chega ao Google e a resposta nunca volta: o processo "morre" com a chamada no ar.
+    let chegou!: () => void;
+    const chegouAoGoogle = new Promise<void>((ok) => (chegou = ok));
+    const travado = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        c.google.api.push({ metodo: "DELETE", url: String(url), auth: null, corpo: "" });
+        chegou();
+        return new Promise<Response>(() => {});
+      }
+      return c.google.fetch(url, init);
+    }) as typeof fetch;
+    const morto = roteiro(0);
+    void processarMissoes(banco.db, u, executorDeMissoes({ db: banco.db, conexoes: c.conexoes, novoModelo: morto.novo, centavosPorDolar: 600, clock: c.clock, http: travado }), {}, c.clock);
+    await chegouAoGoogle;
+    assert.equal(deletes(c), 1);
+    const p = await c.motor(u, (mt) => mt.approvals.get(esperando!.propostaId!));
+    assert.equal(p!.status, "executing");
+
+    // Processo novo.
+    const novo = roteiro(
+      0,
+      (pd) => {
+        assert.equal(resultados(pd)[0]!.is_error, true);
+        assert.match(resultados(pd)[0]!.content, /aprovacao_usada_sem_registro/, "o modelo sabe que a ação ficou sem registro");
+        return concluir("nao_sei", "Pedi para apagar, mas não sei se foi apagado. Confira na agenda.")();
+      },
+      encerrar,
+    );
+    assert.deepEqual(await c.processar(u, novo), [], "dentro do prazo, ninguém retoma por cima");
+    assert.equal(novo.chamadas(), 0);
+    c.clock.advance(PRAZO_RESERVA_MS);
+    const [fim] = await c.processar(u, novo);
+    assert.deepEqual([fim!.estado, fim!.desfecho?.tipo, fim!.tentativas], ["completed", "nao_sei", 2]);
+    assert.equal(deletes(c), 1, "a ação aprovada não foi repetida");
+    assert.equal((await c.motor(u, (mt) => mt.approvals.get(p!.id)))?.status, "executing", "fica para reconciliação");
+    const trilha = await c.motor(u, (mt) => mt.audit.forUser(u));
+    assert.ok(trilha.some((e) => e.event === "mission.attempt_interrupted"));
+  });
+
+  it("aprovado, mas vencido, com grant revogado ou com consentimento revogado antes da execução: não apaga", async () => {
+    const casos: [string, (c: ReturnType<typeof montar>, u: string) => Promise<unknown>][] = [
+      ["vencido", async (c) => c.clock.advance(31 * 60_000)],
+      ["grant revogado", (c, u) => c.motor(u, async (mt) => { for (const g of await mt.grants.list(u)) if (!g.revokedAt) await mt.grants.revoke(g.id, u); })],
+      ["consentimento revogado", (c, u) => c.motor(u, (mt) => mt.consent.revokePurpose(u, "integracao:google_agenda"))],
+    ];
+    for (const [nome, depoisDeAprovar] of casos) {
+      const c = montar();
+      const u = usuario();
+      await c.conectar(u, "google_agenda");
+      c.google.responderApi = () => ({ status: 204 });
+      await c.missoes(u, (ms) => ms.criar(u, "obedient", "Apague o compromisso ev1", { maxTentativas: 2 }));
+      const [esperando] = await c.processar(u, roteiro(0, apagar));
+      await aprovar(c, u, esperando!.propostaId!);
+      await depoisDeAprovar(c, u);
+      const r = roteiro(
+        0,
+        (p) => {
+          assert.equal(resultados(p)[0]!.is_error, true, nome);
+          return concluir("nao_consegui", "Não pude apagar.")();
+        },
+        encerrar,
+      );
+      const [fim] = await c.processar(u, r);
+      assert.equal(deletes(c), 0, nome);
+      assert.ok(["blocked", "completed", "failed"].includes(fim!.estado), `${nome}: ${fim!.estado}`);
+      if (nome === "vencido") assert.match(fim!.impedimento!, /venceu/);
+      else assert.equal((await c.motor(u, (mt) => mt.approvals.get(esperando!.propostaId!)))?.status, "approved", `${nome}: não reivindicada`);
+    }
+  });
+
+  it("e-mail aprovado, mas a pessoa trocou a identificação antes da execução: não sai (Art. 5º)", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_gmail");
+    await comoUsuario(banco.db, u, (tx) => gravarIdentificacao(tx, u, "Enviada pelo assistente da Ana", c.clock));
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Mande o resumo para x@exemplo.test", { maxTentativas: 2 }));
+    const [esperando] = await c.processar(u, roteiro(0, usar("t1", "google_gmail__enviar_mensagem", { para: "x@exemplo.test", assunto: "Resumo", texto: "Segue.", identificacao: "Enviada pelo assistente da Ana" })));
+    assert.equal(esperando!.estado, "waiting_approval");
+    await aprovar(c, u, esperando!.propostaId!);
+    await comoUsuario(banco.db, u, (tx) => gravarIdentificacao(tx, u, "Assistente pessoal da Ana", c.clock));
+    const r = roteiro(
+      0,
+      (p) => {
+        assert.equal(resultados(p)[0]!.is_error, true);
+        assert.match(resultados(p)[0]!.content, /IDENTIFICATION_REQUIRED/);
+        return concluir("nao_consegui", "A assinatura mudou; peça de novo.")();
+      },
+      encerrar,
+    );
+    await c.processar(u, r);
+    assert.equal(c.google.api.filter((x) => x.metodo === "POST").length, 0, "nenhum e-mail enviado");
   });
 });

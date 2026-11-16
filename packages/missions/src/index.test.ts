@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ManualClock } from "@obedient/core";
 import { AuditTrail, EthicsEngine, InMemoryAuditSink } from "@obedient/ethics-engine";
-import { type Executor, InMemoryMissionStore, type Missao, Missoes, type ResultadoTentativa, intervaloDepois } from "./index.ts";
+import { type Executor, InMemoryMissionStore, type Missao, Missoes, PRAZO_RESERVA_MS, type ResultadoTentativa, intervaloDepois } from "./index.ts";
 
 const T0 = new Date("2026-11-03T12:00:00Z");
 
@@ -215,5 +215,83 @@ describe("missões: aprovação e parada", () => {
     liberar();
     await Promise.all([a, b]);
     assert.equal(chamadas, 1);
+  });
+});
+
+describe("missões: durabilidade da tentativa (processo que cai no meio)", () => {
+  it("reserva com prazo: o processo cai durante a tentativa e a missão volta a ser devida em até um prazo", async () => {
+    const { clock, missoes, sink } = setup();
+    const m = await missoes.criar("ana", "obedient", "Confirmar a reserva de quinta", { maxTentativas: 3 });
+    const r = await missoes.reservar(m.id);
+    assert.equal(r.reservada, true);
+    // O processo "morre" aqui: ninguém conclui a tentativa.
+    assert.deepEqual(await missoes.devidas("ana"), [], "dentro do prazo, ninguém pega a tentativa em andamento");
+    assert.equal((await missoes.reservar(m.id)).reservada, false, "nem uma segunda reserva por cima");
+    clock.advance(PRAZO_RESERVA_MS - 1);
+    assert.deepEqual(await missoes.devidas("ana"), []);
+    clock.advance(1);
+    assert.deepEqual((await missoes.devidas("ana")).map((x) => x.id), [m.id], "vencido o prazo, a missão não fica órfã");
+    // Outro processo (outra instância, mesmo armazenamento) retoma: é uma tentativa nova, dentro do teto.
+    const r2 = await missoes.reservar(m.id);
+    assert.equal(r2.reservada, true);
+    assert.equal(r2.missao.tentativas, 2);
+    assert.ok(sink.all().some((e) => e.event === "mission.attempt_interrupted"), "a interrupção fica na trilha");
+    // O resultado tardio do processo antigo não se aplica: a versão mudou.
+    const tardio = await missoes.concluir(r.missao, { tipo: "feito", explicacao: "resultado velho", custoCentavos: 1 });
+    assert.deepEqual([tardio.estado, tardio.desfecho], ["running", null]);
+    const fim = await missoes.concluir(r2.missao, { tipo: "feito", explicacao: "pronto", custoCentavos: 1 });
+    assert.deepEqual([fim.estado, fim.desfecho?.explicacao, fim.proximaTentativaEm, fim.reservadaAte], ["completed", "pronto", null, null]);
+  });
+
+  it("tentativa interrompida sem tentativa sobrando: vira impedimento explicado, não estoura o teto", async () => {
+    const { clock, missoes } = setup();
+    const m = await missoes.criar("ana", "obedient", "x", { maxTentativas: 1 });
+    await missoes.reservar(m.id);
+    clock.advance(PRAZO_RESERVA_MS);
+    const exec = roteiro({ tipo: "feito", explicacao: "x", custoCentavos: 1 });
+    const fim = await missoes.avancar(m.id, exec);
+    assert.equal(exec.chamadas, 0);
+    assert.deepEqual([fim.estado, fim.tentativas], ["blocked", 1]);
+    assert.match(fim.impedimento!, /não terminou/);
+    assert.match(fim.impedimento!, /não é repetida/);
+  });
+
+  it("continuação depois da aprovação também tem prazo: um segundo processo não roda a mesma tentativa por cima", async () => {
+    const { clock, motor, missoes } = setup();
+    await motor.grants.grant(
+      { userId: "ana", agentId: "obedient", systemId: "email", capability: "email.*", purpose: "responder e-mails", limits: { maxRisk: "HIGH", autonomousUpTo: "LOW", maxAmount: null, amountField: null }, expiresAt: new Date(T0.getTime() + 3_600_000) },
+      "ana",
+    );
+    const a = await motor.authorize({ userId: "ana", agentId: "obedient", systemId: "email", tool: "email.enviar", risk: "HIGH", category: "WRITE", args: { para: "x@exemplo.org" } });
+    if (a.outcome !== "approval_required") throw new Error("esperava pedido");
+    const m = await missoes.criar("ana", "obedient", "Mandar o resumo", { maxTentativas: 2 });
+    await missoes.avancar(m.id, roteiro({ tipo: "aguardando_aprovacao", propostaId: a.proposal.id, custoCentavos: 0, rodada: { ondeParou: "envio" } }));
+    await motor.approve(a.proposal.id, { id: "ana", kind: "user", strongAuth: false }, a.proposal.payloadHash);
+    const r = await missoes.reservar(m.id);
+    assert.equal(r.reservada, true);
+    assert.equal((await missoes.reservar(m.id)).reservada, false, "antes, a continuação deixava a missão devida na hora");
+    assert.equal((await missoes.get(m.id))?.tentativas, 1);
+    // Cai no meio da continuação: depois do prazo, retoma com a conversa guardada, como tentativa nova.
+    clock.advance(PRAZO_RESERVA_MS);
+    const r2 = await missoes.reservar(m.id);
+    assert.deepEqual([r2.reservada, r2.missao.tentativas, r2.missao.rodada], [true, 2, { ondeParou: "envio" }]);
+  });
+
+  it("dois processos leem a mesma missão: só um grava, o outro recebe conflito e não aplica efeito", async () => {
+    const store = new InMemoryMissionStore();
+    const clock = new ManualClock(T0);
+    const motor = new EthicsEngine({ clock });
+    const a = new Missoes(store, motor, clock);
+    const b = new Missoes(store, motor, clock);
+    const m = await a.criar("ana", "obedient", "x");
+    const lidaA = (await a.get(m.id))!;
+    const lidaB = (await b.get(m.id))!;
+    lidaA.tentativas = 1;
+    lidaA.versao += 1;
+    lidaB.tentativas = 1;
+    lidaB.versao += 1;
+    assert.equal(await store.update(lidaA, m.versao), true);
+    assert.equal(await store.update(lidaB, m.versao), false, "a versão lida já não vale");
+    assert.equal((await a.get(m.id))?.versao, m.versao + 1);
   });
 });

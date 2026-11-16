@@ -5,8 +5,15 @@
 
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PGlite } from "@electric-sql/pglite";
 import { ManualClock } from "@obedient/core";
-import { bancoDeTeste, type BancoDeTeste } from "./banco-de-teste.ts";
+import { PRAZO_RESERVA_MS } from "@obedient/missions";
+import { bancoDeTeste, dePglite, type BancoDeTeste } from "./banco-de-teste.ts";
+import { migrate, migrations } from "./migrate.ts";
+import type { Database } from "./db.ts";
 import { PgMissionStore, apagarMeusDados, comoOperador, comoUsuario, gravarIdentificacao, missoesNaTransacao, motorNaTransacao, pessoasComMissaoDevida, type Executor } from "./index.ts";
 
 const T0 = new Date("2026-11-03T12:00:00Z");
@@ -219,5 +226,113 @@ describe("executor e agendador no banco (Fase 7)", () => {
     await assert.rejects(comoOperador(banco.db, (tx) => tx.query("select objetivo from obedient.missions")), /permission denied/);
     await assert.rejects(comoOperador(banco.db, (tx) => tx.query("select user_id from obedient.missions")), /permission denied/);
     await assert.rejects(comoUsuario(banco.db, ana, (tx) => pessoasComMissaoDevida(tx, clock.now())), /permission denied/);
+  });
+});
+
+describe("durabilidade do executor no banco (processo que cai, reinício)", () => {
+  const nos = <T>(db: Database, u: string, c: ManualClock, fn: (ms: ReturnType<typeof missoesNaTransacao>, m: Motor) => Promise<T>) =>
+    comoUsuario(db, u, (tx) => {
+      const m = motorNaTransacao(tx, { clock: c });
+      return fn(missoesNaTransacao(tx, m, c), m);
+    });
+
+  it("a rodada sobrevive ao reinício do banco e do executor: a conversa e o passo voltam exatamente", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "obedient-restart-"));
+    const c = new ManualClock(T0);
+    const u = usuario("ana");
+    const rodada = { estado: { messages: [{ role: "user", content: "Ver a agenda de amanhã" }, { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "x", input: { de: "2026-11-04" } }] }], passos: 3, repeticoes: { "x:{}": 1 } }, pendente: null };
+    let id: string;
+    {
+      const lite = new PGlite(dir);
+      const db = dePglite(lite);
+      await migrate(db);
+      const m = await nos(db, u, c, (ms) => ms.criar(u, "obedient", "Ver a agenda de amanhã", { maxTentativas: 3 }));
+      id = m.id;
+      const r = await nos(db, u, c, (ms) => ms.reservar(m.id));
+      await nos(db, u, c, (ms) => ms.concluir(r.missao, { tipo: "falha_temporaria", erro: "fora do ar", custoCentavos: 2, rodada }));
+      // E a tentativa seguinte "morre" no meio: reservada, nunca concluída.
+      c.advance(30_000);
+      assert.equal((await nos(db, u, c, (ms) => ms.reservar(m.id))).reservada, true);
+      await lite.close();
+    }
+    {
+      // Processo novo: outro PGlite no mesmo diretório, outro store, outro Missoes. Nada em memória.
+      const lite = new PGlite(dir);
+      const db = dePglite(lite);
+      try {
+        assert.deepEqual(await migrate(db), [], "nada a aplicar: é o mesmo banco");
+        const devidas = () => comoOperador(db, (tx) => pessoasComMissaoDevida(tx, c.now(), 1000));
+        assert.ok(!(await devidas()).includes(u), "dentro do prazo da reserva, ninguém pega");
+        c.advance(PRAZO_RESERVA_MS);
+        assert.ok((await devidas()).includes(u), "vencido o prazo, o agendador acha a missão (no SQL também)");
+        const r = await nos(db, u, c, (ms) => ms.reservar(id));
+        assert.equal(r.reservada, true);
+        assert.deepEqual([r.missao.tentativas, r.missao.rodada, r.missao.custoCentavos], [3, rodada, 2], "a conversa e o passo voltam exatamente");
+        const trilha = await nos(db, u, c, (_ms, m) => m.audit.forUser(u));
+        assert.ok(trilha.some((e) => e.event === "mission.attempt_interrupted"));
+      } finally {
+        await lite.close();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("dois executores leem a mesma reserva: só o commit da versão certa vale; o outro é descartado sem efeito", async () => {
+    const ana = usuario("ana");
+    const m = await missoes(ana, (ms) => ms.criar(ana, "obedient", "x", { maxTentativas: 3 }));
+    const ra = await missoes(ana, (ms) => ms.reservar(m.id));
+    clock.advance(PRAZO_RESERVA_MS);
+    // O executor A demorou além do prazo; o B reservou de novo.
+    const rb = await missoes(ana, (ms) => ms.reservar(m.id));
+    assert.equal(rb.reservada, true);
+    const fa = await missoes(ana, (ms) => ms.concluir(ra.missao, { tipo: "feito", explicacao: "do A", custoCentavos: 7 }));
+    assert.deepEqual([fa.estado, fa.desfecho, fa.custoCentavos], ["running", null, 0], "A recebe conflito: nem desfecho nem custo entram");
+    const fb = await missoes(ana, (ms) => ms.concluir(rb.missao, { tipo: "feito", explicacao: "do B", custoCentavos: 1 }));
+    assert.deepEqual([fb.estado, fb.desfecho?.explicacao, fb.custoCentavos], ["completed", "do B", 1]);
+    // No nível do store: duas cópias da mesma versão, uma grava.
+    const n = await missoes(ana, (ms) => ms.criar(ana, "obedient", "y"));
+    const [x, y] = await missoes(ana, async (_ms, _m, tx) => [(await new PgMissionStore(tx).get(n.id))!, (await new PgMissionStore(tx).get(n.id))!]);
+    for (const k of [x, y]) {
+      k.tentativas = 1;
+      k.versao += 1;
+    }
+    assert.equal(await missoes(ana, (_ms, _m, tx) => new PgMissionStore(tx).update(x!, n.versao)), true);
+    assert.equal(await missoes(ana, (_ms, _m, tx) => new PgMissionStore(tx).update(y!, n.versao)), false);
+  });
+
+  it("o banco recusa missão andando sem hora da próxima tentativa (a órfã de antes)", async () => {
+    const ana = usuario("ana");
+    const m = await missoes(ana, (ms) => ms.criar(ana, "obedient", "x"));
+    await assert.rejects(missoes(ana, (_ms, _m, tx) => tx.query("update obedient.missions set proxima_tentativa_em = null where id = $1", [m.id])), /check constraint/);
+  });
+
+  it("a migration resgata as missões que já estavam órfãs (antes do prazo de reserva)", async () => {
+    const lite = new PGlite();
+    const db = dePglite(lite);
+    try {
+      const todas = migrations();
+      const ate = todas.findIndex((x) => x.name.startsWith("0007_"));
+      assert.ok(ate > 0, "existe a 0007");
+      await db.exec(`create schema if not exists obedient;
+        create table if not exists obedient.schema_migrations (name text primary key, hash text not null, applied_at timestamptz not null default now())`);
+      for (const x of todas.slice(0, ate)) {
+        await db.exec(x.sql);
+        await db.query("insert into obedient.schema_migrations (name, hash) values ($1, $2)", [x.name, x.hash]);
+      }
+      // Como o código antigo deixava: reservada (tentativas contadas, sem próxima tentativa) e o processo caiu.
+      await db.query(
+        `insert into obedient.missions (id, user_id, agente, objetivo, estado, tentativas, max_tentativas, proxima_tentativa_em, custo_centavos, teto_custo_centavos, criada_em, atualizada_em, versao)
+         values ('orfa', 'ana-legado', 'obedient', 'x', 'running', 1, 3, null, 0, 500, $1, $1, 2)`,
+        [T0],
+      );
+      assert.deepEqual(await migrate(db), todas.slice(ate).map((x) => x.name));
+      const { rows } = await db.query<{ proxima_tentativa_em: Date; reservada_ate: Date }>("select proxima_tentativa_em, reservada_ate from obedient.missions where id = 'orfa'");
+      assert.equal(new Date(rows[0]!.proxima_tentativa_em).getTime(), T0.getTime() + PRAZO_RESERVA_MS);
+      assert.equal(new Date(rows[0]!.reservada_ate).getTime(), T0.getTime() + PRAZO_RESERVA_MS, "marcada como reserva vencida: a retomada registra a interrupção");
+      const devidas = await comoOperador(db, (tx) => pessoasComMissaoDevida(tx, new Date(T0.getTime() + PRAZO_RESERVA_MS), 10));
+      assert.deepEqual(devidas, ["ana-legado"]);
+    } finally {
+      await lite.close();
+    }
   });
 });

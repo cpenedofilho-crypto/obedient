@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { ManualClock } from "@obedient/core";
 import { CONSTITUTION_VERSION, ENFORCED_ARTICLES, EthicsEngine, type GrantSpec } from "@obedient/ethics-engine";
 import { InMemoryMemoryStore, Memoria } from "@obedient/memory";
-import { InMemoryMissionStore, Missoes } from "@obedient/missions";
+import { InMemoryMissionStore, Missoes, PRAZO_RESERVA_MS } from "@obedient/missions";
 
 const T0 = new Date("2026-11-02T12:00:00Z");
 const H = 3_600_000;
@@ -199,5 +199,120 @@ describe(`Constituição ${CONSTITUTION_VERSION}, Fase 6`, () => {
     assert.equal(await memoria.esquecer("ana", l.id), true);
     assert.deepEqual(await memoria.listar("ana"), []);
     assert.equal(await memoria.podeTreinarModeloDeTerceiro("ana"), false);
+  });
+});
+
+// ---- Durabilidade (Fase D): a regra vale também entre aprovar e executar, e com o processo caindo ----
+
+describe(`Constituição ${CONSTITUTION_VERSION}, execução aprovada e tentativa interrompida`, () => {
+  const ana = { id: "ana", kind: "user" as const, strongAuth: true };
+
+  it("Art. 4º — revogar o consentimento depois de aprovar ainda impede a execução", async () => {
+    const { engine, grant } = world();
+    await grant();
+    await engine.consent.give("ana", "responder e-mails", "contacts");
+    const contexto = { category: "COMMUNICATION" as const, dataCategories: ["contacts"], purpose: "responder e-mails" };
+    const a = await engine.authorize({ userId: "ana", agentId: "obedient", systemId: "mail", tool: "mail.send", risk: "HIGH", args: { para: "x@exemplo.org" }, ...contexto });
+    if (a.outcome !== "approval_required") throw new Error(`esperava pedido, veio ${a.outcome}`);
+    await engine.approve(a.proposal.id, ana, a.proposal.payloadHash);
+    await engine.consent.revokePurpose("ana", "responder e-mails");
+    let rodou = 0;
+    await assert.rejects(engine.executeApproved(a.proposal.id, a.proposal.payloadHash, async () => rodou++, contexto), /consentimento/);
+    assert.equal(rodou, 0);
+    assert.equal((await engine.approvals.get(a.proposal.id))?.status, "approved", "não reivindicada: nada foi feito");
+  });
+
+  it("Art. 5º — a identificação é conferida de novo na execução aprovada", async () => {
+    const clock = new ManualClock(T0);
+    let identificacao: string | null = "Enviada pelo assistente da Ana";
+    const engine = new EthicsEngine({ clock, identificacaoDe: () => identificacao });
+    await engine.grants.grant(
+      { userId: "ana", agentId: "obedient", systemId: "mail", capability: "mail.*", purpose: "responder e-mails de trabalho", limits: { maxRisk: "HIGH", autonomousUpTo: "LOW", maxAmount: null, amountField: null }, expiresAt: new Date(T0.getTime() + H) },
+      "ana",
+    );
+    const pedir = async () => {
+      const a = await engine.authorize({ userId: "ana", agentId: "obedient", systemId: "mail", tool: "mail.send", risk: "HIGH", category: "COMMUNICATION", args: { para: "x@exemplo.org", identificacao: "Enviada pelo assistente da Ana" } });
+      if (a.outcome !== "approval_required") throw new Error(`esperava pedido, veio ${a.outcome}`);
+      await engine.approve(a.proposal.id, ana, a.proposal.payloadHash);
+      return a.proposal;
+    };
+    const p1 = await pedir();
+    identificacao = "Assistente da Ana (nova assinatura)";
+    // Sem dizer a categoria: a mensagem traz o campo identificacao, e ele é conferido mesmo assim.
+    await assert.rejects(engine.executeApproved(p1.id, p1.payloadHash, async () => "enviado"), /identificação/);
+    identificacao = "Enviada pelo assistente da Ana";
+    const p2 = await pedir();
+    identificacao = null;
+    await assert.rejects(engine.executeApproved(p2.id, p2.payloadHash, async () => "enviado", { category: "COMMUNICATION" }), /identificação/);
+  });
+
+  it("Art. 7º — tentativa interrompida (o processo caiu) volta em no máximo um prazo, dentro do teto", async () => {
+    const clock = new ManualClock(T0);
+    const engine = new EthicsEngine({ clock });
+    const store = new InMemoryMissionStore();
+    const m = await new Missoes(store, engine, clock).criar("ana", "obedient", "x", { maxTentativas: 2 });
+    assert.equal((await new Missoes(store, engine, clock).reservar(m.id)).reservada, true);
+    // Outro processo, depois do restart.
+    const depois = new Missoes(store, engine, clock);
+    assert.equal((await depois.devidas("ana")).length, 0);
+    clock.advance(PRAZO_RESERVA_MS);
+    assert.equal((await depois.devidas("ana")).length, 1, "não fica órfã");
+    const r = await depois.reservar(m.id);
+    assert.equal(r.reservada && r.missao.tentativas, 2);
+    clock.advance(PRAZO_RESERVA_MS);
+    const fim = await depois.avancar(m.id, async () => ({ tipo: "feito", explicacao: "x", custoCentavos: 0 }));
+    assert.equal(fim.estado, "blocked", "interrompida de novo, sem tentativa sobrando: impedimento, nunca laço");
+    assert.equal(fim.tentativas, 2);
+  });
+});
+
+// ---- Art. 11: toda ação registra o grant que a autorizou; sem grant rastreável, não executa ----
+
+describe(`Constituição ${CONSTITUTION_VERSION}, responsabilidade (Art. 11)`, () => {
+  const ana = { id: "ana", kind: "user" as const, strongAuth: true };
+  /** Entrada de AÇÃO (ferramenta num sistema) que deixou ou fez algo acontecer. */
+  const acaoQueAconteceu = (e: { tool?: string; outcome: string }) => e.tool !== undefined && (e.outcome === "allowed" || e.outcome === "executed");
+
+  it("Art. 11 — toda ação permitida ou executada registra o grant que a autorizou, inclusive a aprovada", async () => {
+    const { engine, grant, ask } = world();
+    const g = await grant();
+    assert.equal((await ask("mail.list", "LOW", "READ")).outcome, "allowed");
+    const a = await ask("mail.send", "HIGH", "COMMUNICATION");
+    if (a.outcome !== "approval_required") throw new Error(`esperava pedido, veio ${a.outcome}`);
+    assert.equal(a.proposal.grantId, g.id, "o pedido carrega o grant");
+    await engine.approve(a.proposal.id, ana, a.proposal.payloadHash);
+    assert.equal(await engine.executeApproved(a.proposal.id, a.proposal.payloadHash, async () => "enviado"), "enviado");
+    // Reivindicação em duas etapas (o caminho do servidor): também com o grant.
+    const b = await ask("mail.archive", "HIGH", "WRITE");
+    if (b.outcome !== "approval_required") throw new Error(`esperava pedido, veio ${b.outcome}`);
+    await engine.approve(b.proposal.id, ana, b.proposal.payloadHash);
+    await engine.claimApproved(b.proposal.id, b.proposal.payloadHash);
+    await engine.completeApproved(b.proposal.id, b.proposal.payloadHash, true);
+
+    const acoes = (await engine.audit.forUser("ana")).filter(acaoQueAconteceu);
+    assert.deepEqual(acoes.map((e) => `${e.event}:${e.outcome}`), ["action.authorize:allowed", "proposal.execute:executed", "proposal.execute:executed"]);
+    for (const e of acoes) assert.equal(e.grantId, g.id, `${e.event} sem o grant que a autorizou`);
+  });
+
+  it("Art. 11 — pedido sem grant rastreável não executa, mesmo aprovado pela pessoa", async () => {
+    const { engine } = world();
+    // Uma proposta gravada sem grant (por um caminho que não o authorize): a pessoa aprova, mas não há
+    // de quem é a autoridade. Não executa, e a recusa fica na trilha.
+    const p = await engine.approvals.propose({
+      userId: "ana",
+      requestedBy: "agent:obedient",
+      payload: { systemId: "mail", tool: "mail.send", args: { para: "x@exemplo.org" } },
+      decision: { effect: "require_approval", source: "default", policyId: null, reason: "teste", matched: [], effectiveRisk: "HIGH", approver: "user" },
+      grantId: null,
+    });
+    await engine.approve(p.id, ana, p.payloadHash);
+    let rodou = 0;
+    await assert.rejects(engine.executeApproved(p.id, p.payloadHash, async () => rodou++), /grant/);
+    await assert.rejects(engine.claimApproved(p.id, p.payloadHash), /grant/);
+    assert.equal(rodou, 0);
+    assert.equal((await engine.approvals.get(p.id))?.status, "approved", "não reivindicada: nada foi feito");
+    const trilha = await engine.audit.forUser("ana");
+    assert.ok(!trilha.some(acaoQueAconteceu), "nenhuma ação sem grant aparece como permitida ou executada");
+    assert.ok(trilha.some((e) => e.event === "proposal.execute" && e.outcome === "denied"));
   });
 });

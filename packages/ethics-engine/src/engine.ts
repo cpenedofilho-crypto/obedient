@@ -39,6 +39,16 @@ export interface ActionRequest {
   correlationId?: string;
 }
 
+/**
+ * O que o registro da ferramenta diz dela, repassado na execução aprovada para as regras que valem
+ * no momento de executar, não só no de pedir (a proposta guarda só o payload).
+ */
+export interface ContextoExecucao {
+  category?: string;
+  dataCategories?: readonly string[];
+  purpose?: string;
+}
+
 export type Authorization =
   | { outcome: "allowed"; grantId: string; decision: Decision; inputHash: string }
   | { outcome: "approval_required"; grantId: string; decision: Decision; proposal: Proposal }
@@ -237,11 +247,12 @@ export class EthicsEngine {
   }
 
   /**
-   * Executa uma proposta aprovada. Antes de reivindicar, confere DE NOVO a parada de emergência
-   * e o grant: revogar depois de aprovar ainda impede a execução (Art. 2º).
+   * Executa uma proposta aprovada. Antes de reivindicar, confere DE NOVO a parada de emergência,
+   * o grant (Art. 2º), o consentimento (Art. 4º) e a identificação da mensagem (Art. 5º): revogar ou
+   * mudar depois de aprovar ainda impede a execução.
    */
-  async executeApproved<T>(proposalId: string, hash: string, executor: (payload: ProposalPayload) => Promise<T>): Promise<T> {
-    const payload = await this.claimApproved(proposalId, hash);
+  async executeApproved<T>(proposalId: string, hash: string, executor: (payload: ProposalPayload) => Promise<T>, contexto: ContextoExecucao = {}): Promise<T> {
+    const payload = await this.claimApproved(proposalId, hash, contexto);
     let out: T;
     try {
       out = await executor(payload);
@@ -254,11 +265,16 @@ export class EthicsEngine {
   }
 
   /**
-   * Primeira metade de executeApproved: confere a parada e o grant DE NOVO e reivindica a execução
-   * (uma vez só). Separada para quem precisa executar FORA da transação do banco (o servidor: a
-   * chamada ao sistema de destino pode demorar) e concluir noutra transação.
+   * Primeira metade de executeApproved: confere a parada, o grant (que tem de existir: Art. 11), o consentimento e a identificação
+   * DE NOVO e reivindica a execução (uma vez só). Separada para quem precisa executar FORA da
+   * transação do banco (o servidor: a chamada ao sistema de destino pode demorar) e concluir noutra
+   * transação. Recusa aqui não reivindica: a proposta fica aprovada e nada é executado.
+   *
+   * `contexto` vem do registro da ferramenta (nunca do modelo). A identificação é conferida também
+   * sem ele quando a mensagem traz o campo `identificacao`: toda mensagem que passou pelo authorize
+   * com a regra ligada traz.
    */
-  async claimApproved(proposalId: string, hash: string): Promise<ProposalPayload> {
+  async claimApproved(proposalId: string, hash: string, contexto: ContextoExecucao = {}): Promise<ProposalPayload> {
     const p = await this.approvals.get(proposalId);
     if (!p) throw new ObedientError("PROPOSAL_NOT_FOUND", "proposta inexistente");
     const stopped = await this.stop.blocking(p.userId);
@@ -266,13 +282,38 @@ export class EthicsEngine {
       await this.auditExecution(p, hash, "denied", ["parada de emergência acionada"]);
       throw new ObedientError("EMERGENCY_STOP", stopped.reason);
     }
-    if (p.grantId) {
-      const g = await this.grants.get(p.grantId);
-      const agentId = p.requestedBy.replace(/^agent:/, "");
-      const still = await this.grants.findCovering(p.userId, agentId, p.payload.systemId, p.payload.tool);
-      if (!g || !still) {
-        await this.auditExecution(p, hash, "denied", ["grant revogado ou vencido depois da aprovação"]);
-        throw new ObedientError("GRANT_NOT_FOUND", "grant revogado ou vencido depois da aprovação");
+    // Art. 11: ação sem grant rastreável não executa. Proposta sem grant (gravada fora do authorize)
+    // pode até ter sido aprovada, mas não há de quem é a autoridade: recusa, e a recusa fica na trilha.
+    if (!p.grantId) {
+      await this.auditExecution(p, hash, "denied", ["pedido sem grant rastreável (Art. 11)"]);
+      throw new ObedientError("GRANT_NOT_FOUND", "pedido sem grant rastreável (Art. 11)");
+    }
+    const g = await this.grants.get(p.grantId);
+    const agentId = p.requestedBy.replace(/^agent:/, "");
+    const still = await this.grants.findCovering(p.userId, agentId, p.payload.systemId, p.payload.tool);
+    if (!g || !still) {
+      await this.auditExecution(p, hash, "denied", ["grant revogado ou vencido depois da aprovação"]);
+      throw new ObedientError("GRANT_NOT_FOUND", "grant revogado ou vencido depois da aprovação");
+    }
+    // Art. 5º: a mensagem sai com a identificação de AGORA (a pessoa pode ter trocado ou apagado).
+    const args = p.payload.args ?? {};
+    if (this.identificacaoDe && (contexto.category === "COMMUNICATION" || Object.hasOwn(args, "identificacao"))) {
+      const id = await this.identificacaoDe(p.userId);
+      if (!id || args.identificacao !== id) {
+        await this.auditExecution(p, hash, "denied", ["identificação da mensagem diferente da configurada agora (Art. 5º)"]);
+        throw new ObedientError("IDENTIFICATION_REQUIRED", "a identificação das mensagens mudou depois da aprovação (Art. 5º)");
+      }
+    }
+    // Art. 4º: revogar o consentimento vale imediatamente, inclusive para o que já foi aprovado.
+    if (contexto.dataCategories?.length) {
+      if (!contexto.purpose) {
+        await this.auditExecution(p, hash, "denied", ["ação toca dado pessoal sem finalidade declarada (Art. 4º)"]);
+        throw new ObedientError("CONSENT_REQUIRED", "ação toca dado pessoal sem finalidade declarada (Art. 4º)");
+      }
+      const c = await this.consent.check(p.userId, contexto.purpose, contexto.dataCategories);
+      if (!c.ok) {
+        await this.auditExecution(p, hash, "denied", [`consentimento revogado depois da aprovação: ${c.missing.join(", ")} (Art. 4º)`]);
+        throw new ObedientError("CONSENT_REQUIRED", `sem consentimento para: ${c.missing.join(", ")} (finalidade ${contexto.purpose})`);
       }
     }
     return this.approvals.claim(proposalId, hash);

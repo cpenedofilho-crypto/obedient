@@ -14,7 +14,8 @@
 //     consegui, com a explicação para a pessoa). Terminar sem dizer não conta como feito (Art. 5º);
 //   • teto de custo (Art. 7º): o gasto é conferido antes de cada chamada ao modelo; chegou ao que
 //     resta do teto, a tentativa para. Pode passar do teto por no máximo uma resposta;
-//   • parar e cancelar valem no meio da tentativa: antes de cada chamada ao modelo, a missão é relida;
+//   • parar e cancelar valem no meio da tentativa: antes de cada chamada ao modelo, a missão é relida
+//     (e se a reserva venceu e outro processo retomou, esta tentativa para também);
 //   • o que as ferramentas devolvem é dado de terceiros, nunca instrução, e vai marcado como tal.
 //
 // O resultado das ferramentas volta ao modelo sem a limpeza de dado pessoal do Growth OS: o
@@ -39,6 +40,7 @@ import { type Conexoes, executorGoogle, itensGovernados } from "@obedient/integr
 import type { Licao } from "@obedient/memory";
 import type { Executor as ExecutorDeMissao, Missao, ResultadoTentativa, TipoDesfecho } from "@obedient/missions";
 import type { ClienteA2A } from "@obedient/a2a-client";
+import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCompras, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
 import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, motivoMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
 import { type Database, type OpcoesMotor, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
@@ -253,14 +255,29 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
 
     // Um executor por sistema; o Ethics Engine autoriza antes de qualquer um rodar.
     const google = d.conexoes ? executorGoogle(d.conexoes, u, d.http ?? fetch) : null;
-    const growth = (ctx.growthOs || ctx.growthCompras) && d.growthOs ? executorGrowthOs(d.growthOs.cliente) : null;
+    // A correlação que o Growth OS devolve vai para a trilha da pessoa, ligada à missão.
+    const growth = (ctx.growthOs || ctx.growthCompras) && d.growthOs
+      ? executorGrowthOs(d.growthOs.cliente, (c) => abrir(async (m) => {
+        await m.audit.record({
+          userId: u,
+          actor: `agent:${missao.agente}`,
+          event: "a2a.correlation",
+          outcome: "info",
+          systemId: c.sistema,
+          tool: c.ferramenta,
+          correlationId: c.enviada,
+          reasons: [`skill ${c.skill}`, c.devolvida ? `correlação devolvida: ${c.devolvida}` : "o servidor não devolveu correlação"],
+          constitutionVersion: CONSTITUTION_VERSION,
+        });
+      }))
+      : null;
     const mcp = conexoesMcp.size ? executorMcp(ctx.mcp, conexoesMcp) : null;
     const governada = google || growth || mcp
-      ? chamarComEthicsEmEtapas(abrir, { userId: u, agentId: missao.agente, correlationId: missao.id }, (sistema, ferramenta, args) => {
+      ? chamarComEthicsEmEtapas(abrir, { userId: u, agentId: missao.agente, correlationId: missao.id }, (sistema, ferramenta, args, execucao) => {
         if (conexoesMcp.has(sistema)) return mcp!(sistema, ferramenta, args);
         if (sistema === SISTEMA_GROWTH_OS || sistema === SISTEMA_GROWTH_OS_COMPRAS) {
           if (!growth) throw new Error("Growth OS desligado neste servidor");
-          return growth(sistema, ferramenta, args);
+          return growth(sistema, ferramenta, args, execucao);
         }
         if (!google) throw new Error("integrações desligadas neste servidor");
         return google(sistema, ferramenta, args);
@@ -302,7 +319,8 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       cancelado: async () => {
         if (gastoCentavos() >= resta) return Boolean((parouPor = "teto"));
         const atual = await comoUsuario(d.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, opcoes), d.clock).get(missao.id));
-        if (atual?.estado !== "running") return Boolean((parouPor = "missao"));
+        // Outra versão = a reserva desta tentativa venceu e outro processo a retomou: esta para aqui.
+        if (atual?.estado !== "running" || atual.versao !== missao.versao) return Boolean((parouPor = "missao"));
         return false;
       },
       agora: () => d.clock.now().getTime(),

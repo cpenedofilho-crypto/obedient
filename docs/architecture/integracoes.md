@@ -191,6 +191,7 @@ O Growth OS é o servidor A2A da casa. O OBEDIENT fala com ele como cliente, pel
 **O que as ferramentas fazem:** `growth_os.resumo_operacional` e `growth_os.catalogo_marketplace` são só leitura.
 - O executor escolhe a skill pela ferramenta autorizada. O que o modelo põe nos argumentos não chega ao Growth OS.
 - Volta ao modelo só o estado e as partes `data`, como `conteudo_externo`. Texto livre do servidor não volta.
+- **Correlação (16/11/2026):** todo pedido leva o id da missão em `message.metadata.correlation_id` e no cabeçalho `x-correlation-id`, no formato que o Growth OS aceita (`^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$`; fora dele, o cliente saneia ou gera um). Nunca vem do argumento do modelo. A correlação que o Growth OS devolve em `task.metadata.correlationId` (só lida se no formato) vai para a trilha da pessoa como `a2a.correlation`, com o mesmo `correlationId` da autorização: os dois lados se ligam numa auditoria.
 
 **Comprar no marketplace do Growth OS (12/11/2026)** é um sistema à parte para o Ethics Engine, `growth_os_compras`, para o grant de leitura nunca cobrir uma ação que gasta. O pagamento lá é simulado (carteiras contábeis), mas a regra aqui é a de dinheiro.
 - O ato é outro: `cli.ts growth-os conceder-compras <usuario> <teto_em_micro_unidades>` (e `retirar-compras`). Só para quem está em `OBEDIENT_GROWTH_OS_USUARIOS`.
@@ -224,12 +225,14 @@ O OBEDIENT conversa com qualquer servidor MCP que fale Streamable HTTP, como o M
   - só é oferecido o que o dono listou **e** o servidor anuncia em `tools/list`;
   - ferramenta nova no servidor não aparece sozinha;
   - do servidor vem só o esquema de entrada e uma descrição cortada em 400 caracteres;
-  - chamar uma ferramenta fora da lista é recusado antes de chegar à rede.
+  - chamar uma ferramenta fora da lista é recusado antes de chegar à rede;
+  - uma entrada pode ser `{"nome":"…","risco":"HIGH","escrita":true}` para o dono **endurecer** a ferramenta (subir o risco, marcar escrita). Nunca rebaixa: `"risco":"LOW"` numa ferramenta que o classificador subiu não muda nada.
+- **Risco de cada ferramenta (16/11/2026):** sai do classificador do gateway (`integration-gateway/src/risco.ts`), pelo nome, pelo esquema e pelas anotações do servidor, que são dado não confiável (só booleano conta). A dica do servidor nunca rebaixa o que o nome entrega (`apagar_lead` com `readOnlyHint` segue destrutiva); `destructiveHint` e `readOnlyHint:false` sobem. Só leitura confirmada (verbo de leitura **e** `readOnlyHint:true`) fica LOW. Ferramenta sem esquema de entrada de objeto não é oferecida. Antes, toda ferramenta listada entrava como LOW/READ.
 - **Configuração inválida:** o servidor não sobe.
 
 **Autoridade:**
 - Só as pessoas em `usuarios` podem receber a autoridade, e só depois de um ato explícito: `cli.ts mcp conceder <servidor> <usuario>`.
-- O ato cria um grant `<id>.*`, que vale **só para leitura de risco baixo** e por 30 dias.
+- O ato cria um grant `<id>.*`, que vale **só para risco baixo** e por 30 dias: o que o classificador pôs acima de LOW (leitura sem `readOnlyHint`, escrita, comunicação, destrutiva) é negado pelo Ethics Engine antes da rede, com o motivo na trilha.
 - O grant aparece no app e pode ser tirado lá ou com `cli.ts mcp retirar <servidor> <usuario>`.
 - Sem grant vigente, as ferramentas do servidor nem são oferecidas.
 - Escrita fica para uma fase seguinte, com aprovação.

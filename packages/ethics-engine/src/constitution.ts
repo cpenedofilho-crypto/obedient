@@ -20,6 +20,7 @@ export const ENFORCED_ARTICLES = {
   art8: "Transparência: trilha append-only encadeada por hash",
   art9: "Direito de interrupção: parada de emergência conferida antes de cada ferramenta",
   art10: "Aprendizado responsável: opt-in por categoria; toda lição visível e apagável; treino de terceiro só com consentimento separado",
+  art11: "Responsabilidade: toda ação permitida ou executada registra o grant que a autorizou; sem grant rastreável, não executa",
   art12: "Governança dos agentes: quem pede não aprova; agente não aprova",
   art13: "Direitos dos usuários: exportar em formato aberto, apagar num passo, contestar ação",
 } as const;

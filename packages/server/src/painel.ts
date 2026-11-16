@@ -293,6 +293,8 @@ export function textoDaAtividade(e: AuditEntry): Pick<ItemAtividade, "texto" | "
       return { texto: "Você mandou a missão tentar de novo", tom: "neutro" };
     case "mission.result_discarded:info":
       return { texto: "Um resultado chegou depois de a missão ser encerrada e foi descartado", tom: "neutro" };
+    case "a2a.correlation:info":
+      return { texto: `${quem} pediu dados ao Growth OS (o pedido ficou ligado à missão)`, tom: "neutro" };
     case "connection.added:info":
       return { texto: `Você conectou ${nomeDaIntegracao(e.systemId)}`, tom: "bom" };
     case "connection.removed:revoked":

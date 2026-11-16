@@ -20,6 +20,7 @@ interface LinhaMissao {
   tentativas: number;
   max_tentativas: number;
   proxima_tentativa_em: unknown;
+  reservada_ate: unknown;
   custo_centavos: number;
   teto_custo_centavos: number;
   proposta_id: string | null;
@@ -44,6 +45,7 @@ const paraMissao = (r: LinhaMissao): Missao => ({
   tentativas: r.tentativas,
   maxTentativas: r.max_tentativas,
   proximaTentativaEm: data(r.proxima_tentativa_em),
+  reservadaAte: data(r.reservada_ate),
   custoCentavos: r.custo_centavos,
   tetoCustoCentavos: r.teto_custo_centavos,
   propostaId: r.proposta_id,
@@ -58,10 +60,10 @@ export class PgMissionStore implements MissionStore {
   async insert(m: Missao): Promise<void> {
     await this.tx.query(
       `insert into obedient.missions (id, user_id, agente, objetivo, estado, impedimento, desfecho_tipo, desfecho_explicacao, tentativas, max_tentativas,
-         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18)`,
+         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao, reservada_ate)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19)`,
       [m.id, m.userId, m.agente, m.objetivo, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas, m.maxTentativas,
-        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, json(m.rodada), m.criadaEm, m.atualizadaEm, m.versao],
+        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, json(m.rodada), m.criadaEm, m.atualizadaEm, m.versao, m.reservadaAte],
     );
   }
   async get(id: string): Promise<Missao | undefined> {
@@ -77,10 +79,10 @@ export class PgMissionStore implements MissionStore {
     const { rows } = await this.tx.query(
       `update obedient.missions set estado = $3, impedimento = $4, desfecho_tipo = $5, desfecho_explicacao = $6, tentativas = $7,
          proxima_tentativa_em = $8, custo_centavos = $9, teto_custo_centavos = $10, proposta_id = $11, atualizada_em = $12, versao = $13,
-         rodada = $14::jsonb
+         rodada = $14::jsonb, reservada_ate = $15
        where id = $1 and versao = $2 returning id`,
       [m.id, versaoLida, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas,
-        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao, json(m.rodada)],
+        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao, json(m.rodada), m.reservadaAte],
     );
     return rows.length > 0;
   }
