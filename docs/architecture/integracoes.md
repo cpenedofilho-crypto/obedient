@@ -97,7 +97,7 @@ visíveis e revogáveis no app:
 **Desconectar, parar e apagar retiram os dois.** Com isso:
 
 - ler a agenda roda sozinho;
-- criar compromisso roda sozinho (risco médio, padrão do sistema);
+- criar compromisso pede aprovação (risco médio: desde 16/11/2026 o padrão do sistema pede a pessoa, e o grant do Google dá autonomia só até risco baixo);
 - mandar e-mail pede aprovação;
 - apagar compromisso pede passkey.
 

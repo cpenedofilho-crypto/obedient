@@ -233,7 +233,7 @@ export function executorGrowthOs(cliente: ClienteA2A, registrar?: (c: Correlacao
  * Concede à pessoa a autoridade do agente no Growth OS (ato explícito do dono do servidor, pela linha de
  * comando). Só para quem está em OBEDIENT_GROWTH_OS_USUARIOS. Conceder de novo substitui a anterior.
  */
-export async function concederGrowthOs(motor: EthicsEngine, cfg: ConfigGrowthOs, userId: string, agora: Date): Promise<void> {
+export async function concederGrowthOs(motor: EthicsEngine, cfg: ConfigGrowthOs, userId: string, agora: Date, concedidoPor: string = userId): Promise<void> {
   if (!cfg.usuarios.has(userId)) throw new Error("essa pessoa não está em OBEDIENT_GROWTH_OS_USUARIOS");
   await retirarGrowthOs(motor, userId);
   await motor.grants.grant(
@@ -246,7 +246,7 @@ export async function concederGrowthOs(motor: EthicsEngine, cfg: ConfigGrowthOs,
       limits: { maxRisk: "LOW", autonomousUpTo: "LOW", maxAmount: null, amountField: null },
       expiresAt: new Date(agora.getTime() + PRAZO_DO_GRANT_MS),
     },
-    userId,
+    concedidoPor,
   );
 }
 
@@ -265,7 +265,7 @@ export async function temGrowthOs(motor: EthicsEngine, userId: string, agora: Da
  * OBEDIENT_GROWTH_OS_USUARIOS. Nenhuma compra é autônoma: a categoria FINANCIAL sempre pede a
  * aprovação da pessoa. Conceder de novo substitui a anterior.
  */
-export async function concederComprasGrowthOs(motor: EthicsEngine, cfg: ConfigGrowthOs, userId: string, tetoMicros: number, agora: Date): Promise<void> {
+export async function concederComprasGrowthOs(motor: EthicsEngine, cfg: ConfigGrowthOs, userId: string, tetoMicros: number, agora: Date, concedidoPor: string = userId): Promise<void> {
   if (!cfg.usuarios.has(userId)) throw new Error("essa pessoa não está em OBEDIENT_GROWTH_OS_USUARIOS");
   if (!Number.isInteger(tetoMicros) || tetoMicros < 1 || tetoMicros > TETO_MAXIMO_MICROS) throw new Error(`teto por compra tem de ser inteiro entre 1 e ${TETO_MAXIMO_MICROS} micro-unidades`);
   await retirarComprasGrowthOs(motor, userId);
@@ -279,7 +279,7 @@ export async function concederComprasGrowthOs(motor: EthicsEngine, cfg: ConfigGr
       limits: { maxRisk: "CRITICAL", autonomousUpTo: null, maxAmount: tetoMicros, amountField: CAMPO_DO_VALOR },
       expiresAt: new Date(agora.getTime() + PRAZO_DO_GRANT_MS),
     },
-    userId,
+    concedidoPor,
   );
 }
 

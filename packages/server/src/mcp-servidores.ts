@@ -303,7 +303,7 @@ export function executorMcp(servidores: readonly ServidorMcp[], conexoes: Readon
   };
 }
 
-export async function concederMcp(motor: EthicsEngine, s: ServidorMcp, userId: string, agora: Date): Promise<void> {
+export async function concederMcp(motor: EthicsEngine, s: ServidorMcp, userId: string, agora: Date, concedidoPor: string = userId): Promise<void> {
   if (!s.usuarios.has(userId)) throw new Error(`essa pessoa não está em usuarios do servidor ${s.id}`);
   await retirarMcp(motor, s.id, userId);
   await motor.grants.grant(
@@ -316,7 +316,7 @@ export async function concederMcp(motor: EthicsEngine, s: ServidorMcp, userId: s
       limits: { maxRisk: "LOW", autonomousUpTo: "LOW", maxAmount: null, amountField: null },
       expiresAt: new Date(agora.getTime() + PRAZO_DO_GRANT_MS),
     },
-    userId,
+    concedidoPor,
   );
 }
 

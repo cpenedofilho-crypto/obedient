@@ -178,10 +178,17 @@ describe("autonomia só restringe (ligação com o Policy Engine do OBEDIENT)", 
       for (const categoria of CATEGORIAS)
         for (const nivel of [0, 1, 2, 3, 4] as NivelAutonomia[]) {
           const aut = decidirAutonomia(nivel, ferramenta(risco, categoria));
+          // O nível de autonomia corresponde ao grant que o dá: a partir do 2, autonomia até MEDIUM
+          // (`autonomousUpTo` do grant vira política allow_autonomous no Ethics Engine).
+          const ate = nivel >= 2 ? (["LOW", "MEDIUM"] as const) : nivel === 1 ? (["LOW"] as const) : null;
           const pol = decide({
             systemId: "s", tool: "t", risk: risco, ...(categoria ? { category: categoria } : {}),
             principal: { kind: "agent", id: "a", role: null }, args: {}, context: {},
-          }, []);
+          }, ate ? [{
+            id: "grant:autonomia", effect: "allow_autonomous", systemId: null, toolPattern: "*", principalId: "*",
+            riskLevels: [...ate], eventTypes: null, entityTypes: null, roles: null, contextMatch: null,
+            amountField: null, amountAbove: null, expiresAt: null, active: true,
+          }] : []);
           assert.ok(
             liberdadeAutonomia[aut] <= liberdadePolitica[pol.effect],
             `${risco}/${categoria}/nível ${nivel}: autonomia ${aut} × política ${pol.effect}`,

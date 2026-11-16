@@ -23,6 +23,7 @@ import { exportarDados } from "./exportar.ts";
 import { aplicarAcao, lerAcao } from "./acoes.ts";
 import { montarPainel } from "./painel.ts";
 import { type ConfigPasskey, Passkeys } from "./passkeys.ts";
+import { ACOES_QUE_GASTAM, ACOES_SEM_LIMITE, LIMITES_PADRAO, LimiteDeTaxa, type Limites } from "./limite.ts";
 
 export const COOKIE = "__Host-obedient";
 export const MAX_CORPO = 64 * 1024;
@@ -46,6 +47,8 @@ export interface ConfigApi extends ConfigPasskey {
   google?: { cliente: ClienteOAuth; cofre: Cofre; fetch?: typeof fetch };
   /** Servidores MCP que a pessoa conecta com a conta dela (mcp-oauth.ts). */
   mcp?: { conexoes: ConexoesMcp; servidores: readonly ServidorMcp[] };
+  /** Limites de taxa (limite.ts). Ausente: os padrões. */
+  limites?: Partial<Limites>;
 }
 
 export const COOKIE_OAUTH = "__Host-obedient-oauth";
@@ -57,6 +60,7 @@ const json = (status: number, dados: unknown, extra: Record<string, string> = {}
 });
 
 const erro = (status: number, codigo: string, mensagem: string) => json(status, { erro: codigo, mensagem });
+const devagar = (tentarEmS: number) => ({ ...erro(429, "devagar", "muitos pedidos seguidos; espere um pouco e tente de novo"), headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "retry-after": String(tentarEmS) } });
 
 export function lerCookie(header: string | undefined, nome: string): string | null {
   if (!header) return null;
@@ -81,6 +85,9 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
     if (cfg.mcp) void cfg.mcp.conexoes.descartarRevogacoes(userId).catch((e) => console.error(JSON.stringify({ evento: "conexoes.mcp_descartar_falhou", erro: e instanceof Error ? e.name : "erro" })));
   };
   const idsMcp = (cfg.mcp?.servidores ?? []).filter((s) => s.oauth).map((s) => s.id);
+  const limite = new LimiteDeTaxa(clock);
+  const limites: Limites = { ...LIMITES_PADRAO, ...cfg.limites };
+  const ROTAS_DE_ENTRADA = new Set(["/api/convite/opcoes", "/api/convite/concluir", "/api/entrar/opcoes", "/api/entrar"]);
   // O servidor exige a identificação nas mensagens em nome da pessoa (Art. 5º).
   const opcoesMotor: OpcoesMotor = { ...cfg.motor, clock, exigirIdentificacao: true };
 
@@ -106,6 +113,10 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
   async function rota(p: Pedido): Promise<Resposta> {
     const [caminho] = p.path.split("?");
     if (p.method === "POST" && !origemOk(p)) return erro(403, "origem", "pedido fora do app");
+    if (p.method === "POST" && ROTAS_DE_ENTRADA.has(caminho ?? "")) {
+      const l = limite.tentar("entrada", limites.entrada);
+      if (!l.ok) return devagar(l.tentarEmS);
+    }
 
     // -------------------------------------------------------------- entrada (sem sessão)
     if (p.method === "POST" && caminho === "/api/convite/opcoes") {
@@ -203,6 +214,15 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
     if (p.method === "POST" && caminho === "/api/acoes") {
       const acao = lerAcao(comCorpo(p), idsMcp);
       if (Array.isArray(acao)) return erro(400, "acao", acao.join("; "));
+      // O que só tira poder do agente (parar, revogar, apagar…) nunca espera limite.
+      if (!ACOES_SEM_LIMITE.has(acao.tipo)) {
+        const geral = limite.tentar(`acoes:${s.userId}`, limites.acoes);
+        if (!geral.ok) return devagar(geral.tentarEmS);
+        if (ACOES_QUE_GASTAM.has(acao.tipo)) {
+          const gasto = limite.tentar(`missoes:${s.userId}`, limites.missoes);
+          if (!gasto.ok) return devagar(gasto.tentarEmS);
+        }
+      }
       try {
         const r = await comoUsuario(db, s.userId, (tx) => aplicarAcao(contexto(tx, opcoesMotor, clock), s, acao));
         // Parar, apagar e desconectar põem credenciais na fila; a revogação no Google vem agora, fora da transação.

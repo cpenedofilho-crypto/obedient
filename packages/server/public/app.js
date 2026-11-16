@@ -388,6 +388,7 @@ function autorizacao(a, op) {
     `nunca acima de risco ${a.riscoMaximo}`,
     a.limiteDeValor !== null ? `até ${a.limiteDeValor.toLocaleString("pt-BR")}` : null,
     `vale até ${new Date(a.venceEm).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
+    a.concedidaPeloOperador ? "dada pelo responsável pelo servidor, não por você" : null,
   ].filter(Boolean);
   const rodape =
     op?.estado === "pendente"
