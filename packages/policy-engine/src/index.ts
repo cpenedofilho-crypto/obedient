@@ -32,7 +32,7 @@ export const effectRank = (e: Effect): number => EFFECTS.indexOf(e);
 export type Defaults = Record<RiskLevel, Effect>;
 export const SYSTEM_DEFAULTS: Readonly<Defaults> = Object.freeze({
   LOW: "allow",
-  MEDIUM: "allow",
+  MEDIUM: "require_approval",
   HIGH: "require_approval",
   CRITICAL: "require_privileged_approval",
 });

@@ -36,9 +36,11 @@ const pol = (extra: Partial<Policy>): Policy => ({
 });
 
 describe("default by risk", () => {
-  it("LOW and MEDIUM run, HIGH asks the user, CRITICAL asks with strong auth", () => {
+  it("LOW runs, MEDIUM and HIGH ask the user, CRITICAL asks with strong auth", () => {
     assert.equal(decide(action({ risk: "LOW" }), []).effect, "allow");
-    assert.equal(decide(action({ risk: "MEDIUM" }), []).effect, "allow");
+    // Desde 16/11/2026 (decisão D6 da Casa de IA): risco médio pede a pessoa, a menos que um grant
+    // dê autonomia até MEDIUM. Antes rodava sozinho e o `autonomousUpTo: "LOW"` do grant não valia nada.
+    assert.equal(decide(action({ risk: "MEDIUM" }), []).effect, "require_approval");
     const high = decide(action({ risk: "HIGH" }), []);
     assert.equal(high.effect, "require_approval");
     assert.equal(high.approver, "user");
@@ -62,6 +64,12 @@ describe("precedence", () => {
     const d = decide(action({ risk: "LOW" }), [pol({ effect: "allow_autonomous" }), pol({ effect: "deny", id: "block" })]);
     assert.equal(d.effect, "deny");
     assert.equal(d.policyId, "block");
+  });
+
+  it("a grant's autonomy up to MEDIUM lets MEDIUM run; without it MEDIUM asks", () => {
+    const ate = pol({ effect: "allow_autonomous", riskLevels: ["LOW", "MEDIUM"] });
+    assert.equal(decide(action({ risk: "MEDIUM" }), [ate]).effect, "allow");
+    assert.equal(decide(action({ risk: "MEDIUM" }), [pol({ effect: "allow_autonomous", riskLevels: ["LOW"] })]).effect, "require_approval");
   });
 
   it("allow_autonomous lowers the HIGH default, but never another policy's requirement", () => {
