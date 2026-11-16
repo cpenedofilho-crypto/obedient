@@ -147,6 +147,34 @@ describe("identificação das mensagens (Art. 5º)", () => {
   });
 });
 
+describe("retomada persistida de missão (GH-600)", () => {
+  it("nova instância lê rodada persistida e respeita o intervalo de nova tentativa", async () => {
+    const ana = usuario("reinicio");
+    const criada = await missoes(ana, (ms) =>
+      ms.criar(ana, "obedient", "Retomar tarefa interrompida", { maxTentativas: 3 }),
+    );
+    const primeira = await missoes(ana, (ms) => ms.reservar(criada.id));
+    assert.equal(primeira.reservada, true);
+    const rodada = { messages: [{ role: "user", content: "Continuar a tarefa" }], passos: 2 };
+    await missoes(ana, (ms) => ms.concluir(primeira.missao, {
+      tipo: "falha_temporaria", erro: "processo interrompido",
+      custoCentavos: 2, rodada,
+    }));
+
+    // Cada chamada cria outra instância de Missoes e outra transação: não depende da memória do processo.
+    const recuperada = await missoes(ana, (ms) => ms.get(criada.id));
+    assert.deepEqual(recuperada?.rodada, rodada);
+    assert.equal(recuperada?.tentativas, 1);
+    assert.equal((await missoes(ana, (ms) => ms.reservar(criada.id))).reservada, false);
+
+    clock.advance(30_000);
+    const segunda = await missoes(ana, (ms) => ms.reservar(criada.id));
+    assert.equal(segunda.reservada, true);
+    assert.deepEqual(segunda.missao.rodada, rodada);
+    assert.equal(segunda.missao.tentativas, 2);
+  });
+});
+
 describe("executor e agendador no banco (Fase 7)", () => {
   it("a conversa guardada vai e volta, e apagar o que o OBEDIENT sabe a esvazia", async () => {
     const ana = usuario("ana");
