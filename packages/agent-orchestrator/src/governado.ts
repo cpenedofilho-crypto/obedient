@@ -8,7 +8,11 @@
 //     proposta; o modelo nunca decide nada disso;
 //   • proposta pendente para o run (waiting_approval); só a PESSOA aprova, no cartão;
 //   • na retomada, executa uma vez, com o payload exato aprovado (hash). Argumento diferente do
-//     aprovado é recusado, mesmo com o id da aprovação certo;
+//     aprovado é recusado, mesmo com o id da aprovação certo. Consentimento e identificação são
+//     conferidos de novo na hora de executar (o registro da ferramenta vai junto);
+//   • a execução aprovada recebe o id da aprovação, para o sistema de destino poder deduplicar um
+//     reenvio (idempotência); falha na execução aprovada é resultado INCERTO: o efeito pode ter
+//     ocorrido, e o modelo é avisado para não repetir sem conferir;
 //   • o que a ferramenta devolve vai marcado como conteúdo externo: é dado, nunca instrução.
 
 import { ObedientError, payloadHash, type RiskLevel, type ToolCategory } from "@obedient/core";
@@ -34,7 +38,8 @@ export interface Quem {
   correlationId?: string;
 }
 
-export type Executor = (sistema: string, ferramenta: string, argumentos: Record<string, unknown>) => Promise<unknown>;
+/** `execucao.approvalId`: presente só na execução de uma ação aprovada (uma por aprovação). */
+export type Executor = (sistema: string, ferramenta: string, argumentos: Record<string, unknown>, execucao?: { approvalId?: string }) => Promise<unknown>;
 
 const externo = (v: unknown) => ({ conteudo_externo: v });
 
@@ -69,7 +74,12 @@ export function chamarComEthicsEmEtapas(abrir: AbrirMotor, quem: Quem, executor:
         // O id certo não basta: o payload tem de ser o que a pessoa viu.
         if (payloadHash({ systemId: item.sistema, tool: item.ferramenta, args: argumentos }) !== p.payloadHash) return { negado: "payload_diferente_do_aprovado" } as const;
         try {
-          return { payload: await engine.claimApproved(approvalId, p.payloadHash), hash: p.payloadHash } as const;
+          const contexto = {
+            category: item.categoria,
+            ...(item.dadosPessoais?.length ? { dataCategories: item.dadosPessoais } : {}),
+            ...((item.finalidade ?? quem.finalidade) ? { purpose: item.finalidade ?? quem.finalidade } : {}),
+          };
+          return { payload: await engine.claimApproved(approvalId, p.payloadHash, contexto), hash: p.payloadHash } as const;
         } catch (e) {
           if (e instanceof ObedientError) return { negado: e.code } as const;
           throw e;
@@ -80,13 +90,16 @@ export function chamarComEthicsEmEtapas(abrir: AbrirMotor, quem: Quem, executor:
       let resultado: unknown;
       let falha: string | null = null;
       try {
-        resultado = await executor(reivindicada.payload.systemId, reivindicada.payload.tool, reivindicada.payload.args);
+        resultado = await executor(reivindicada.payload.systemId, reivindicada.payload.tool, reivindicada.payload.args, { approvalId });
       } catch (e) {
         falha = e instanceof Error ? e.message : String(e);
       }
       // Etapa 3: registra o desfecho.
       await abrir((engine) => engine.completeApproved(approvalId, reivindicada.hash, falha === null, falha ?? undefined));
-      return falha === null ? { status: "succeeded", motivo: null, approvalId, resultado: externo(resultado) } : { status: "tool_error", motivo: falha, approvalId, resultado: null };
+      return falha === null
+        ? { status: "succeeded", motivo: null, approvalId, resultado: externo(resultado) }
+        : // Texto fixo para o modelo (o erro do outro sistema fica só no motivo, que não volta a ele).
+          { status: "tool_error", motivo: falha, approvalId, resultado: { resultado_incerto: true, aviso: "a ação aprovada pode ter sido feita mesmo assim; não repita sem conferir com a pessoa" } };
     }
 
     const a = await abrir((engine) =>

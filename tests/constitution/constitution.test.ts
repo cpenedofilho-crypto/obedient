@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { ManualClock } from "@obedient/core";
 import { CONSTITUTION_VERSION, ENFORCED_ARTICLES, EthicsEngine, type GrantSpec } from "@obedient/ethics-engine";
 import { InMemoryMemoryStore, Memoria } from "@obedient/memory";
-import { InMemoryMissionStore, Missoes } from "@obedient/missions";
+import { InMemoryMissionStore, Missoes, PRAZO_RESERVA_MS } from "@obedient/missions";
 
 const T0 = new Date("2026-11-02T12:00:00Z");
 const H = 3_600_000;
@@ -199,5 +199,69 @@ describe(`Constituição ${CONSTITUTION_VERSION}, Fase 6`, () => {
     assert.equal(await memoria.esquecer("ana", l.id), true);
     assert.deepEqual(await memoria.listar("ana"), []);
     assert.equal(await memoria.podeTreinarModeloDeTerceiro("ana"), false);
+  });
+});
+
+// ---- Durabilidade (Fase D): a regra vale também entre aprovar e executar, e com o processo caindo ----
+
+describe(`Constituição ${CONSTITUTION_VERSION}, execução aprovada e tentativa interrompida`, () => {
+  const ana = { id: "ana", kind: "user" as const, strongAuth: true };
+
+  it("Art. 4º — revogar o consentimento depois de aprovar ainda impede a execução", async () => {
+    const { engine, grant } = world();
+    await grant();
+    await engine.consent.give("ana", "responder e-mails", "contacts");
+    const contexto = { category: "COMMUNICATION" as const, dataCategories: ["contacts"], purpose: "responder e-mails" };
+    const a = await engine.authorize({ userId: "ana", agentId: "obedient", systemId: "mail", tool: "mail.send", risk: "HIGH", args: { para: "x@exemplo.org" }, ...contexto });
+    if (a.outcome !== "approval_required") throw new Error(`esperava pedido, veio ${a.outcome}`);
+    await engine.approve(a.proposal.id, ana, a.proposal.payloadHash);
+    await engine.consent.revokePurpose("ana", "responder e-mails");
+    let rodou = 0;
+    await assert.rejects(engine.executeApproved(a.proposal.id, a.proposal.payloadHash, async () => rodou++, contexto), /consentimento/);
+    assert.equal(rodou, 0);
+    assert.equal((await engine.approvals.get(a.proposal.id))?.status, "approved", "não reivindicada: nada foi feito");
+  });
+
+  it("Art. 5º — a identificação é conferida de novo na execução aprovada", async () => {
+    const clock = new ManualClock(T0);
+    let identificacao: string | null = "Enviada pelo assistente da Ana";
+    const engine = new EthicsEngine({ clock, identificacaoDe: () => identificacao });
+    await engine.grants.grant(
+      { userId: "ana", agentId: "obedient", systemId: "mail", capability: "mail.*", purpose: "responder e-mails de trabalho", limits: { maxRisk: "HIGH", autonomousUpTo: "LOW", maxAmount: null, amountField: null }, expiresAt: new Date(T0.getTime() + H) },
+      "ana",
+    );
+    const pedir = async () => {
+      const a = await engine.authorize({ userId: "ana", agentId: "obedient", systemId: "mail", tool: "mail.send", risk: "HIGH", category: "COMMUNICATION", args: { para: "x@exemplo.org", identificacao: "Enviada pelo assistente da Ana" } });
+      if (a.outcome !== "approval_required") throw new Error(`esperava pedido, veio ${a.outcome}`);
+      await engine.approve(a.proposal.id, ana, a.proposal.payloadHash);
+      return a.proposal;
+    };
+    const p1 = await pedir();
+    identificacao = "Assistente da Ana (nova assinatura)";
+    // Sem dizer a categoria: a mensagem traz o campo identificacao, e ele é conferido mesmo assim.
+    await assert.rejects(engine.executeApproved(p1.id, p1.payloadHash, async () => "enviado"), /identificação/);
+    identificacao = "Enviada pelo assistente da Ana";
+    const p2 = await pedir();
+    identificacao = null;
+    await assert.rejects(engine.executeApproved(p2.id, p2.payloadHash, async () => "enviado", { category: "COMMUNICATION" }), /identificação/);
+  });
+
+  it("Art. 7º — tentativa interrompida (o processo caiu) volta em no máximo um prazo, dentro do teto", async () => {
+    const clock = new ManualClock(T0);
+    const engine = new EthicsEngine({ clock });
+    const store = new InMemoryMissionStore();
+    const m = await new Missoes(store, engine, clock).criar("ana", "obedient", "x", { maxTentativas: 2 });
+    assert.equal((await new Missoes(store, engine, clock).reservar(m.id)).reservada, true);
+    // Outro processo, depois do restart.
+    const depois = new Missoes(store, engine, clock);
+    assert.equal((await depois.devidas("ana")).length, 0);
+    clock.advance(PRAZO_RESERVA_MS);
+    assert.equal((await depois.devidas("ana")).length, 1, "não fica órfã");
+    const r = await depois.reservar(m.id);
+    assert.equal(r.reservada && r.missao.tentativas, 2);
+    clock.advance(PRAZO_RESERVA_MS);
+    const fim = await depois.avancar(m.id, async () => ({ tipo: "feito", explicacao: "x", custoCentavos: 0 }));
+    assert.equal(fim.estado, "blocked", "interrompida de novo, sem tentativa sobrando: impedimento, nunca laço");
+    assert.equal(fim.tentativas, 2);
   });
 });
