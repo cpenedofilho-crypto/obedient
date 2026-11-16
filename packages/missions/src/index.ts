@@ -13,6 +13,13 @@
 // Art. 9º (interrupção): parada de emergência cancela as missões em aberto e nenhuma tentativa
 //   começa com a parada acionada.
 //
+// Durabilidade: a reserva de uma tentativa tem PRAZO (PRAZO_RESERVA_MS). Se o processo cair no meio
+// da tentativa, ninguém a conclui; vencido o prazo, a missão volta a ser devida (também na função do
+// agendador, que lê proxima_tentativa_em), e a retomada é uma tentativa nova, dentro do teto, com a
+// interrupção registrada. A ação aprovada que já tinha sido reivindicada não roda de novo: quem
+// garante é a troca approved → executing do Ethics Engine. O resultado tardio do processo antigo
+// chega com a versão velha e é descartado.
+//
 // Quem faz a tentativa é uma porta (Executor): no servidor, o laço do agente (agent-orchestrator)
 // com as ferramentas governadas pelo Ethics Engine. Aqui fica só a regra.
 //
@@ -34,6 +41,11 @@ export const TETO_CUSTO_PADRAO = 500;
 export const TETO_CUSTO_MAXIMO = 10_000;
 export const MAX_OBJETIVO = 2000;
 export const MAX_EXPLICACAO = 2000;
+/**
+ * Prazo da reserva de uma tentativa. Maior que o prazo de uma rodada do agente (10 min no servidor),
+ * para uma tentativa lenta, mas viva, não ser tomada por outro processo.
+ */
+export const PRAZO_RESERVA_MS = 15 * 60_000;
 
 export type TipoDesfecho = "feito" | "nao_sei" | "nao_consegui";
 
@@ -49,6 +61,11 @@ export interface Missao {
   tentativas: number;
   maxTentativas: number;
   proximaTentativaEm: Date | null;
+  /**
+   * Até quando a tentativa em andamento está reservada (null = nenhuma em andamento). Na reserva,
+   * proximaTentativaEm = reservadaAte: se o processo cair, a missão volta a ser devida quando vencer.
+   */
+  reservadaAte: Date | null;
   custoCentavos: number;
   tetoCustoCentavos: number;
   /** Pedido de aprovação que a missão espera (quando waiting_approval). */
@@ -144,6 +161,7 @@ export class Missoes {
       tentativas: 0,
       maxTentativas: max,
       proximaTentativaEm: agora,
+      reservadaAte: null,
       custoCentavos: 0,
       tetoCustoCentavos: teto,
       propostaId: null,
@@ -214,11 +232,13 @@ export class Missoes {
               : "O pedido de aprovação venceu sem resposta. Tente de novo quando puder responder, ou cancele.",
           ),
         );
-      // Aprovado (ou já executado): a MESMA tentativa continua de onde parou (não conta outra).
+      // Aprovado (ou já executado): a MESMA tentativa continua de onde parou (não conta outra). Com
+      // prazo, como qualquer reserva: antes, a missão ficava devida na hora e um segundo processo
+      // podia rodar a mesma continuação por cima.
       m.estado = "running";
       m.propostaId = null;
-      m.proximaTentativaEm = this.clock.now();
       if (m.custoCentavos >= m.tetoCustoCentavos) return nao(await this.bloquear(m, this.textoTeto(m)));
+      this.reservarAte(m);
       m.atualizadaEm = this.clock.now();
       if (!(await this.salvar(m))) return nao((await this.store.get(id))!);
       return { reservada: true, missao: m };
@@ -227,19 +247,40 @@ export class Missoes {
 
     if (m.custoCentavos >= m.tetoCustoCentavos) return nao(await this.bloquear(m, this.textoTeto(m)));
 
+    // Reserva vencida sem conclusão: o processo que tentava caiu (ou passou do prazo).
+    if (m.reservadaAte) {
+      await this.registrar(m, "mission.attempt_interrupted", "failed", [`tentativa ${m.tentativas} de ${m.maxTentativas} não terminou dentro do prazo da reserva`]);
+      if (m.tentativas >= m.maxTentativas)
+        return nao(
+          await this.bloquear(
+            m,
+            `A tentativa ${m.tentativas} não terminou (o servidor pode ter reiniciado no meio) e não sobrou tentativa. Uma ação aprovada que já estava em andamento não é repetida: confira se ela aconteceu antes de mandar tentar de novo ou cancelar.`,
+          ),
+        );
+    }
+
     m.tentativas += 1;
-    m.proximaTentativaEm = null;
+    this.reservarAte(m);
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) return nao((await this.store.get(id))!);
     return { reservada: true, missao: m };
   }
 
+  private reservarAte(m: Missao) {
+    m.reservadaAte = new Date(this.clock.now().getTime() + PRAZO_RESERVA_MS);
+    m.proximaTentativaEm = m.reservadaAte;
+  }
+
   /**
    * Passo 2: aplica o resultado da tentativa reservada. Se a missão mudou no meio (a pessoa cancelou,
-   * apertou parar), o resultado é descartado e a missão fica como a pessoa deixou.
+   * apertou parar, ou a reserva venceu e outro processo tentou de novo), o resultado é descartado e a
+   * missão fica como está.
    */
   async concluir(reservada: Missao, r: ResultadoTentativa): Promise<Missao> {
     const m = structuredClone(reservada);
+    m.reservadaAte = null;
+    // Só a falha temporária marca a próxima tentativa (abaixo); o resto não tem próxima.
+    m.proximaTentativaEm = null;
     const custo = Number.isFinite(r.custoCentavos) && r.custoCentavos > 0 ? Math.ceil(r.custoCentavos) : 0;
     m.custoCentavos += custo;
     m.atualizadaEm = this.clock.now();
@@ -310,6 +351,7 @@ export class Missoes {
     m.propostaId = null;
     m.rodada = null;
     m.proximaTentativaEm = this.clock.now();
+    m.reservadaAte = null;
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) throw new ObedientError("PROPOSAL_NOT_PENDING", "a missão mudou enquanto isso");
     await this.registrar(m, "mission.retry", "info", [`teto ${reais(m.tetoCustoCentavos)}`]);
@@ -332,6 +374,7 @@ export class Missoes {
   private async cancelar(m: Missao, motivo: string): Promise<Missao> {
     m.estado = "cancelled";
     m.proximaTentativaEm = null;
+    m.reservadaAte = null;
     m.rodada = null;
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) return (await this.store.get(m.id))!;
@@ -343,6 +386,7 @@ export class Missoes {
     m.estado = "blocked";
     m.impedimento = impedimento;
     m.proximaTentativaEm = null;
+    m.reservadaAte = null;
     m.rodada = null;
     m.atualizadaEm = this.clock.now();
     await this.gravar(m);
