@@ -60,9 +60,16 @@ describe("grants (Art. 3º)", () => {
     for (const b of bad) await assert.rejects(() => engine.grants.grant(spec(b), "u1"), (e: unknown) => e instanceof ObedientError && e.code === "INVALID_GRANT", JSON.stringify(b));
   });
 
-  it("only the user grants direct authority", async () => {
+  it("only the user or the server operator grants direct authority, and the trail says which", async () => {
     const { engine, spec } = setup();
     await assert.rejects(() => engine.grants.grant(spec(), "obedient"), /só o próprio usuário/);
+    await assert.rejects(() => engine.grants.grant(spec(), "u2"), /só o próprio usuário/, "outra pessoa não concede pela primeira");
+    await assert.rejects(() => engine.grants.grant(spec(), "operador:"), /só o próprio usuário/);
+    await assert.rejects(() => engine.grants.grant(spec(), "operador:Juca Silva"), /só o próprio usuário/);
+    const pelaPessoa = await engine.grants.grant(spec(), "u1");
+    assert.equal(pelaPessoa.grantedBy, "u1");
+    const peloOperador = await engine.grants.grant(spec(), "operador:cli");
+    assert.equal(peloOperador.grantedBy, "operador:cli", "o operador não se passa pela pessoa");
   });
 
   it("delegation only narrows; revoking the parent revokes the whole chain", async () => {

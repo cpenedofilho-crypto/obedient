@@ -108,6 +108,10 @@ export class InMemoryGrantStore implements GrantStore {
   }
 }
 
+/** Quem concede pela linha de comando do servidor: `operador:<nome>`, nunca um id de pessoa. */
+export const OPERADOR = /^operador:[a-z0-9][a-z0-9._-]{0,63}$/;
+export const ehOperador = (por: string): boolean => OPERADOR.test(por);
+
 export class GrantRegistry {
   constructor(
     private readonly store: GrantStore = new InMemoryGrantStore(),
@@ -115,9 +119,12 @@ export class GrantRegistry {
     private readonly newId: IdFactory = uuid,
   ) {}
 
-  /** Concessão direta pelo usuário. `grantedBy` precisa ser o próprio usuário. */
+  /**
+   * Concessão direta. `grantedBy` é o próprio usuário (pelo app) ou o operador do servidor (pela linha
+   * de comando, `operador:<nome>`), e a trilha guarda qual dos dois foi: o operador não se passa pela pessoa.
+   */
   async grant(spec: GrantSpec, grantedBy: string): Promise<Grant> {
-    if (grantedBy !== spec.userId) throw new ObedientError("INVALID_GRANT", "só o próprio usuário concede autoridade direta");
+    if (grantedBy !== spec.userId && !ehOperador(grantedBy)) throw new ObedientError("INVALID_GRANT", "só o próprio usuário ou o operador do servidor concede autoridade direta");
     validateSpec(spec, this.clock.now());
     return this.persist(spec, grantedBy, null);
   }

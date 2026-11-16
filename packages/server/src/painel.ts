@@ -5,7 +5,7 @@
 // que esperam a pessoa, o que cada agente pode fazer e o que aconteceu. Tudo lido com a RLS da
 // sessão: o painel de uma pessoa não tem como incluir nada de outra.
 
-import type { AuditEntry, EthicsEngine, Grant, Proposal } from "@obedient/ethics-engine";
+import { type AuditEntry, type EthicsEngine, type Grant, type Proposal, ehOperador } from "@obedient/ethics-engine";
 import { CATEGORIAS_DE_APRENDIZADO, type Memoria } from "@obedient/memory";
 import { ABERTAS, type Missao, type Missoes } from "@obedient/missions";
 import { INTEGRACOES } from "@obedient/integrations";
@@ -39,6 +39,8 @@ export interface Autorizacao {
   limiteDeValor: number | null;
   venceEm: string;
   delegadaPor: string | null;
+  /** Concedida pelo operador do servidor (linha de comando), não pela própria pessoa no app. */
+  concedidaPeloOperador: boolean;
 }
 
 export interface ItemAtividade {
@@ -186,6 +188,7 @@ function autorizacao(g: Grant): Autorizacao {
     limiteDeValor: g.limits.maxAmount,
     venceEm: g.expiresAt.toISOString(),
     delegadaPor: g.parentId ? g.grantedBy : null,
+    concedidaPeloOperador: !g.parentId && ehOperador(g.grantedBy),
   };
 }
 

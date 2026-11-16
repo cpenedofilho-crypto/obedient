@@ -37,10 +37,13 @@
 //                                  "token_env":"OBEDIENT_MCP_MOTOR_IGA_TOKEN","usuarios":["Juca"],
 //                                  "ferramentas":["motor_quem_sou_eu", …]}]
 //   OBEDIENT_MCP_<…>_TOKEN       o token de cada servidor (segredo do ambiente; o JSON só diz o NOME)
+//   OBEDIENT_OPERADOR            nome de quem roda os comandos de conceder (padrão "cli"); a trilha grava
+//                                o grant como concedido por "operador:<nome>", nunca como se fosse a pessoa
 
 import pg from "pg";
 import Anthropic from "@anthropic-ai/sdk";
 import { systemClock } from "@obedient/core";
+import { ehOperador } from "@obedient/ethics-engine";
 import type { Esforco } from "@obedient/agent-orchestrator";
 import { ModeloAnthropic } from "@obedient/modelo-anthropic";
 import { fromPgPool, migrate } from "@obedient/store-postgres";
@@ -94,6 +97,13 @@ function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null, s
 
 const env = (k: string) => process.env[k]?.trim() || undefined;
 
+/** Quem concede pela linha de comando: o operador do servidor, registrado como tal (não como a pessoa). */
+function operadorDaCli(): string {
+  const por = `operador:${(env("OBEDIENT_OPERADOR") ?? "cli").toLowerCase()}`;
+  if (!ehOperador(por)) throw new Error("OBEDIENT_OPERADOR: só letras minúsculas, números, ponto, hífen e sublinhado (até 64)");
+  return por;
+}
+
 function banco(variavel: string) {
   const url = env(variavel);
   if (!url) throw new Error(`defina ${variavel}`);
@@ -135,9 +145,9 @@ async function main(argv: string[]) {
     const { db, fechar } = banco("OBEDIENT_DATABASE_URL");
     await comoUsuario(db, usuario, async (tx) => {
       const motor = motorNaTransacao(tx, { clock: systemClock });
-      if (acao === "conceder") await concederGrowthOs(motor, cfg, usuario, systemClock.now());
+      if (acao === "conceder") await concederGrowthOs(motor, cfg, usuario, systemClock.now(), operadorDaCli());
       else if (acao === "retirar") await retirarGrowthOs(motor, usuario);
-      else if (acao === "conceder-compras") await concederComprasGrowthOs(motor, cfg, usuario, tetoMicros, systemClock.now());
+      else if (acao === "conceder-compras") await concederComprasGrowthOs(motor, cfg, usuario, tetoMicros, systemClock.now(), operadorDaCli());
       else await retirarComprasGrowthOs(motor, usuario);
     });
     console.log({
@@ -156,7 +166,7 @@ async function main(argv: string[]) {
     const { db, fechar } = banco("OBEDIENT_DATABASE_URL");
     await comoUsuario(db, usuario, async (tx) => {
       const motor = motorNaTransacao(tx, { clock: systemClock });
-      if (acao === "conceder") await concederMcp(motor, s, usuario, systemClock.now());
+      if (acao === "conceder") await concederMcp(motor, s, usuario, systemClock.now(), operadorDaCli());
       else await retirarMcp(motor, s.id, usuario);
     });
     console.log(acao === "conceder" ? `${usuario}: o agente pode ler ${s.nome} por 30 dias (${s.ferramentas.length} ferramentas; aparece no app e pode ser tirado)` : `${usuario}: autoridade em ${s.nome} retirada`);

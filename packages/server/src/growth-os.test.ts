@@ -198,6 +198,10 @@ describe("Growth OS: ferramenta das missões", () => {
     assert.deepEqual([g!.limits.maxRisk, g!.limits.autonomousUpTo], ["LOW", "LOW"]);
     // A finalidade cita cada ferramenta que o grant cobre: o que a pessoa lê no app é o que o agente pode.
     for (const i of itensGrowthOs()) assert.match(g!.purpose, i.ferramenta === "growth_os.resumo_operacional" ? /números da operação/ : /ofertas à venda no marketplace/);
+    assert.equal(g!.grantedBy, "ana-growth", "sem operador informado, quem concede é a pessoa");
+    await c.motor("ana-growth", (m) => concederGrowthOs(m, c.cfg, "ana-growth", T0, "operador:cli"));
+    const [peloOperador] = (await c.motor("ana-growth", (m) => m.grants.list("ana-growth"))).filter((x) => x.systemId === "growth_os" && !x.revokedAt);
+    assert.equal(peloOperador!.grantedBy, "operador:cli", "pela linha de comando a trilha guarda o operador, não a pessoa");
     assert.match(g!.purpose, /Não compra nada/);
     assert.equal(g!.expiresAt.getTime() - T0.getTime(), 30 * 24 * 3600 * 1000);
   });
