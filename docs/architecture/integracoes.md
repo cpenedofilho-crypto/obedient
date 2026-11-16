@@ -191,6 +191,7 @@ O Growth OS é o servidor A2A da casa. O OBEDIENT fala com ele como cliente, pel
 **O que as ferramentas fazem:** `growth_os.resumo_operacional` e `growth_os.catalogo_marketplace` são só leitura.
 - O executor escolhe a skill pela ferramenta autorizada. O que o modelo põe nos argumentos não chega ao Growth OS.
 - Volta ao modelo só o estado e as partes `data`, como `conteudo_externo`. Texto livre do servidor não volta.
+- **Correlação (16/11/2026):** todo pedido leva o id da missão em `message.metadata.correlation_id` e no cabeçalho `x-correlation-id`, no formato que o Growth OS aceita (`^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$`; fora dele, o cliente saneia ou gera um). Nunca vem do argumento do modelo. A correlação que o Growth OS devolve em `task.metadata.correlationId` (só lida se no formato) vai para a trilha da pessoa como `a2a.correlation`, com o mesmo `correlationId` da autorização: os dois lados se ligam numa auditoria.
 
 **Comprar no marketplace do Growth OS (12/11/2026)** é um sistema à parte para o Ethics Engine, `growth_os_compras`, para o grant de leitura nunca cobrir uma ação que gasta. O pagamento lá é simulado (carteiras contábeis), mas a regra aqui é a de dinheiro.
 - O ato é outro: `cli.ts growth-os conceder-compras <usuario> <teto_em_micro_unidades>` (e `retirar-compras`). Só para quem está em `OBEDIENT_GROWTH_OS_USUARIOS`.

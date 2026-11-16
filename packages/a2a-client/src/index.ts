@@ -13,7 +13,10 @@
 //     conversa nem de argumento do modelo;
 //   · resposta é validada por formato e tamanho; o que volta é dado (conteudo_externo, no governado),
 //     e o texto do servidor nunca vira instrução;
-//   · só o que o piloto usa: SendMessage, GetTask, ListTasks, CancelTask.
+//   · só o que o piloto usa: SendMessage, GetTask, ListTasks, CancelTask;
+//   · correlação: o pedido leva o id de quem chama (a missão) em message.metadata.correlation_id e no
+//     cabeçalho x-correlation-id, saneado para o formato que o Growth OS aceita (ou gerado aqui); o que
+//     o servidor devolve em task.metadata.correlationId só é lido se estiver no mesmo formato.
 
 import { randomUUID } from "node:crypto";
 import { fetchSeguro } from "@obedient/integration-gateway";
@@ -22,6 +25,20 @@ export const VERSAO_A2A = "1.0";
 const MAX_RESPOSTA = 256 * 1024;
 const ESTADOS = new Set(["TASK_STATE_SUBMITTED", "TASK_STATE_WORKING", "TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED", "TASK_STATE_REJECTED", "TASK_STATE_INPUT_REQUIRED", "TASK_STATE_AUTH_REQUIRED"]);
 export const TERMINAIS = new Set(["TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED", "TASK_STATE_REJECTED"]);
+
+/** Formato de correlação aceito pelo Growth OS (casa-de-ia #204) e devolvido por ele. */
+export const FORMATO_CORRELACAO = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
+
+/**
+ * Correlação no formato do servidor: o que já está nele passa igual; o resto tem cada caractere fora
+ * do formato trocado por "-", o começo ajustado e o tamanho cortado em 120. Sem nada aproveitável,
+ * gera uma (obedient-<uuid>). Nunca devolve algo fora de FORMATO_CORRELACAO.
+ */
+export function correlacaoA2A(id?: string | null): string {
+  if (typeof id === "string" && FORMATO_CORRELACAO.test(id)) return id;
+  const limpo = (typeof id === "string" ? id : "").replace(/[^A-Za-z0-9._:-]/g, "-").replace(/^[^A-Za-z0-9]+/, "").slice(0, 120);
+  return FORMATO_CORRELACAO.test(limpo) ? limpo : `obedient-${randomUUID()}`;
+}
 
 export class ErroClienteA2A extends Error {
   /** Código JSON-RPC do servidor (ex.: -32001), ou o nosso em texto (ex.: "card_invalido"). */
@@ -46,6 +63,8 @@ export interface Tarefa {
   skillId: string | null;
   /** Código de erro do servidor quando a tarefa falha (metadata.erro). Só letras minúsculas e "_". */
   erro: string | null;
+  /** Correlação que o servidor devolveu (metadata.correlationId), só se no formato. */
+  correlationId: string | null;
 }
 
 /** Fonte do token de máquina. Use `fonteClientCredentials` com o segredo vindo do cofre. */
@@ -109,7 +128,8 @@ export function validarTarefa(v: unknown): Tarefa {
   }));
   const skillId = objeto(v.metadata) && texto(v.metadata.skillId, 64) ? v.metadata.skillId : null;
   const erro = objeto(v.metadata) && typeof v.metadata.erro === "string" && /^[a-z_]{1,60}$/.test(v.metadata.erro) ? v.metadata.erro : null;
-  return { id: v.id, contextId: texto(v.contextId) ? v.contextId : "", estado: v.status.state, artefatos, skillId, erro };
+  const correlationId = objeto(v.metadata) && typeof v.metadata.correlationId === "string" && FORMATO_CORRELACAO.test(v.metadata.correlationId) ? v.metadata.correlationId : null;
+  return { id: v.id, contextId: texto(v.contextId) ? v.contextId : "", estado: v.status.state, artefatos, skillId, erro, correlationId };
 }
 
 export class ClienteA2A {
@@ -129,13 +149,13 @@ export class ClienteA2A {
     return card;
   }
 
-  private async rpc(metodo: string, params: unknown): Promise<unknown> {
+  private async rpc(metodo: string, params: unknown, extra: Record<string, string> = {}): Promise<unknown> {
     const { endpoint } = await this.card();
     const token = await this.c.token();
     const id = randomUUID();
     const r = await this.f(endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json", "a2a-version": VERSAO_A2A, authorization: `Bearer ${token}` },
+      headers: { ...extra, "content-type": "application/json", "a2a-version": VERSAO_A2A, authorization: `Bearer ${token}` },
       body: JSON.stringify({ jsonrpc: "2.0", id, method: metodo, params }),
     });
     if (r.status === 401) throw new ErroClienteA2A(401, "não autorizado pelo servidor A2A");
@@ -152,15 +172,17 @@ export class ClienteA2A {
   /**
    * Pede uma skill. `messageId` estável torna o reenvio idempotente no servidor. `dados` são os
    * campos estruturados da skill (quem chama decide quais; nunca repasse argumento de modelo sem
-   * validar). O campo `skill` é sempre o do primeiro parâmetro.
+   * validar). O campo `skill` é sempre o do primeiro parâmetro. `correlationId` (o da missão) vai
+   * saneado em message.metadata.correlation_id e em x-correlation-id; sem ele, um é gerado.
    */
-  async enviar(skill: string, o: { messageId?: string; retornarImediato?: boolean; dados?: Record<string, unknown> } = {}): Promise<Tarefa> {
+  async enviar(skill: string, o: { messageId?: string; retornarImediato?: boolean; dados?: Record<string, unknown>; correlationId?: string } = {}): Promise<Tarefa> {
     const { skills } = await this.card();
     if (!skills.includes(skill)) throw new ErroClienteA2A("skill_ausente_no_card", `o servidor não anuncia a skill ${skill}`);
+    const correlacao = correlacaoA2A(o.correlationId);
     const r = await this.rpc("SendMessage", {
-      message: { messageId: o.messageId ?? randomUUID(), role: "ROLE_USER", parts: [{ data: { ...(o.dados ?? {}), skill }, mediaType: "application/json" }] },
+      message: { messageId: o.messageId ?? randomUUID(), role: "ROLE_USER", parts: [{ data: { ...(o.dados ?? {}), skill }, mediaType: "application/json" }], metadata: { correlation_id: correlacao } },
       configuration: { acceptedOutputModes: ["application/json"], ...(o.retornarImediato ? { returnImmediately: true } : {}) },
-    });
+    }, { "x-correlation-id": correlacao });
     if (!objeto(r) || !("task" in r)) throw new ErroClienteA2A("resposta_invalida", "SendMessage sem task");
     return validarTarefa(r.task);
   }
@@ -182,14 +204,15 @@ export class ClienteA2A {
 
 /**
  * Executor do agent-orchestrator: `ferramenta` é a skill; argumentos aceitos: `message_id` (idempotência)
- * e `retornar_imediato`. Nada mais do argumento chega ao servidor. Registre a ferramenta com risco LOW e
+ * e `retornar_imediato`. Nada mais do argumento chega ao servidor; a correlação vem de `execucao`. Registre a ferramenta com risco LOW e
  * categoria de leitura; o governado (chamarComEthics) marca o retorno como conteúdo externo.
  */
 export function executorA2A(cliente: ClienteA2A, sistema: string) {
-  return async (sis: string, ferramenta: string, argumentos: Record<string, unknown>): Promise<Tarefa> => {
+  return async (sis: string, ferramenta: string, argumentos: Record<string, unknown>, execucao?: { correlationId?: string }): Promise<Tarefa> => {
     if (sis !== sistema) throw new ErroClienteA2A("sistema_desconhecido", `executor A2A atende só ${sistema}`);
     const messageId = typeof argumentos.message_id === "string" && /^[A-Za-z0-9_-]{8,100}$/.test(argumentos.message_id) ? argumentos.message_id : undefined;
-    return cliente.enviar(ferramenta, { messageId, retornarImediato: argumentos.retornar_imediato === true });
+    // A correlação vem da execução (a missão), nunca do argumento do modelo.
+    return cliente.enviar(ferramenta, { messageId, retornarImediato: argumentos.retornar_imediato === true, ...(execucao?.correlationId ? { correlationId: execucao.correlationId } : {}) });
   };
 }
 

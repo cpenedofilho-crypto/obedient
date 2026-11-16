@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import { after, before, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { criarFetchSeguro, ipReservado } from "@obedient/integration-gateway";
-import { ClienteA2A, ErroClienteA2A, executorA2A, fonteClientCredentials, validarCard } from "./index.ts";
+import { ClienteA2A, ErroClienteA2A, FORMATO_CORRELACAO, correlacaoA2A, executorA2A, fonteClientCredentials, validarCard } from "./index.ts";
 
 let srv: Server;
 let porta = 0;
@@ -37,11 +37,13 @@ before(async () => {
       return corpo.client_secret === "segredo-do-cofre" ? json(200, { access_token: `tok-${tokensEmitidos}`, token_type: "Bearer", expires_in: 3600 }) : json(401, { error: "invalid_client" });
     }
     if (req.url === "/api/a2a") {
-      const rpc = corpo as { id: string; method: string; params: { id?: string; message?: { parts: { data?: { skill?: string } }[] }; configuration?: { returnImmediately?: boolean } } };
+      const rpc = corpo as { id: string; method: string; params: { id?: string; message?: { parts: { data?: { skill?: string } }[]; metadata?: { correlation_id?: string } }; configuration?: { returnImmediately?: boolean } } };
       if (respostaForcada) return json(200, respostaForcada(rpc));
+      // Como o Growth OS (casa-de-ia #204): aceita metadata.correlation_id ou x-correlation-id e devolve em task.metadata.correlationId.
+      const correlacao = rpc.params.message?.metadata?.correlation_id ?? (req.headers["x-correlation-id"] as string | undefined) ?? "gerado-pelo-servidor";
       if (req.headers.authorization !== `Bearer tok-1`) return json(401, { jsonrpc: "2.0", id: rpc.id, error: { code: -32000, message: "Unauthorized" } });
       if (req.headers["a2a-version"] !== "1.0") return json(200, { jsonrpc: "2.0", id: rpc.id, error: { code: -32009, message: "Protocol version not supported" } });
-      const task = (id: string) => ({ id, contextId: "ctx-1", status: { state: tarefas.get(id)!.estado }, artifacts: tarefas.get(id)!.estado === "TASK_STATE_COMPLETED" ? [{ artifactId: "a", name: "resumo_operacional", parts: [{ data: { agentes: { fonte: "growth-os", dados: { ativos: 2 } } }, mediaType: "application/json" }] }] : [], metadata: { skillId: "resumo_operacional", extra: "ignorado" } });
+      const task = (id: string) => ({ id, contextId: "ctx-1", status: { state: tarefas.get(id)!.estado }, artifacts: tarefas.get(id)!.estado === "TASK_STATE_COMPLETED" ? [{ artifactId: "a", name: "resumo_operacional", parts: [{ data: { agentes: { fonte: "growth-os", dados: { ativos: 2 } } }, mediaType: "application/json" }] }] : [], metadata: { skillId: "resumo_operacional", extra: "ignorado", correlationId: correlacao } });
       if (rpc.method === "SendMessage") {
         const id = `t-${tarefas.size + 1}`;
         tarefas.set(id, { estado: rpc.params.configuration?.returnImmediately ? "TASK_STATE_SUBMITTED" : "TASK_STATE_COMPLETED" });
@@ -153,6 +155,47 @@ describe("pedido e tarefa", () => {
     });
     await assert.rejects(c.enviar("resumo_operacional"), (e: ErroClienteA2A) => e.codigo === "token_recusado");
     assert.equal(vistos.filter((v) => v.caminho === "/api/a2a").length, 0);
+  });
+});
+
+describe("correlação (correlation_id)", () => {
+  const enviadoA = () => {
+    const v = vistos.find((x) => x.caminho === "/api/a2a")!;
+    return { metadata: (v.corpo as { params: { message: { metadata?: { correlation_id?: string } } } }).params.message.metadata?.correlation_id, cabecalho: v.cab["x-correlation-id"] };
+  };
+
+  it("manda o id da missão em message.metadata.correlation_id e x-correlation-id, e lê o que o servidor devolve", async () => {
+    const t = await novoCliente().enviar("resumo_operacional", { correlationId: "0b7c2f4e-9a1d-4c3b-8e2f-1234567890ab" });
+    assert.deepEqual(enviadoA(), { metadata: "0b7c2f4e-9a1d-4c3b-8e2f-1234567890ab", cabecalho: "0b7c2f4e-9a1d-4c3b-8e2f-1234567890ab" });
+    assert.equal(t.correlationId, "0b7c2f4e-9a1d-4c3b-8e2f-1234567890ab");
+  });
+
+  it("sem id de quem chama, gera um; id fora do formato é saneado, nunca enviado cru", async () => {
+    await novoCliente().enviar("resumo_operacional");
+    const gerado = enviadoA();
+    assert.match(gerado.metadata!, FORMATO_CORRELACAO);
+    assert.equal(gerado.cabecalho, gerado.metadata);
+    for (const cru of ["missão com espaço/ç", "-começa-com-hífen", "x".repeat(300), "a\r\nx-injetado: 1", "", "...", "ok:1.2_3-4"]) {
+      const v = correlacaoA2A(cru);
+      assert.match(v, FORMATO_CORRELACAO, JSON.stringify(cru));
+      assert.ok(!/[\r\n ]/.test(v));
+    }
+    assert.equal(correlacaoA2A("ok:1.2_3-4"), "ok:1.2_3-4", "o que já está no formato passa igual");
+    assert.equal(correlacaoA2A("x".repeat(300)).length, 120);
+  });
+
+  it("correlação devolvida fora do formato é descartada (dado do servidor, não confiável)", async () => {
+    respostaForcada = (r) => ({ jsonrpc: "2.0", id: r.id, result: { id: "t", status: { state: "TASK_STATE_COMPLETED" }, metadata: { correlationId: "tem espaço\ne quebra" } } });
+    assert.equal((await novoCliente().obter("t")).correlationId, null);
+    respostaForcada = (r) => ({ jsonrpc: "2.0", id: r.id, result: { id: "t", status: { state: "TASK_STATE_COMPLETED" }, metadata: { correlationId: 42 } } });
+    assert.equal((await novoCliente().obter("t")).correlationId, null);
+  });
+
+  it("o executor repassa a correlação da execução (missão) ao servidor", async () => {
+    const exec = executorA2A(novoCliente(), "growth-os");
+    const t = await exec("growth-os", "resumo_operacional", { correlation_id: "do-modelo-nao-vale" }, { correlationId: "missao-42" });
+    assert.deepEqual(enviadoA(), { metadata: "missao-42", cabecalho: "missao-42" }, "a correlação vem da execução, nunca do argumento do modelo");
+    assert.equal(t.correlationId, "missao-42");
   });
 });
 

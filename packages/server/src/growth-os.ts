@@ -22,12 +22,14 @@
 //     aprovada chega ao Growth OS com o mesmo id e não compra de novo (idempotência do A2A). Sem
 //     aprovação reivindicada, a compra nem sai;
 //   • a saída é pelo fetchSeguro do @obedient/a2a-client: card na mesma origem, sem redirect, IP
-//     conferido na conexão.
+//     conferido na conexão;
+//   • cada pedido leva a correlação da missão (correlation_id / x-correlation-id) e a que o Growth OS
+//     devolve vai para a trilha (a2a.correlation), para ligar os dois lados numa auditoria.
 // O segredo vem do ambiente do servidor (OBEDIENT_GROWTH_OS_SEGREDO), é lido na hora do token e nunca
 // vai para log, banco ou conversa.
 
 import { createHash, randomUUID } from "node:crypto";
-import { ClienteA2A, fonteClientCredentials, type Tarefa } from "@obedient/a2a-client";
+import { ClienteA2A, correlacaoA2A, fonteClientCredentials, type Tarefa } from "@obedient/a2a-client";
 import type { Executor, ItemGovernado } from "@obedient/agent-orchestrator";
 import type { EthicsEngine } from "@obedient/ethics-engine";
 import { AGENTE, PRAZO_DO_GRANT_MS, nomeParaModelo } from "@obedient/integrations";
@@ -165,8 +167,11 @@ export function idDaMensagemA2A(approvalId: string, ferramenta: string, etapa = 
 }
 
 /** Preço da oferta no catálogo do Growth OS, ou null se ela não está à venda. */
-async function precoNoCatalogo(cliente: ClienteA2A, oferta: string, messageId: string): Promise<{ precoMicros: number; compraLigada: boolean } | null> {
-  const t = await cliente.enviar("catalogo_marketplace", { messageId });
+/** Um pedido ao Growth OS com a correlação da execução; avisa quem registra o que voltou. */
+type Enviar = (skill: string, o: { messageId: string; dados?: Record<string, unknown> }) => Promise<Tarefa>;
+
+async function precoNoCatalogo(enviar: Enviar, oferta: string, messageId: string): Promise<{ precoMicros: number; compraLigada: boolean } | null> {
+  const t = await enviar("catalogo_marketplace", { messageId });
   if (t.estado !== "TASK_STATE_COMPLETED") throw new Error("catálogo do Growth OS indisponível");
   for (const d of dadosDa(t)) {
     if (!obj(d) || !Array.isArray(d.ofertas)) continue;
@@ -181,7 +186,7 @@ async function precoNoCatalogo(cliente: ClienteA2A, oferta: string, messageId: s
  * aprovou (preço de oferta não muda no Growth OS: preço novo é oferta nova) e só então compra.
  * Ao Growth OS vão só a oferta e a consulta; quem paga e o teto de lá saem do cadastro de lá.
  */
-async function comprar(cliente: ClienteA2A, argumentos: Record<string, unknown>, approvalId: string | undefined) {
+async function comprar(enviar: Enviar, argumentos: Record<string, unknown>, approvalId: string | undefined) {
   const { oferta, consulta } = argumentos;
   // Toda compra é FINANCIAL e passa por aprovação: sem o id dela, não há como comprar uma vez só.
   if (!approvalId) return { estado: "recusada", motivo: "compra_sem_aprovacao" };
@@ -189,20 +194,38 @@ async function comprar(cliente: ClienteA2A, argumentos: Record<string, unknown>,
   if (typeof oferta !== "string" || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(oferta) || oferta.length > 80) return { estado: "recusada", motivo: "oferta_invalida" };
   if (typeof consulta !== "string" || !consulta.trim() || consulta.length > 500) return { estado: "recusada", motivo: "consulta_invalida" };
   if (typeof maximo !== "number" || !Number.isInteger(maximo) || maximo < 1 || maximo > TETO_MAXIMO_MICROS) return { estado: "recusada", motivo: "preco_maximo_invalido" };
-  const noCatalogo = await precoNoCatalogo(cliente, oferta, idDaMensagemA2A(approvalId, FERRAMENTA_COMPRA, "catalogo"));
+  const noCatalogo = await precoNoCatalogo(enviar, oferta, idDaMensagemA2A(approvalId, FERRAMENTA_COMPRA, "catalogo"));
   if (!noCatalogo) return { estado: "recusada", motivo: "oferta_fora_do_catalogo" };
   if (!noCatalogo.compraLigada) return { estado: "recusada", motivo: "compra_desligada_no_growth_os" };
   if (noCatalogo.precoMicros > maximo) return { estado: "recusada", motivo: "preco_acima_do_aprovado", preco_micros: noCatalogo.precoMicros };
-  return paraModelo(await cliente.enviar("comprar_conhecimento", { messageId: idDaMensagemA2A(approvalId, FERRAMENTA_COMPRA), dados: { oferta, consulta: consulta.trim() } }));
+  return paraModelo(await enviar("comprar_conhecimento", { messageId: idDaMensagemA2A(approvalId, FERRAMENTA_COMPRA), dados: { oferta, consulta: consulta.trim() } }));
 }
 
-/** O executor que o Ethics Engine chama depois de autorizar: a skill A2A correspondente, nada além. */
-export function executorGrowthOs(cliente: ClienteA2A): Executor {
+/** O que foi para a trilha de um pedido ao Growth OS: a correlação enviada e a devolvida por ele. */
+export interface CorrelacaoA2A {
+  sistema: string;
+  ferramenta: string;
+  skill: string;
+  enviada: string;
+  devolvida: string | null;
+}
+
+/**
+ * O executor que o Ethics Engine chama depois de autorizar: a skill A2A correspondente, nada além.
+ * Cada pedido leva a correlação da execução (a missão, saneada) e `registrar` recebe a devolvida.
+ */
+export function executorGrowthOs(cliente: ClienteA2A, registrar?: (c: CorrelacaoA2A) => Promise<void>): Executor {
   return async (sistema, ferramenta, argumentos, execucao) => {
-    if (sistema === SISTEMA_GROWTH_OS_COMPRAS && ferramenta === FERRAMENTA_COMPRA) return comprar(cliente, argumentos, execucao?.approvalId);
+    const enviada = correlacaoA2A(execucao?.correlationId);
+    const enviar: Enviar = async (skill, o) => {
+      const t = await cliente.enviar(skill, { ...o, correlationId: enviada });
+      await registrar?.({ sistema, ferramenta, skill, enviada, devolvida: t.correlationId });
+      return t;
+    };
+    if (sistema === SISTEMA_GROWTH_OS_COMPRAS && ferramenta === FERRAMENTA_COMPRA) return comprar(enviar, argumentos, execucao?.approvalId);
     if (sistema !== SISTEMA_GROWTH_OS || !(ferramenta in SKILLS)) throw new Error("ferramenta do Growth OS desconhecida");
     // Os argumentos do modelo não chegam ao Growth OS: a skill é escolhida aqui, pela ferramenta autorizada.
-    return paraModelo(await cliente.enviar(SKILLS[ferramenta as Ferramenta], { messageId: `obedient-${randomUUID()}` }));
+    return paraModelo(await enviar(SKILLS[ferramenta as Ferramenta], { messageId: `obedient-${randomUUID()}` }));
   };
 }
 

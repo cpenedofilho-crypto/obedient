@@ -38,8 +38,11 @@ export interface Quem {
   correlationId?: string;
 }
 
-/** `execucao.approvalId`: presente só na execução de uma ação aprovada (uma por aprovação). */
-export type Executor = (sistema: string, ferramenta: string, argumentos: Record<string, unknown>, execucao?: { approvalId?: string }) => Promise<unknown>;
+/**
+ * `execucao.approvalId`: presente só na execução de uma ação aprovada (uma por aprovação).
+ * `execucao.correlationId`: o de `Quem` (a missão), para o sistema de destino ligar o pedido à execução.
+ */
+export type Executor = (sistema: string, ferramenta: string, argumentos: Record<string, unknown>, execucao?: { approvalId?: string; correlationId?: string }) => Promise<unknown>;
 
 const externo = (v: unknown) => ({ conteudo_externo: v });
 
@@ -90,7 +93,7 @@ export function chamarComEthicsEmEtapas(abrir: AbrirMotor, quem: Quem, executor:
       let resultado: unknown;
       let falha: string | null = null;
       try {
-        resultado = await executor(reivindicada.payload.systemId, reivindicada.payload.tool, reivindicada.payload.args, { approvalId });
+        resultado = await executor(reivindicada.payload.systemId, reivindicada.payload.tool, reivindicada.payload.args, { approvalId, ...(quem.correlationId ? { correlationId: quem.correlationId } : {}) });
       } catch (e) {
         falha = e instanceof Error ? e.message : String(e);
       }
@@ -119,7 +122,7 @@ export function chamarComEthicsEmEtapas(abrir: AbrirMotor, quem: Quem, executor:
     if (a.outcome === "denied") return { status: "denied", motivo: a.reasons.join("; "), approvalId: null, resultado: null };
     if (a.outcome === "approval_required") return { status: "approval_required", motivo: a.decision.reason, approvalId: a.proposal.id, resultado: null };
     try {
-      return { status: "succeeded", motivo: null, approvalId: null, resultado: externo(await executor(item.sistema, item.ferramenta, argumentos)) };
+      return { status: "succeeded", motivo: null, approvalId: null, resultado: externo(await executor(item.sistema, item.ferramenta, argumentos, quem.correlationId ? { correlationId: quem.correlationId } : undefined)) };
     } catch (e) {
       return { status: "tool_error", motivo: e instanceof Error ? e.message : String(e), approvalId: null, resultado: null };
     }

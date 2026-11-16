@@ -40,6 +40,7 @@ import { type Conexoes, executorGoogle, itensGovernados } from "@obedient/integr
 import type { Licao } from "@obedient/memory";
 import type { Executor as ExecutorDeMissao, Missao, ResultadoTentativa, TipoDesfecho } from "@obedient/missions";
 import type { ClienteA2A } from "@obedient/a2a-client";
+import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCompras, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
 import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, motivoMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
 import { type Database, type OpcoesMotor, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
@@ -254,7 +255,22 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
 
     // Um executor por sistema; o Ethics Engine autoriza antes de qualquer um rodar.
     const google = d.conexoes ? executorGoogle(d.conexoes, u, d.http ?? fetch) : null;
-    const growth = (ctx.growthOs || ctx.growthCompras) && d.growthOs ? executorGrowthOs(d.growthOs.cliente) : null;
+    // A correlação que o Growth OS devolve vai para a trilha da pessoa, ligada à missão.
+    const growth = (ctx.growthOs || ctx.growthCompras) && d.growthOs
+      ? executorGrowthOs(d.growthOs.cliente, (c) => abrir(async (m) => {
+        await m.audit.record({
+          userId: u,
+          actor: `agent:${missao.agente}`,
+          event: "a2a.correlation",
+          outcome: "info",
+          systemId: c.sistema,
+          tool: c.ferramenta,
+          correlationId: c.enviada,
+          reasons: [`skill ${c.skill}`, c.devolvida ? `correlação devolvida: ${c.devolvida}` : "o servidor não devolveu correlação"],
+          constitutionVersion: CONSTITUTION_VERSION,
+        });
+      }))
+      : null;
     const mcp = conexoesMcp.size ? executorMcp(ctx.mcp, conexoesMcp) : null;
     const governada = google || growth || mcp
       ? chamarComEthicsEmEtapas(abrir, { userId: u, agentId: missao.agente, correlationId: missao.id }, (sistema, ferramenta, args, execucao) => {
