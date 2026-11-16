@@ -265,7 +265,7 @@ export class EthicsEngine {
   }
 
   /**
-   * Primeira metade de executeApproved: confere a parada, o grant, o consentimento e a identificação
+   * Primeira metade de executeApproved: confere a parada, o grant (que tem de existir: Art. 11), o consentimento e a identificação
    * DE NOVO e reivindica a execução (uma vez só). Separada para quem precisa executar FORA da
    * transação do banco (o servidor: a chamada ao sistema de destino pode demorar) e concluir noutra
    * transação. Recusa aqui não reivindica: a proposta fica aprovada e nada é executado.
@@ -282,14 +282,18 @@ export class EthicsEngine {
       await this.auditExecution(p, hash, "denied", ["parada de emergência acionada"]);
       throw new ObedientError("EMERGENCY_STOP", stopped.reason);
     }
-    if (p.grantId) {
-      const g = await this.grants.get(p.grantId);
-      const agentId = p.requestedBy.replace(/^agent:/, "");
-      const still = await this.grants.findCovering(p.userId, agentId, p.payload.systemId, p.payload.tool);
-      if (!g || !still) {
-        await this.auditExecution(p, hash, "denied", ["grant revogado ou vencido depois da aprovação"]);
-        throw new ObedientError("GRANT_NOT_FOUND", "grant revogado ou vencido depois da aprovação");
-      }
+    // Art. 11: ação sem grant rastreável não executa. Proposta sem grant (gravada fora do authorize)
+    // pode até ter sido aprovada, mas não há de quem é a autoridade: recusa, e a recusa fica na trilha.
+    if (!p.grantId) {
+      await this.auditExecution(p, hash, "denied", ["pedido sem grant rastreável (Art. 11)"]);
+      throw new ObedientError("GRANT_NOT_FOUND", "pedido sem grant rastreável (Art. 11)");
+    }
+    const g = await this.grants.get(p.grantId);
+    const agentId = p.requestedBy.replace(/^agent:/, "");
+    const still = await this.grants.findCovering(p.userId, agentId, p.payload.systemId, p.payload.tool);
+    if (!g || !still) {
+      await this.auditExecution(p, hash, "denied", ["grant revogado ou vencido depois da aprovação"]);
+      throw new ObedientError("GRANT_NOT_FOUND", "grant revogado ou vencido depois da aprovação");
     }
     // Art. 5º: a mensagem sai com a identificação de AGORA (a pessoa pode ter trocado ou apagado).
     const args = p.payload.args ?? {};

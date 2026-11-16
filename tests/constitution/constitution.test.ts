@@ -265,3 +265,54 @@ describe(`Constituição ${CONSTITUTION_VERSION}, execução aprovada e tentativ
     assert.equal(fim.tentativas, 2);
   });
 });
+
+// ---- Art. 11: toda ação registra o grant que a autorizou; sem grant rastreável, não executa ----
+
+describe(`Constituição ${CONSTITUTION_VERSION}, responsabilidade (Art. 11)`, () => {
+  const ana = { id: "ana", kind: "user" as const, strongAuth: true };
+  /** Entrada de AÇÃO (ferramenta num sistema) que deixou ou fez algo acontecer. */
+  const acaoQueAconteceu = (e: { tool?: string; outcome: string }) => e.tool !== undefined && (e.outcome === "allowed" || e.outcome === "executed");
+
+  it("Art. 11 — toda ação permitida ou executada registra o grant que a autorizou, inclusive a aprovada", async () => {
+    const { engine, grant, ask } = world();
+    const g = await grant();
+    assert.equal((await ask("mail.list", "LOW", "READ")).outcome, "allowed");
+    const a = await ask("mail.send", "HIGH", "COMMUNICATION");
+    if (a.outcome !== "approval_required") throw new Error(`esperava pedido, veio ${a.outcome}`);
+    assert.equal(a.proposal.grantId, g.id, "o pedido carrega o grant");
+    await engine.approve(a.proposal.id, ana, a.proposal.payloadHash);
+    assert.equal(await engine.executeApproved(a.proposal.id, a.proposal.payloadHash, async () => "enviado"), "enviado");
+    // Reivindicação em duas etapas (o caminho do servidor): também com o grant.
+    const b = await ask("mail.archive", "HIGH", "WRITE");
+    if (b.outcome !== "approval_required") throw new Error(`esperava pedido, veio ${b.outcome}`);
+    await engine.approve(b.proposal.id, ana, b.proposal.payloadHash);
+    await engine.claimApproved(b.proposal.id, b.proposal.payloadHash);
+    await engine.completeApproved(b.proposal.id, b.proposal.payloadHash, true);
+
+    const acoes = (await engine.audit.forUser("ana")).filter(acaoQueAconteceu);
+    assert.deepEqual(acoes.map((e) => `${e.event}:${e.outcome}`), ["action.authorize:allowed", "proposal.execute:executed", "proposal.execute:executed"]);
+    for (const e of acoes) assert.equal(e.grantId, g.id, `${e.event} sem o grant que a autorizou`);
+  });
+
+  it("Art. 11 — pedido sem grant rastreável não executa, mesmo aprovado pela pessoa", async () => {
+    const { engine } = world();
+    // Uma proposta gravada sem grant (por um caminho que não o authorize): a pessoa aprova, mas não há
+    // de quem é a autoridade. Não executa, e a recusa fica na trilha.
+    const p = await engine.approvals.propose({
+      userId: "ana",
+      requestedBy: "agent:obedient",
+      payload: { systemId: "mail", tool: "mail.send", args: { para: "x@exemplo.org" } },
+      decision: { effect: "require_approval", source: "default", policyId: null, reason: "teste", matched: [], effectiveRisk: "HIGH", approver: "user" },
+      grantId: null,
+    });
+    await engine.approve(p.id, ana, p.payloadHash);
+    let rodou = 0;
+    await assert.rejects(engine.executeApproved(p.id, p.payloadHash, async () => rodou++), /grant/);
+    await assert.rejects(engine.claimApproved(p.id, p.payloadHash), /grant/);
+    assert.equal(rodou, 0);
+    assert.equal((await engine.approvals.get(p.id))?.status, "approved", "não reivindicada: nada foi feito");
+    const trilha = await engine.audit.forUser("ana");
+    assert.ok(!trilha.some(acaoQueAconteceu), "nenhuma ação sem grant aparece como permitida ou executada");
+    assert.ok(trilha.some((e) => e.event === "proposal.execute" && e.outcome === "denied"));
+  });
+});
