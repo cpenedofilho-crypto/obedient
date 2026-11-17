@@ -36,7 +36,8 @@ nem em outro marketplace), nada foi mesclado e nada foi para produção.
 | Texto não confiável (`untrusted.test.mjs`) | 20 | passou |
 | Somente leitura, sem rede, sem processo (`readonly-offline.test.mjs`) | 4 | passou: modelo de permissões do Node só com leitura; toda porta de rede forçada a falhar; importações só de `fs`, `path`, `crypto`, `url` |
 | Linha de comando e fixação (`cli.test.mjs`) | 10 | passou |
-| Pacote da skill (`skill.test.mjs`) | 10 | passou: frontmatter num subconjunto estrito de YAML (`description` e `compatibility` entre aspas duplas, sem escape), `compatibility` com Node.js 18+ e compatibilidade só estrutural com Cursor 2.4+, documentação bilíngue, todo código documentado, exemplos de comando chamam o script pelo caminho da skill, nenhum nome de cliente, produto ou pessoa. Teste de mutação: tirar as aspas da `description`, ou voltar um exemplo para `node scripts/…`, reprova |
+| Pacote da skill (`skill.test.mjs`) | 17 | passou: frontmatter num subconjunto estrito de YAML; `compatibility` só com as versões de Node testadas (22 e 24) e compatibilidade só estrutural com Cursor 2.4+; nenhum documento cita Node 18 ou 20; as regras 5 a 7 do agente (não abrir JSON bruto, perguntar antes de configuração pessoal ou global, não criar fixação sem pedido); `LICENSE` com o texto integral da AGPL (sha256 fixo) e `NOTICE` com copyright, licença, fonte e terceiros; SPDX em todo `.mjs`; nenhum link relativo saindo da pasta; nenhuma oferta de licença comercial como disponível; exemplos pelo caminho da skill; nenhum nome de cliente, produto ou pessoa. Teste de mutação: 8 mutações (Node 18, cada regra removida, `LICENSE` alterada, `NOTICE` sem terceiros, link para fora, licença comercial "oferecida") reprovam |
+| Versões do Node (fora do monorepo, pasta copiada) | 89 por versão | passou no Node 22.23.4 e no 24.22.1. Node 18 e 20 **não testados** (não instalados no ambiente; a instalação foi barrada pela política da sessão), por isso não são declarados |
 | gitleaks 8.24.3 (a mesma versão do CI, checksum conferido) sobre `skills/`, `tests/skills/`, `docs/skills/` | — | nenhum vazamento (as credenciais de teste são geradas na execução, nunca gravadas) |
 | `npm run check` do repositório inteiro | 553 testes; typecheck (inclui o novo `tsconfig.skills.json`, estrito); licenças | 552 passaram, 0 falharam, 1 pulado (anterior, só roda no Postgres do CI) |
 
@@ -62,7 +63,7 @@ lendo; nenhum achado. Só contagens e códigos foram exibidos.
 - O modelo de permissões do Node 22 não cobre rede; a garantia "sem rede" vem do teste com as portas de rede desligadas e da checagem estática.
 - Só as chaves de aprovação listadas são lidas; configurações de outros clientes podem ter outras.
 - A remoção de vírgula final do JSONC é feita por expressão regular; um texto que contenha `,}` dentro de uma string é alterado só para a leitura (não afeta segredo nem saída).
-- Testado só em Linux. Windows e macOS não foram executados.
+- Testado só em Linux, Node 22 e 24. Windows, macOS, Node 18 e 20 não foram executados. O teste de somente leitura usa `--permission`, estável a partir do Node 22.
 - O campo `data` dos achados (nomes de chave, códigos de sinal) não é traduzido.
 
 ## 5. Pendências (decisões e próximos passos)
@@ -73,4 +74,34 @@ lendo; nenhum achado. Só contagens e códigos foram exibidos.
 4. **Avaliação de acionamento**: medir se o agente aciona a skill nos pedidos certos e não nos errados.
 5. **Modo ao vivo opcional** (listar ferramentas direto do servidor com `fetchSeguro`): ficou fora de propósito.
 6. **Saída SARIF** para integrar com a aba de segurança do GitHub: não feito.
-7. **Publicação** (Agensi ou outro): não feita, aguarda os itens 1 a 3.
+7. **Publicação** (Agensi ou outro): não feita. Pendências fora do código, nenhuma aprovada aqui: termos da Agensi lidos na fonte (o site não abre na rede da sessão), autorização de quem publica diante da D15, revisão humana, revisão jurídica, teste funcional no Cursor, nome (seção 6).
+8. **Texto da `LICENSE`**: o gnu.org recusou conexão nesta sessão. O arquivo é o texto no layout do gnu.org com URLs `https`, idêntico byte a byte nas cópias de dois projetos AGPL independentes e, com espaços normalizados, igual ao texto SPDX da `LICENSE` do repositório. Conferir contra https://www.gnu.org/licenses/agpl-3.0.txt antes de publicar; se diferir, trocar o arquivo e o sha256 do teste.
+
+## 6. Nome (anterioridade, 17/11/2026, só busca na web)
+
+Nenhuma troca foi feita. Busca em diretórios de MCP, npm, PyPI e GitHub; **não** substitui busca de
+marca no INPI, USPTO e EUIPO.
+
+| Nome | Situação |
+| --- | --- |
+| MCP Guardian | ocupado: pelo menos 4 projetos, um com plano pago |
+| MCP Preflight | ocupado: pelo menos 6 projetos; um (newlifesolution) faz auditoria estática de configuração e `tools/list` com saída SARIF, função quase igual |
+| Portcullis | ocupado: pelo menos 7 gateways MCP |
+| Tollgate | ocupado (`agent-tollgate`, MIT) |
+| mcp-audit, mcp-config-lint, mcp-security-audit | ocupados (vários pacotes e skills) |
+| Quayguard | nenhum resultado na web; candidato, sujeito a busca de marca |
+| `casa-mcp-guardian` (atual) | o prefixo "casa" distingue, mas "MCP Guardian" no nome herda a confusão; "casa" sem busca de marca |
+
+## 7. Pacote para publicação (montado, não enviado)
+
+Conteúdo: `SKILL.md`, `README.md`, `README.pt-BR.md`, `LICENSE`, `NOTICE`, `references/` e `scripts/`
+(14 arquivos). `tests/` fica fora: os testes têm textos de injeção e formatos de credencial gerados de
+propósito, que um verificador automático pode tomar por ataque; o README aponta para eles no
+repositório. Montagem: zip com a pasta `casa-mcp-guardian/` na raiz, data fixa (17/11/2026) e
+permissão 644, para que o mesmo commit gere o mesmo arquivo.
+
+Verificado no pacote extraído numa pasta fora do repositório: gitleaks sem achados; nenhum nome de
+cliente, produto ou pessoa; nenhum formato de credencial, e-mail, telefone ou CPF; nenhum link
+simbólico; execução da pasta de um projeto no Node 22 e 24 com credencial falsa (`LITERAL_SECRET`,
+nenhum trecho de 8 caracteres na saída) e descrição hostil (`TOOL_INJECTION_SIGNAL`, texto não
+reproduzido).

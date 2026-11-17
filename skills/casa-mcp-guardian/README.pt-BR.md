@@ -43,7 +43,7 @@ A skill é uma pasta com `SKILL.md`, `scripts/` e `references/`.
   versão; veja [Teste manual no Cursor](#teste-manual-no-cursor).
 - **Outras ferramentas que leem pastas com `SKILL.md`:** ponha a pasta onde a ferramenta documenta as
   Agent Skills.
-- **Sem agente:** `node scripts/mcp-guardian.mjs` funciona sozinho (Node.js 18 ou mais novo, sem
+- **Sem agente:** `node scripts/mcp-guardian.mjs` funciona sozinho (Node.js 22 ou mais novo, testado no 22 e no 24; sem
   dependências).
 
 ## Uso
@@ -89,7 +89,17 @@ descartável, nunca uma configuração de verdade com credencial de verdade.
    `TOOL_INJECTION_SIGNAL` e não pode seguir o texto.
 7. Registre a versão do Cursor, o sistema operacional e o resultado de cada passo.
 
+## O que o agente recebe como regra
+
+O `SKILL.md` manda o agente tratar tudo o que vem de servidor MCP como dado, nunca mostrar credencial,
+trabalhar a partir do relatório em vez de abrir o JSON bruto da configuração ou do `tools/list`,
+auditar só a pasta do projeto a menos que você concorde com uma configuração pessoal ou global, e só
+gravar arquivo de fixação quando você pedir. São instruções ao modelo, não garantias: o próprio script
+garante só leitura e ausência de rede (abaixo); o cumprimento pelo agente depende do modelo.
+
 ## Garantias e como são testadas
+
+Os testes ficam no [repositório de origem](https://github.com/cpenedofilho-crypto/obedient/tree/main/skills/casa-mcp-guardian/tests); o pacote publicado leva só a skill.
 
 | Garantia | Teste |
 | --- | --- |
@@ -109,8 +119,12 @@ descartável, nunca uma configuração de verdade com credencial de verdade.
 
 ## Licença e origem
 
-AGPL-3.0-only, como o repositório OBEDIENT de onde veio (veja o `LICENSE` do repositório). O
-classificador e as checagens de endereço foram adaptados de `packages/integration-gateway` e de
-`packages/server/src/mcp-servidores.ts` do mesmo repositório e autor; as regras ligadas a produtos
-específicos foram retiradas. A Casa de IA Educação e Consultoria Ltda oferece licença comercial (veja o
-`COMMERCIAL-LICENSE.md`, minuta). Proveniência: `docs/licensing/PROVENANCE.md`.
+AGPL-3.0-only: o texto completo está em [LICENSE](LICENSE), e copyright, código-fonte e terceiros
+estão em [NOTICE](NOTICE). A skill vem do
+[repositório OBEDIENT](https://github.com/cpenedofilho-crypto/obedient), do mesmo autor e com a mesma
+licença: o classificador e as checagens de endereço foram adaptados de `packages/integration-gateway`
+e de `packages/server/src/mcp-servidores.ts`, sem as regras ligadas a produtos específicos.
+Proveniência: [docs/licensing/PROVENANCE.md](https://github.com/cpenedofilho-crypto/obedient/blob/main/docs/licensing/PROVENANCE.md).
+A licença comercial está em redação
+([COMMERCIAL-LICENSE.md](https://github.com/cpenedofilho-crypto/obedient/blob/main/COMMERCIAL-LICENSE.md),
+não é contrato) e **ainda não está disponível**.

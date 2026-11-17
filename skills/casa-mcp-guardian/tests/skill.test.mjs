@@ -3,8 +3,9 @@
 // both READMEs exist, and nothing tied to internal products or clients was carried over.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { SKILL_DIR } from "./helpers.mjs";
 import { MESSAGES } from "../scripts/lib/messages.mjs";
 
@@ -62,10 +63,10 @@ describe("SKILL.md", () => {
   });
   it("the description is a double-quoted YAML scalar", () => assert.equal(fm.quoted.description, true));
   it("declares the license", () => assert.equal(fm.license, "AGPL-3.0-only"));
-  it("compatibility states Node.js 18+ and structural Claude Code/Cursor 2.4+ support, without claiming a functional check", () => {
+  it("compatibility states only the Node.js versions tested and structural Claude Code/Cursor 2.4+ support, without claiming a functional check", () => {
     assert.equal(fm.quoted.compatibility, true);
     assert.ok(fm.compatibility.length >= 1 && fm.compatibility.length <= 500, `${fm.compatibility.length}`);
-    assert.match(fm.compatibility, /Node\.js 18 or newer/);
+    assert.match(fm.compatibility, /Node\.js 22 or newer \(tested on 22 and 24\)/);
     assert.match(fm.compatibility, /structurally compatible with Claude Code and with Cursor 2\.4 or newer/);
     assert.match(fm.compatibility, /not been verified/);
     assert.doesNotMatch(fm.compatibility, /\b(tested|verified|validated) (in|with|on) Cursor/i);
@@ -83,12 +84,68 @@ describe("SKILL.md", () => {
     assert.ok(commands.length >= 4, `${commands.length} examples`);
     for (const c of commands) assert.equal(c, "<path-to-this-skill>/scripts/mcp-guardian.mjs");
   });
+  it("the agent is told not to open raw files, to ask before personal or global configs, and not to create pin files on its own", () => {
+    assert.match(md, /Do not open the raw files yourself/);
+    assert.match(md, /Do not `cat`, print, quote or summarize their raw JSON/);
+    assert.match(md, /Before\s+reading any personal or global config/);
+    assert.match(md, /ask the user and wait for\s+a yes/);
+    assert.match(md, /No pin file unless asked/);
+    assert.match(md, /never create or overwrite a pin file on your\s+own initiative/);
+  });
+  it("no document claims a Node.js version that was not tested", () => {
+    for (const f of ["SKILL.md", "README.md", "README.pt-BR.md"]) {
+      const text = readFileSync(join(SKILL_DIR, f), "utf8");
+      assert.doesNotMatch(text, /Node(\.js)? ?(18|20)\b/, f);
+      assert.match(text, /Node\.js 22 ou mais novo|Node\.js 22 or newer/, f);
+    }
+  });
   it("bilingual documentation exists, and every finding code is documented", () => {
     for (const f of ["README.md", "README.pt-BR.md", "references/checks.md"]) assert.ok(existsSync(join(SKILL_DIR, f)), f);
     const checks = readFileSync(join(SKILL_DIR, "references/checks.md"), "utf8");
     const undocumented = Object.keys(MESSAGES).filter((c) => !c.startsWith("FILE_") && !checks.includes(c));
     assert.deepEqual(undocumented, []);
     for (const [code, m] of Object.entries(MESSAGES)) assert.ok(m.en && m.pt && m.fix_en && m.fix_pt, code);
+  });
+});
+
+describe("license and notices travel with the skill", () => {
+  // AGPL-3.0 text in the gnu.org layout (https URLs). Same bytes as the copies in two independent
+  // AGPL projects; equal, after whitespace normalization, to the SPDX text of the repository LICENSE.
+  const AGPL_SHA256 = "57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6";
+  it("LICENSE is the full AGPL-3.0 text", () => {
+    const text = readFileSync(join(SKILL_DIR, "LICENSE"));
+    assert.equal(createHash("sha256").update(text).digest("hex"), AGPL_SHA256);
+    assert.match(text.toString("utf8"), /^\s+GNU AFFERO GENERAL PUBLIC LICENSE\n\s+Version 3, 19 November 2007/);
+  });
+  it("NOTICE has the copyright, the license, the source and the third-party statement", () => {
+    const n = readFileSync(join(SKILL_DIR, "NOTICE"), "utf8");
+    assert.match(n, /Copyright \(C\) 2026 Cláudio Penedo\./);
+    assert.match(n, /AGPL-3\.0-only/);
+    assert.match(n, /LICENSE file/);
+    assert.match(n, /complete source/);
+    assert.match(n, /Third-party components: none/);
+    assert.match(n, /not available yet/);
+  });
+  it("every source file carries the same SPDX identifier", () => {
+    const sources = files(SKILL_DIR).filter((f) => f.endsWith(".mjs"));
+    for (const f of sources) assert.match(readFileSync(f, "utf8"), /SPDX-License-Identifier: AGPL-3\.0-only/, relative(SKILL_DIR, f));
+  });
+  it("no relative link in the docs points outside the skill folder", () => {
+    for (const f of files(SKILL_DIR).filter((x) => x.endsWith(".md"))) {
+      for (const m of readFileSync(f, "utf8").matchAll(/\]\(([^)#\s]+)(#[^)]*)?\)/g)) {
+        const target = m[1];
+        if (/^https?:\/\//.test(target)) continue;
+        const abs = resolve(dirname(f), target);
+        assert.ok(abs === SKILL_DIR || abs.startsWith(SKILL_DIR + sep), `${relative(SKILL_DIR, f)} -> ${target}`);
+        assert.ok(existsSync(abs), `${relative(SKILL_DIR, f)} -> ${target}`);
+      }
+    }
+  });
+  it("the docs do not offer a commercial license as available", () => {
+    for (const f of ["README.md", "README.pt-BR.md", "NOTICE"]) {
+      const text = readFileSync(join(SKILL_DIR, f), "utf8");
+      assert.doesNotMatch(text, /oferece licença comercial|commercial license is offered/i, f);
+    }
   });
 });
 
@@ -100,12 +157,16 @@ describe("nothing internal was carried over", () => {
     /meta ads/i, /ads_update_entity|ads_create_ad_set|ads_experiment/, /quem_sou/, /cpenedofilho/i, /@gmail\.com/i,
   ];
   // The README and checks may name the OBEDIENT repository as the origin (provenance), nothing else.
-  const ORIGIN_ALLOWED = new Set(["README.md", "README.pt-BR.md"]);
+  const ORIGIN_ALLOWED = new Set(["README.md", "README.pt-BR.md", "NOTICE"]);
+  // The public source URL is the one place the owner's account name may appear.
+  const SOURCE_URL = /https:\/\/github\.com\/cpenedofilho-crypto\/obedient\b[^\s)]*/g;
   it("no client, product or person names in the code, tests or SKILL.md", () => {
     const hits = [];
     for (const f of files(SKILL_DIR)) {
       const rel = relative(SKILL_DIR, f);
-      const text = readFileSync(f, "utf8");
+      if (rel === "LICENSE") continue; // the license text itself
+      const raw = readFileSync(f, "utf8");
+      const text = ORIGIN_ALLOWED.has(rel) ? raw.replace(SOURCE_URL, "") : raw;
       for (const re of FORBIDDEN) {
         if (re.source === "\\bobedient\\b" && (ORIGIN_ALLOWED.has(rel) || rel.startsWith("tests/") || rel.startsWith("scripts/"))) continue;
         if (rel === "tests/skill.test.mjs" || (rel === "tests/classify.test.mjs" && re.source.includes("ads_update_entity"))) continue;

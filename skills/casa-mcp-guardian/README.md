@@ -40,7 +40,7 @@ The skill is a folder with `SKILL.md`, `scripts/` and `references/`.
   compatible. How Cursor actually loads and runs it has **not been verified** in this release; see
   [Manual test in Cursor](#manual-test-in-cursor).
 - **Other tools that read `SKILL.md` folders:** place the folder where the tool documents Agent Skills.
-- **Without an agent:** `node scripts/mcp-guardian.mjs` works on its own (Node.js 18+, no dependencies).
+- **Without an agent:** `node scripts/mcp-guardian.mjs` works on its own (Node.js 22 or newer, tested on 22 and 24; no dependencies).
 
 ## Use
 
@@ -86,7 +86,17 @@ real config with real credentials.
    `TOOL_INJECTION_SIGNAL` and must not follow the text.
 7. Record the Cursor version, the operating system and the result of each step.
 
+## What the agent is told
+
+`SKILL.md` tells the agent to treat everything from an MCP server as data, never to show a credential,
+to work from the report instead of opening the raw config or `tools/list` JSON, to audit only the
+project folder unless you agree to a personal or global config, and to save a pin file only when you
+ask for it. These are instructions to the model, not guarantees: the script itself enforces read-only
+and offline behavior (below), the agent's compliance depends on the model.
+
 ## Guarantees and how they are tested
+
+The tests live in the [source repository](https://github.com/cpenedofilho-crypto/obedient/tree/main/skills/casa-mcp-guardian/tests); the published package carries only the skill.
 
 | Guarantee | Test |
 | --- | --- |
@@ -107,8 +117,12 @@ real config with real credentials.
 
 ## License and origin
 
-AGPL-3.0-only, like the OBEDIENT repository it comes from (see the repository `LICENSE`). The
+AGPL-3.0-only: the full text is in [LICENSE](LICENSE), and copyright, source and third-party notes
+are in [NOTICE](NOTICE). The skill comes from the
+[OBEDIENT repository](https://github.com/cpenedofilho-crypto/obedient), same author and license: the
 classifier and the endpoint checks are adapted from `packages/integration-gateway` and
-`packages/server/src/mcp-servidores.ts` of the same repository and author; rules tied to specific
-products were removed. A commercial license is offered by Casa de IA Educação e Consultoria Ltda (see
-`COMMERCIAL-LICENSE.md`, a draft). Provenance: `docs/licensing/PROVENANCE.md`.
+`packages/server/src/mcp-servidores.ts`, with the rules tied to specific products removed.
+Provenance: [docs/licensing/PROVENANCE.md](https://github.com/cpenedofilho-crypto/obedient/blob/main/docs/licensing/PROVENANCE.md).
+Commercial licensing is being drafted
+([COMMERCIAL-LICENSE.md](https://github.com/cpenedofilho-crypto/obedient/blob/main/COMMERCIAL-LICENSE.md),
+not a contract) and is **not available yet**.
