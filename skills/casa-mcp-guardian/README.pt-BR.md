@@ -7,7 +7,7 @@ ferramentas antes que você confie nelas. Ela lê os arquivos, classifica o risc
 aponta o que precisa da decisão de uma pessoa. Nunca conecta em servidor, nunca escreve arquivo e nunca
 mostra credencial.
 
-**Situação:** pré-lançamento (0.1). Não publicada em nenhum marketplace.
+**Situação:** pré-lançamento, versão 0.1.0 (não lançada; veja o [CHANGELOG](CHANGELOG.md)). Não publicada em nenhum marketplace.
 
 ## O que verifica
 
@@ -36,8 +36,9 @@ A lista completa, com as gravidades, está em [references/checks.md](references/
 A skill é uma pasta com `SKILL.md`, `scripts/` e `references/`.
 
 - **Claude Code:** copie `casa-mcp-guardian/` para `.claude/skills/` do projeto (ou
-  `~/.claude/skills/` para todos os projetos). O Claude carrega a skill quando a tarefa bate com a
-  descrição do `SKILL.md`.
+  `~/.claude/skills/` para todos os projetos). Pelo formato Agent Skills, espera-se que o Claude Code
+  carregue a skill quando a tarefa bate com a descrição do `SKILL.md`; o carregamento e o acionamento
+  dentro do Claude Code **não foram testados** nesta versão.
 - **Cursor 2.4 ou mais novo:** copie `casa-mcp-guardian/` para `.cursor/skills/` do projeto (ou
   `~/.cursor/skills/` para todos os projetos; os agentes na nuvem do Cursor só sincronizam essa pasta).
   O Cursor também lê `.agents/skills/` e `.claude/skills/`. A skill segue o formato de pasta que o

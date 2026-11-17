@@ -11,16 +11,24 @@ limites em `docs/skills/casa-mcp-guardian.md`.
 
 - [ ] Autorização de quem publica diante da D15 (instrumento de licença ainda não assinado).
 - [ ] Revisão jurídica da distribuição sob AGPL-3.0-only.
-- [ ] `skills/casa-mcp-guardian/LICENSE` conferida byte a byte contra
-      `https://www.gnu.org/licenses/agpl-3.0.txt` (o gnu.org não abriu na sessão de preparação; o teste
-      fixa o sha256 `57c8ff33…399d6` e precisa mudar junto se o arquivo mudar).
+- [ ] **Texto da `LICENSE` da skill aprovado.** Conferido em 17/11/2026 contra o oficial da GNU
+      (`https://ftp.gnu.org/gnu/Licenses/agpl-3.0.txt`, 30/09/2017, sha256 `0d96a4ff…abcb0`): o arquivo
+      atual (sha256 `57c8ff33…399d6`) é a variante antiga com `http`, e difere em 3 linhas, só no
+      esquema das URLs. Recomendação: adotar o texto oficial com `https`. Trocar só depois da aprovação
+      jurídica, junto com o sha256 do teste (`tests/skill.test.mjs`) e os registros
+      (`docs/skills/casa-mcp-guardian.md` §5.8, `PROVENANCE.md`).
+- [ ] `LICENSE` da raiz: mesma variante `http`. Análise separada, porque vale para o repositório inteiro.
 - [ ] Revisão humana do `SKILL.md` (regras 1 a 8, instrução de parada, limites).
 - [ ] Nome: manter `casa-mcp-guardian` ou adotar o candidato "Casa de IA Quayguard", depois da busca na
       WIPO Global Brand Database, INPI, USPTO e EUIPO. Trocar o nome muda a pasta, o `name` do
       frontmatter e os testes: fazer **antes** da primeira tag.
 - [ ] Merge do PR #50 na `main` (a release sai de um commit da `main`).
-- [ ] Decisão sobre os itens 2 a 4 da proposta T4 (`docs/skills/casa-mcp-guardian.md` §8).
+- [x] Proposta T4, itens 1 a 4: aplicada nos commits `37737e4` e `ec2bdbe` (`docs/skills/casa-mcp-guardian.md` §8).
 - [ ] Texto sobre o Cursor: manter "estrutural; funcional não verificado" ou rodar o teste manual.
+- [ ] Texto sobre o Claude Code: hoje diz que o carregamento segue o formato Agent Skills e **não foi
+      testado** nesta versão; rodar um teste real ou manter assim.
+- [ ] Revisão do PR por um mantenedor (`GOVERNANCE.md` §4); SBOM e assinatura (§5), com o método
+      recomendado Sigstore/Cosign ainda por aprovar.
 
 ## 2. Versão e tag
 
@@ -31,7 +39,10 @@ limites em `docs/skills/casa-mcp-guardian.md`.
 - **Tag:** `casa-mcp-guardian-v0.1.0` (prefixo pela skill, porque o repositório é um monorepo e o
   OBEDIENT terá as próprias versões).
 
-## 3. CHANGELOG (rascunho para `skills/casa-mcp-guardian/CHANGELOG.md`)
+## 3. CHANGELOG
+
+Criado em `skills/casa-mcp-guardian/CHANGELOG.md` (17/11/2026), com `0.1.0 (unreleased)`. Os README
+citam a mesma versão (`tests/skills/casa-mcp-guardian-release.test.ts` confere). Texto de partida:
 
 ```markdown
 # Changelog
@@ -72,14 +83,14 @@ First public version. Read-only, offline audit of MCP configs and saved `tools/l
 
 ## 5. Pacote reproduzível
 
-Conteúdo: `SKILL.md`, `README.md`, `README.pt-BR.md`, `LICENSE`, `NOTICE`, `references/`, `scripts/`
-(e `CHANGELOG.md`, se for criado). `tests/` fica no repositório. Zip com a pasta `casa-mcp-guardian/` na
+Conteúdo: `SKILL.md`, `README.md`, `README.pt-BR.md`, `LICENSE`, `NOTICE`, `CHANGELOG.md`,
+`references/`, `scripts/` (15 arquivos). `tests/` fica no repositório. Zip com a pasta `casa-mcp-guardian/` na
 raiz, entradas em ordem alfabética, data fixa e permissão 644; o mesmo commit gera os mesmos bytes.
 Receita usada na preparação (Python 3, só biblioteca padrão), rodada de dentro da pasta da skill:
 
 ```python
 import os, zipfile, hashlib
-inc = ["SKILL.md", "README.md", "README.pt-BR.md", "LICENSE", "NOTICE"]
+inc = ["SKILL.md", "README.md", "README.pt-BR.md", "LICENSE", "NOTICE", "CHANGELOG.md"]
 for d in ["scripts", "references"]:
     for r, _, fs in os.walk(d):
         inc += [os.path.join(r, f) for f in fs]

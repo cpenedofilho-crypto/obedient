@@ -136,7 +136,7 @@ describe("SKILL.md", () => {
     assert.match(checks, /nunca uma quebra/);
   });
   it("the packaged docs describe attack examples instead of carrying literal payloads (T4)", () => {
-    for (const f of ["SKILL.md", "README.md", "README.pt-BR.md", "NOTICE", "references/checks.md"]) {
+    for (const f of ["SKILL.md", "README.md", "README.pt-BR.md", "NOTICE", "CHANGELOG.md", "references/checks.md"]) {
       const text = readFileSync(join(SKILL_DIR, f), "utf8");
       assert.doesNotMatch(text, /ignore (all |the )?previous instructions/i, f);
       assert.doesNotMatch(text, /\bsk-(test|live|proj|ant)-/i, f);
@@ -174,6 +174,25 @@ describe("SKILL.md", () => {
     assert.match(readFileSync(join(SKILL_DIR, "README.md"), "utf8"), /This is not file-system isolation/);
     assert.match(readFileSync(join(SKILL_DIR, "README.pt-BR.md"), "utf8"), /Não é isolamento do sistema de arquivos/);
   });
+  it("Claude Code support is stated as the format's expectation, not as a tested fact (L7)", () => {
+    // Whitespace collapsed: a claim split across lines must not slip through.
+    const en = readFileSync(join(SKILL_DIR, "README.md"), "utf8").replace(/\s+/g, " ");
+    const pt = readFileSync(join(SKILL_DIR, "README.pt-BR.md"), "utf8").replace(/\s+/g, " ");
+    assert.doesNotMatch(en, /Claude (Code )?loads it when/);
+    assert.doesNotMatch(pt, /O Claude (Code )?carrega a skill quando/);
+    assert.match(en, /loading and triggering inside Claude Code\s+have \*\*not been tested\*\* in this release/);
+    assert.match(pt, /o carregamento e o acionamento\s+dentro do Claude Code \*\*não foram testados\*\* nesta versão/);
+  });
+  it("one version everywhere in the package: 0.1.0, from the CHANGELOG (L2)", () => {
+    const changelog = readFileSync(join(SKILL_DIR, "CHANGELOG.md"), "utf8");
+    const version = /^## (\d+\.\d+\.\d+) /m.exec(changelog)?.[1];
+    assert.equal(version, "0.1.0");
+    for (const f of ["README.md", "README.pt-BR.md"]) {
+      const text = readFileSync(join(SKILL_DIR, f), "utf8");
+      assert.match(text, new RegExp(`vers(ion|ão) ${version.replace(/\./g, "\\.")}`), f);
+      assert.doesNotMatch(text, /\(0\.1\)/, f);
+    }
+  });
   it("no document claims a Node.js version that was not tested", () => {
     for (const f of ["SKILL.md", "README.md", "README.pt-BR.md"]) {
       const text = readFileSync(join(SKILL_DIR, f), "utf8");
@@ -191,8 +210,10 @@ describe("SKILL.md", () => {
 });
 
 describe("license and notices travel with the skill", () => {
-  // AGPL-3.0 text in the gnu.org layout (https URLs). Same bytes as the copies in two independent
-  // AGPL projects; equal, after whitespace normalization, to the SPDX text of the repository LICENSE.
+  // AGPL-3.0 text, older variant with http:// URLs (as in the repository LICENSE and many AGPL
+  // projects). The current official GNU file (ftp.gnu.org, 2017-09-30) differs only in 3 lines that use
+  // https:// (sha256 0d96a4ff…abcb0); the terms are identical. Switching to it is pending legal approval;
+  // if the file changes, this hash changes with it.
   const AGPL_SHA256 = "57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6";
   it("LICENSE is the full AGPL-3.0 text", () => {
     const text = readFileSync(join(SKILL_DIR, "LICENSE"));

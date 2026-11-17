@@ -6,7 +6,7 @@ An Agent Skill that audits MCP (Model Context Protocol) server configurations an
 you trust them. It reads the files, ranks every tool by risk, and points out what needs a human
 decision. It never connects to a server, never writes a file and never prints a credential.
 
-**Status:** pre-release (0.1). Not published on any marketplace.
+**Status:** pre-release, version 0.1.0 (unreleased; see [CHANGELOG](CHANGELOG.md)). Not published on any marketplace.
 
 ## What it checks
 
@@ -34,8 +34,9 @@ The full list, with severities, is in [references/checks.md](references/checks.m
 The skill is a folder with `SKILL.md`, `scripts/` and `references/`.
 
 - **Claude Code:** copy `casa-mcp-guardian/` to `.claude/skills/` in your project (or
-  `~/.claude/skills/` for all projects). Claude loads it when the task matches the description in
-  `SKILL.md`.
+  `~/.claude/skills/` for all projects). Under the Agent Skills format, Claude Code is expected to load
+  it when the task matches the description in `SKILL.md`; loading and triggering inside Claude Code
+  have **not been tested** in this release.
 - **Cursor 2.4 or newer:** copy `casa-mcp-guardian/` to `.cursor/skills/` in your project (or
   `~/.cursor/skills/` for all projects; Cursor cloud agents only sync that folder). Cursor also reads
   `.agents/skills/` and `.claude/skills/`. The skill follows the folder format Cursor documents
