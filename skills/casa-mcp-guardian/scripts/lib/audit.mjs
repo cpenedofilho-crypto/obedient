@@ -262,13 +262,18 @@ export function pinOf(t) {
 
 /** @param {unknown} v @returns {Record<string, unknown>[]} */
 export function toolsFromListing(v) {
+  return /** @type {Record<string, unknown>[]} */ (listingEntries(v).filter((t) => !!t && typeof t === "object" && !Array.isArray(t)));
+}
+
+/** Every entry of a tools/list result, tool objects or not (the ones that are not become a finding).
+ * @param {unknown} v @returns {unknown[]} */
+export function listingEntries(v) {
   const o = /** @type {any} */ (v);
-  const list = Array.isArray(o) ? o : Array.isArray(o?.tools) ? o.tools : Array.isArray(o?.result?.tools) ? o.result.tools : [];
-  return list.filter((/** @type {unknown} */ t) => !!t && typeof t === "object" && !Array.isArray(t));
+  return Array.isArray(o) ? o : Array.isArray(o?.tools) ? o.tools : Array.isArray(o?.result?.tools) ? o.result.tools : [];
 }
 
 /**
- * A pin (version 2). The key is opaqueId("tool", server, tool): 128 bits, stable whatever the display
+ * A pin (format version 3; version 2 used ids computed before the T10 change and is refused). The key is opaqueId("tool", server, tool): 128 bits, stable whatever the display
  * mode. `server` is opaqueId("server", server), to tell a removed tool from a server not listed this
  * time. `label` is the default-mode display name, only for people; it is never used to compare.
  * @typedef {{ server: string, sha256: string, label?: string }} PinEntry
@@ -276,7 +281,7 @@ export function toolsFromListing(v) {
 /** @param {unknown} p @returns {Record<string, PinEntry> | null} */
 function validPins(p) {
   const o = /** @type {any} */ (p);
-  if (!o || o.version !== 2 || !o.tools || typeof o.tools !== "object" || Array.isArray(o.tools)) return null;
+  if (!o || o.version !== 3 || !o.tools || typeof o.tools !== "object" || Array.isArray(o.tools)) return null;
   for (const [k, v] of Object.entries(o.tools)) {
     const e = /** @type {any} */ (v);
     // typeof first: String() on a hostile object ({ toString: 1 }) would throw.

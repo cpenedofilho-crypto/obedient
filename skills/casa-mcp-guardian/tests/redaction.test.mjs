@@ -59,7 +59,7 @@ function plant(seed, layout = "mcpServers") {
   const dir = tempProject(files);
   // Pins with an untrusted label and a pinned tool that is gone (TOOL_REMOVED shows the label).
   const serverB = `SRV${S[36]}`;
-  writeFileSync(join(dir, `pins-${S[37]}.json`), JSON.stringify({ version: 2, tools: {
+  writeFileSync(join(dir, `pins-${S[37]}.json`), JSON.stringify({ version: 3, tools: {
     [opaqueId("tool", serverB, `gone_${S[38]}`)]: { server: opaqueId("server", serverB), sha256: "0".repeat(64), label: `label ${S[39]}` },
   } }));
   const args = ["--root", dir, "--config", `cfg-${S[28]}.json`, "--tools", `tools-${S[29]}.json`, "--tools", `${serverB}=t2.json`, "--pins", `pins-${S[37]}.json`, "--critical-pattern", S[0]];
@@ -143,7 +143,7 @@ describe("pins: opaque, stable, independent of the display mode", () => {
     const dir = tempProject({ "t.json": listing });
     const a = JSON.parse(run(["--root", dir, "--tools", "gh=t.json", "--emit-pins"]).out);
     const b = JSON.parse(run(["--root", dir, "--tools", "gh=t.json", "--emit-pins", "--redact-names"]).out);
-    assert.equal(a.version, 2);
+    assert.equal(a.version, 3);
     assert.deepEqual(Object.keys(a.tools).sort(), Object.keys(b.tools).sort());
     for (const [id, e] of Object.entries(a.tools)) {
       assert.match(id, /^[0-9a-f]{32}$/); // 128 bits
@@ -176,8 +176,8 @@ describe("pins: opaque, stable, independent of the display mode", () => {
     const dir = tempProject({
       "t.json": listing,
       "v1.json": { version: 1, tools: { "gh/list_issues": "0".repeat(64) } },
-      "badid.json": { version: 2, tools: { "gh/list_issues": { server: "0".repeat(32), sha256: "0".repeat(64) } } },
-      "badsha.json": { version: 2, tools: { [opaqueId("tool", "gh", "list_issues")]: { server: opaqueId("server", "gh"), sha256: "zz" } } },
+      "badid.json": { version: 3, tools: { "gh/list_issues": { server: "0".repeat(32), sha256: "0".repeat(64) } } },
+      "badsha.json": { version: 3, tools: { [opaqueId("tool", "gh", "list_issues")]: { server: opaqueId("server", "gh"), sha256: "zz" } } },
     });
     for (const p of ["v1.json", "badid.json", "badsha.json"]) {
       const r = JSON.parse(run(["--root", dir, "--tools", "gh=t.json", "--pins", p, "--format", "json", "--fail-on", "never"]).out);

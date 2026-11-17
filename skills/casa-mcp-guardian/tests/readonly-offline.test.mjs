@@ -21,7 +21,7 @@ function fixture() {
     ".mcp.json": { mcpServers: { a: { type: "http", url: "https://mcp.example.com/mcp" }, b: { command: "npx", args: ["-y", "some-server"] } } },
     "tools.json": { tools: [{ name: "list_x", inputSchema: { type: "object" } }, { name: "delete_x", inputSchema: { type: "object" } }] },
     // Version 2 pins: opaque 128-bit id per tool; a wrong hash makes "list_x" a changed tool.
-    "pins.json": { version: 2, tools: { [opaqueId("tool", "srv", "list_x")]: { server: opaqueId("server", "srv"), sha256: "0".repeat(64) } } },
+    "pins.json": { version: 3, tools: { [opaqueId("tool", "srv", "list_x")]: { server: opaqueId("server", "srv"), sha256: "0".repeat(64) } } },
   });
 }
 

@@ -23,7 +23,7 @@ const codes = (/** @type {string[]} */ args) => json(args).findings.map((/** @ty
 describe("N1: the same tool of the same server in two listings is never accepted silently", () => {
   const a = { name: "get_doc", description: "Reads.", inputSchema: { type: "object" } };
   const a2 = { name: "get_doc", description: "Reads and deletes.", inputSchema: { type: "object" } };
-  const pins = { version: 2, tools: { [opaqueId("tool", "s", "get_doc")]: { server: opaqueId("server", "s"), sha256: pinOf(a) } } };
+  const pins = { version: 3, tools: { [opaqueId("tool", "s", "get_doc")]: { server: opaqueId("server", "s"), sha256: pinOf(a) } } };
 
   it("two --tools with the same server name: TOOL_DUPLICATE_NAME, and a changed copy is TOOL_CHANGED", () => {
     const dir = tempProject({ "a.json": { tools: [a] }, "a2.json": { tools: [a2] }, "p.json": pins });
@@ -131,3 +131,27 @@ describe("N5: a token after a backslash right after the host is still found", ()
   });
 });
 
+
+describe("N7: a pin file never leaves a tool out silently", () => {
+  it("entries that are not tool objects are a finding, and --emit-pins refuses", () => {
+    const dir = tempProject({ "t.json": { tools: [1, "x", null, { name: "ok", inputSchema: { type: "object" } }] } });
+    const r = json(["--root", dir, "--tools", "s=t.json"]);
+    const f = r.findings.find((/** @type {any} */ x) => x.code === "TOOL_ENTRY_INVALID");
+    assert.equal(f?.data, "3");
+    const e = cli(["--root", dir, "--tools", "s=t.json", "--emit-pins"]);
+    assert.equal(e.code, 2);
+    assert.equal(e.out, "");
+  });
+  it("pin files are version 3; version 2 files (ids before the T10 change) are PINS_INVALID", () => {
+    const tool = { name: "x", inputSchema: { type: "object" } };
+    const dir = tempProject({ "t.json": { tools: [tool] }, "v2.json": { version: 2, tools: { [opaqueId("tool", "s", "x")]: { server: opaqueId("server", "s"), sha256: pinOf(tool) } } } });
+    assert.equal(JSON.parse(run(["--root", dir, "--tools", "s=t.json", "--emit-pins"]).out).version, 3);
+    assert.ok(codes(["--root", dir, "--tools", "s=t.json", "--pins", "v2.json"]).includes("PINS_INVALID"));
+  });
+  it("the refusal message does not blame a listing when the unreadable file is a config or a pin file", () => {
+    const dir = tempProject({ "t.json": { tools: [{ name: "x", inputSchema: { type: "object" } }] } });
+    const r = cli(["--root", dir, "--tools", "s=t.json", "--config", "missing.json", "--emit-pins"]);
+    assert.equal(r.code, 2);
+    assert.match(r.err, /an input file could not be read/);
+  });
+});

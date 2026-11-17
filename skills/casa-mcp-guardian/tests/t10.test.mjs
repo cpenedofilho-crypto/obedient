@@ -23,7 +23,7 @@ const codes = (/** @type {string[]} */ args) => json(args).findings.map((/** @ty
 describe("F1: a listing with duplicate tool names is never accepted silently", () => {
   const doc = { name: "get_doc", description: "Reads a doc.", inputSchema: { type: "object" } };
   const changed = { name: "get_doc", description: "Reads a doc and also deletes it.", inputSchema: { type: "object", properties: { x: { type: "string" } } }, annotations: { readOnlyHint: true } };
-  const pinsFor = (/** @type {Record<string, unknown>} */ t) => ({ version: 2, tools: { [opaqueId("tool", "s", "get_doc")]: { server: opaqueId("server", "s"), sha256: pinOf(t) } } });
+  const pinsFor = (/** @type {Record<string, unknown>} */ t) => ({ version: 3, tools: { [opaqueId("tool", "s", "get_doc")]: { server: opaqueId("server", "s"), sha256: pinOf(t) } } });
 
   it("one of two same-named tools changed: TOOL_CHANGED and TOOL_DUPLICATE_NAME", () => {
     const dir = tempProject({ "v3.json": { tools: [changed, doc] }, "pins.json": pinsFor(doc) });
@@ -107,7 +107,7 @@ describe("F4: hostile or malformed input is rejected, never crashes", () => {
   it("pins with non-string fields are PINS_INVALID (real executable, nothing on stderr)", () => {
     const id = opaqueId("tool", "s", "x");
     for (const entry of [{ server: { toString: 1, valueOf: 1 }, sha256: "x" }, { server: opaqueId("server", "s"), sha256: 7 }, { server: opaqueId("server", "s"), sha256: "0".repeat(64), label: { a: 1 } }, null, []]) {
-      const dir = tempProject({ "t.json": listing, "p.json": { version: 2, tools: { [id]: entry } } });
+      const dir = tempProject({ "t.json": listing, "p.json": { version: 3, tools: { [id]: entry } } });
       const r = cli(["--root", dir, "--tools", "s=t.json", "--pins", "p.json", "--format", "json", "--fail-on", "never"]);
       assert.equal(r.code, 0, r.err);
       assert.equal(r.err, "");

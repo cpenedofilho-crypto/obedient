@@ -62,7 +62,7 @@ node scripts/mcp-guardian.mjs --format json --fail-on critical  # for CI
 | --- | --- |
 | `--config FILE` | Config to audit (repeatable). Without it (and without `--tools`): `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.claude/settings.json`, `.claude/settings.local.json` in `--root`. Never the home folder: without `--config`, a root that is the home folder (however written) is refused, and a default path that leads out of the project through a symlink is skipped (`IMPLICIT_PATH_OUTSIDE_PROJECT`). |
 | `--tools [SERVER=]FILE` | A saved `tools/list` result: array, `{ "tools": [...] }` or a JSON-RPC response (repeatable). |
-| `--pins FILE` / `--emit-pins` | Compare with saved pins / print pins (version 2) to standard output. |
+| `--pins FILE` / `--emit-pins` | Compare with saved pins / print pins (version 3) to standard output. When comparing, use `--fail-on medium`: a new tool is `TOOL_NEW` (MEDIUM). |
 | `--redact-names` | Protected mode: free identifiers replaced by neutral labels. Required before sharing a report. |
 | `--critical-pattern TEXT\|/REGEX/` | Your own critical tools, e.g. the ones that move money in your stack (repeatable). |
 | `--format md\|json`, `--lang en\|pt` | Report format and language. |
@@ -114,12 +114,12 @@ and offline behavior (below), the agent's compliance depends on the model.
 | Risk, category, severity, finding codes, exit code | Same | Same |
 | Residual risk | The masking is a heuristic: measured on random tokens, it misses about 0-1% at 40 characters and 12-25% at 16; a secret written as ordinary words inside a name is not caught | Tested with secrets of every format planted in every free-text field: no fragment in any output. Only fixed vocabulary is printed (codes, severities, risk, the default config file names, known transport types and auto-approval keys) |
 
-Pins (`--emit-pins`, version 2) are keyed by an opaque 128-bit id (SHA-256 over a fixed domain and the
+Pins (`--emit-pins`, format version 3) are keyed by an opaque 128-bit id (SHA-256 over a fixed domain and the
 server and tool names, truncated), so they compare the same in both modes. The id identifies; it does not
 anonymize: a predictable name can be found by trying candidates, so a pin file is not something to
 publish. The default mode adds a readable label for people; the protected mode leaves it out.
 `--emit-pins` refuses (exit 2) a listing that could not be read, is empty, repeats a tool name or nests
-too deeply, so a pin file never silently leaves a tool out. In protected reports, labels are numbered
+too deeply, or has entries that are not tools, so a pin file never silently leaves a tool out; the same tool of the same server twice, in one listing or across listings, is always `TOOL_DUPLICATE_NAME`. Pin files from earlier versions (1 and 2) are refused: emit them again. In protected reports, labels are numbered
 within the report: a server really called `server-2` may appear as `server-1`.
 
 ## Guarantees and how they are tested

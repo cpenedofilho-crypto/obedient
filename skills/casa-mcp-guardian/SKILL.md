@@ -74,7 +74,7 @@ node <path-to-this-skill>/scripts/mcp-guardian.mjs --redact-names --config .mcp.
 # Detect silent tool changes ("rug pull"): print pins; the user decides whether and where to save them...
 node <path-to-this-skill>/scripts/mcp-guardian.mjs --redact-names --tools github=github-tools.json --emit-pins
 # ...later compare a new listing with the saved pins
-node <path-to-this-skill>/scripts/mcp-guardian.mjs --redact-names --tools github=github-tools-new.json --pins mcp-pins.json
+node <path-to-this-skill>/scripts/mcp-guardian.mjs --redact-names --tools github=github-tools-new.json --pins mcp-pins.json --fail-on medium
 ```
 
 Other options: `--format json`, `--fail-on INFO|LOW|MEDIUM|HIGH|CRITICAL|never`

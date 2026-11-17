@@ -67,7 +67,7 @@ node scripts/mcp-guardian.mjs --format json --fail-on critical  # para CI
 | --- | --- |
 | `--config ARQUIVO` | Configuração a auditar (pode repetir). Sem ela (e sem `--tools`): `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.claude/settings.json`, `.claude/settings.local.json` em `--root`. Nunca a pasta pessoal: sem `--config`, uma raiz que é a pasta pessoal (escrita de qualquer forma) é recusada, e um caminho padrão que sai do projeto por link simbólico é pulado (`IMPLICIT_PATH_OUTSIDE_PROJECT`). |
 | `--tools [SERVIDOR=]ARQUIVO` | Um resultado de `tools/list` salvo: lista, `{ "tools": [...] }` ou resposta JSON-RPC (pode repetir). |
-| `--pins ARQUIVO` / `--emit-pins` | Compara com a fixação salva / imprime a fixação (versão 2) na saída padrão. |
+| `--pins ARQUIVO` / `--emit-pins` | Compara com a fixação salva / imprime a fixação (versão 3) na saída padrão. Ao comparar, use `--fail-on medium`: ferramenta nova é `TOOL_NEW` (MEDIUM). |
 | `--redact-names` | Modo protegido: identificadores livres trocados por rótulos neutros. Obrigatório antes de compartilhar um relatório. |
 | `--critical-pattern TEXTO\|/REGEX/` | Suas ferramentas críticas, por exemplo as que movem dinheiro no seu ambiente (pode repetir). |
 | `--format md\|json`, `--lang en\|pt` | Formato e idioma do relatório. |
@@ -119,12 +119,12 @@ garante só leitura e ausência de rede (abaixo); o cumprimento pelo agente depe
 | Risco, categoria, gravidade, códigos de achado, código de saída | Iguais | Iguais |
 | Risco residual | O mascaramento é heurística: medido em tokens aleatórios, deixa passar cerca de 0-1% com 40 caracteres e 12-25% com 16; segredo escrito como palavras comuns dentro de um nome não é pego | Testado com segredos de todos os formatos plantados em todo campo de texto livre: nenhum trecho em nenhuma saída. Só sai vocabulário fixo (códigos, gravidades, risco, os nomes fixos de arquivo de configuração, tipos de transporte e chaves de aprovação conhecidos) |
 
-A fixação (`--emit-pins`, versão 2) usa como chave um identificador opaco de 128 bits (SHA-256 sobre um
+A fixação (`--emit-pins`, formato versão 3) usa como chave um identificador opaco de 128 bits (SHA-256 sobre um
 domínio fixo e os nomes de servidor e ferramenta, truncado), e por isso compara igual nos dois modos. O
 identificador identifica; não anonimiza: um nome previsível pode ser descoberto por tentativa, então
 arquivo de fixação não é para publicar. O modo padrão acrescenta um rótulo legível para pessoas; o
 protegido não. `--emit-pins` recusa (código 2) listagem que não pôde ser lida, está vazia, repete nome
-de ferramenta ou aninha demais, para a fixação nunca deixar uma ferramenta de fora em silêncio. No
+de ferramenta, aninha demais ou tem entradas que não são ferramentas, para a fixação nunca deixar uma ferramenta de fora em silêncio; a mesma ferramenta do mesmo servidor duas vezes, numa listagem ou entre listagens, é sempre `TOOL_DUPLICATE_NAME`. Fixações de versões anteriores (1 e 2) são recusadas: gere de novo. No
 relatório protegido, os rótulos são numerados dentro do relatório: um servidor chamado de fato
 `server-2` pode aparecer como `server-1`.
 

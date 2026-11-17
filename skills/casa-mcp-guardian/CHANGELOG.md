@@ -18,11 +18,11 @@ First public version. Read-only, offline audit of MCP configs and saved `tools/l
   commands, config keys, URL parameter names, package names, pin labels) replaced by neutral labels;
   required before a report is shared or sent to another system. Values are never shown in either mode,
   and the URL path and query are never shown.
-- Pins version 2: keyed by an opaque, domain-separated 128-bit id, so they compare the same in both
+- Pins format version 3: keyed by an opaque, domain-separated 128-bit id, so they compare the same in both
   modes. The id identifies; it does not anonymize.
 - A tool name repeated in one listing is always a finding (TOOL_DUPLICATE_NAME); a definition nested
   too deeply to inspect is a finding (TOOL_SCHEMA_TOO_DEEP); `--emit-pins` refuses unreadable, empty,
-  duplicated or too-deep listings.
+  duplicated or too-deep listings, listings with entries that are not tools, and runs with no listing.
 - Reports in Markdown or JSON, English or Portuguese. Exit codes 0, 1 and 2 (2 = usage error or an
   input that could not be processed; fixed message, never input or a stack trace).
 - Requires Node.js 22 or newer (tested on 22 and 24). No dependencies.
