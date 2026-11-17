@@ -229,6 +229,23 @@ export function stableJson(v) {
   return `{${Object.keys(o).sort().filter((k) => o[k] !== undefined).map((k) => `${JSON.stringify(k)}:${stableJson(o[k])}`).join(",")}}`;
 }
 
+/** Deepest nesting a tool may have to be pinned and inspected (real schemas stay far below). */
+export const MAX_DEPTH = 64;
+
+/** True when `v` nests deeper than `limit`. Iterative: a hostile 200,000-level listing cannot overflow
+ * the stack here. @param {unknown} v @param {number} limit */
+export function tooDeep(v, limit = MAX_DEPTH) {
+  /** @type {[unknown, number][]} */
+  const stack = [[v, 0]];
+  while (stack.length) {
+    const [node, d] = /** @type {[unknown, number]} */ (stack.pop());
+    if (!node || typeof node !== "object") continue;
+    if (d > limit) return true;
+    for (const x of Array.isArray(node) ? node : Object.values(node)) stack.push([x, d + 1]);
+  }
+  return false;
+}
+
 /** Pin of a tool: what the model sees (name, description, schema, annotations). */
 /** @param {Record<string, unknown>} t */
 export function pinOf(t) {
@@ -254,7 +271,9 @@ function validPins(p) {
   if (!o || o.version !== 2 || !o.tools || typeof o.tools !== "object" || Array.isArray(o.tools)) return null;
   for (const [k, v] of Object.entries(o.tools)) {
     const e = /** @type {any} */ (v);
-    if (!/^[0-9a-f]{32}$/.test(k) || !e || typeof e !== "object" || !/^[0-9a-f]{32}$/.test(String(e.server)) || !/^[0-9a-f]{64}$/.test(String(e.sha256))) return null;
+    // typeof first: String() on a hostile object ({ toString: 1 }) would throw.
+    if (!/^[0-9a-f]{32}$/.test(k) || !e || typeof e !== "object" || Array.isArray(e)) return null;
+    if (typeof e.server !== "string" || !/^[0-9a-f]{32}$/.test(e.server) || typeof e.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(e.sha256)) return null;
     if (e.label !== undefined && typeof e.label !== "string") return null;
   }
   return o.tools;
@@ -284,9 +303,13 @@ export function auditTools(listings, o = {}) {
     for (const [n, k] of count) if (k > 1) findings.push({ code: "TOOL_DUPLICATE_NAME", severity: "HIGH", file: l.file, target: `${nm.server(l.server)}/${nm.tool(n)}`, data: String(k) });
     const server = nm.server(l.server);
     if (!l.tools.length) findings.push({ code: "TOOLS_FILE_EMPTY", severity: "INFO", file: l.file, target: `server ${server}`, data: "" });
-    for (const t of l.tools) {
-      const rawName = str(t.name);
+    for (const t0 of l.tools) {
+      const rawName = str(t0.name);
       const tool = nm.tool(rawName);
+      // Too deep to inspect or pin safely: a finding, and only the name is classified.
+      const deep = tooDeep(t0);
+      if (deep) findings.push({ code: "TOOL_SCHEMA_TOO_DEEP", severity: "HIGH", file: l.file, target: `${server}/${tool}`, data: "" });
+      const t = deep ? { name: t0.name } : t0;
       const target = `${server}/${tool}`;
       const c = classifyTool(t, { extraCritical: o.extraCritical });
       const signals = [...new Set(allDescriptions(t).flatMap((d) => injectionSignals(d)))];
@@ -299,7 +322,7 @@ export function auditTools(listings, o = {}) {
       if (!c.usable) findings.push({ code: "TOOL_NO_OBJECT_SCHEMA", severity: "MEDIUM", file: l.file, target, data: "" });
       rows.push({ server, tool, risk: c.risk, category: c.category, usable: c.usable, signals });
       const label = nm.pinLabel(l.server, rawName);
-      pins[opaqueId("tool", l.server, rawName)] = { server: opaqueId("server", l.server), sha256: pinOf(t), ...(label ? { label } : {}) };
+      if (!deep) pins[opaqueId("tool", l.server, rawName)] = { server: opaqueId("server", l.server), sha256: pinOf(t), ...(label ? { label } : {}) };
       const seen = byName.get(rawName) ?? new Set();
       seen.add(l.server);
       byName.set(rawName, seen);
@@ -315,6 +338,7 @@ export function auditTools(listings, o = {}) {
       // Compared by opaque id only: the display mode never changes the result.
       for (const l of listings) {
         for (const t of l.tools) {
+          if (tooDeep(t)) continue; // already TOOL_SCHEMA_TOO_DEEP
           const rawName = str(t.name);
           const id = opaqueId("tool", l.server, rawName);
           const target = `${nm.server(l.server)}/${nm.tool(rawName)}`;

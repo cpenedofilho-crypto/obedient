@@ -185,6 +185,10 @@ export function run(argv) {
   const t = auditTools(listings, { extraCritical: critical, pins, nm });
   findings.push(...t.findings);
 
+  // Pins must describe every tool: refuse when a listing could not be read, is empty or cannot be pinned.
+  if (o.emitPins && findings.some((f) => f.code.startsWith("FILE_") || f.code === "TOOLS_FILE_EMPTY" || f.code === "TOOL_SCHEMA_TOO_DEEP")) {
+    return { out: "", err: "cannot emit pins: a listing could not be read, is empty, or has a tool nested too deeply to pin. Run without --emit-pins to see which.", code: 2 };
+  }
   if (o.emitPins && findings.some((f) => f.code === "TOOL_DUPLICATE_NAME")) {
     return { out: "", err: "cannot emit pins: duplicate tool name (a name appears more than once in one listing), so one pin could not tell the copies apart. Run without --emit-pins to see the report.", code: 2 };
   }
@@ -199,10 +203,21 @@ export function run(argv) {
   return { out, err: "", code };
 }
 
-// Only when executed directly (the tests import run()).
+/**
+ * run() behind a last guard: an unexpected error becomes a fixed message and exit code 2 (never exit 1,
+ * which means "findings", and never a stack trace, which could carry paths or input).
+ * @param {string[]} argv @param {(a: string[]) => { out: string, err: string, code: number }} [impl]
+ */
+export function main(argv, impl = run) {
+  try { return impl(argv); } catch {
+    return { out: "", err: "internal error: this input could not be processed. No detail is printed, so that nothing from the input is echoed.", code: 2 };
+  }
+}
+
+// Only when executed directly (the tests import run() and main()).
 const direct = !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (direct) {
-  const r = run(process.argv.slice(2));
+  const r = main(process.argv.slice(2));
   if (r.out) process.stdout.write(`${r.out}\n`);
   if (r.err) process.stderr.write(`${r.err}\n`);
   process.exitCode = r.code;

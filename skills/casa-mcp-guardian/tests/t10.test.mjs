@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { run } from "../scripts/mcp-guardian.mjs";
+import { main, run } from "../scripts/mcp-guardian.mjs";
 import { pinOf } from "../scripts/lib/audit.mjs";
 import { opaqueId } from "../scripts/lib/present.mjs";
 import { CLI, tempProject } from "./helpers.mjs";
@@ -99,6 +99,58 @@ describe("F3: the value of a flag is never taken for the package", () => {
   it("an unknown flag never makes its value the package: at worst the package is not judged", () => {
     const r = c("npx", ["--some-new-flag", SECRET]);
     assert.ok(!JSON.stringify(r).includes(SECRET));
+  });
+});
+
+describe("F4: hostile or malformed input is rejected, never crashes", () => {
+  const listing = { tools: [{ name: "x", inputSchema: { type: "object" } }] };
+  it("pins with non-string fields are PINS_INVALID (real executable, nothing on stderr)", () => {
+    const id = opaqueId("tool", "s", "x");
+    for (const entry of [{ server: { toString: 1, valueOf: 1 }, sha256: "x" }, { server: opaqueId("server", "s"), sha256: 7 }, { server: opaqueId("server", "s"), sha256: "0".repeat(64), label: { a: 1 } }, null, []]) {
+      const dir = tempProject({ "t.json": listing, "p.json": { version: 2, tools: { [id]: entry } } });
+      const r = cli(["--root", dir, "--tools", "s=t.json", "--pins", "p.json", "--format", "json", "--fail-on", "never"]);
+      assert.equal(r.code, 0, r.err);
+      assert.equal(r.err, "");
+      assert.ok(JSON.parse(r.out).findings.some((/** @type {any} */ f) => f.code === "PINS_INVALID"), JSON.stringify(entry));
+    }
+  });
+  it("a tool nested 200,000 levels deep is a finding, not a stack overflow", () => {
+    const deep = `${"[".repeat(200000)}${"]".repeat(200000)}`;
+    const dir = tempProject({ "t.json": `{"tools":[{"name":"deep_tool","inputSchema":{"type":"object","properties":{"x":${deep}}}},{"name":"ok_tool","inputSchema":{"type":"object"}}]}` });
+    const r = cli(["--root", dir, "--tools", "s=t.json", "--format", "json", "--fail-on", "never"]);
+    assert.equal(r.code, 0, r.err.slice(0, 200));
+    assert.equal(r.err, "");
+    const out = JSON.parse(r.out);
+    assert.ok(out.findings.some((/** @type {any} */ f) => f.code === "TOOL_SCHEMA_TOO_DEEP"));
+    assert.equal(out.tools.length, 2);
+    const e = cli(["--root", dir, "--tools", "s=t.json", "--emit-pins"]);
+    assert.equal(e.code, 2);
+    assert.equal(e.out, "");
+    assert.doesNotMatch(e.err, /\n\s+at |RangeError|\.mjs/);
+  });
+  it("any unexpected error becomes a fixed message and exit code 2, never a stack trace or the input", () => {
+    const r = main(["--x"], () => { throw new Error("leaked-input-text-qwerty /home/someone/secret"); });
+    assert.equal(r.code, 2);
+    assert.equal(r.out, "");
+    assert.doesNotMatch(r.err, /qwerty|someone|Error:|\n\s+at /);
+    assert.match(r.err, /internal error/);
+  });
+});
+
+describe("F5: --emit-pins refuses when an input could not be read", () => {
+  it("missing, invalid or empty listings do not produce an empty pin file", () => {
+    const dir = tempProject({ "bad.json": "{not json", "ok.json": { tools: [{ name: "x", inputSchema: { type: "object" } }] } });
+    for (const files of [["s=missing.json"], ["s=bad.json"], ["s=ok.json", "t=missing.json"]]) {
+      for (const extra of [[], ["--redact-names"]]) {
+        const r = cli(["--root", dir, ...files.flatMap((f) => ["--tools", f]), "--emit-pins", ...extra]);
+        assert.equal(r.code, 2, files.join());
+        assert.equal(r.out, "");
+        assert.match(r.err, /cannot emit pins/);
+      }
+    }
+    const ok = cli(["--root", dir, "--tools", "s=ok.json", "--emit-pins"]);
+    assert.equal(ok.code, 0);
+    assert.equal(Object.keys(JSON.parse(ok.out).tools).length, 1);
   });
 });
 
