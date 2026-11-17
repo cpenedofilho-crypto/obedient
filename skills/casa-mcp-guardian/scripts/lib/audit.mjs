@@ -296,12 +296,20 @@ export function auditTools(listings, o = {}) {
   const pins = {};
   /** @type {Map<string, Set<string>>} */
   const byName = new Map();
+  // The same server and tool twice, in one listing or across listings of the same server: a pin cannot
+  // tell the copies apart, so it is always a finding (and --emit-pins refuses).
+  /** @type {Map<string, { server: string, name: string, file: string, n: number }>} */
+  const seen = new Map();
   for (const l of listings) {
-    // The same tool name twice in one listing: a pin cannot tell the two apart, so it is always a finding.
-    /** @type {Map<string, number>} */
-    const count = new Map();
-    for (const t of l.tools) count.set(str(t.name), (count.get(str(t.name)) ?? 0) + 1);
-    for (const [n, k] of count) if (k > 1) findings.push({ code: "TOOL_DUPLICATE_NAME", severity: "HIGH", file: l.file, target: `${nm.server(l.server)}/${nm.tool(n)}`, data: String(k) });
+    for (const t of l.tools) {
+      const id = opaqueId("tool", l.server, str(t.name));
+      const e = seen.get(id) ?? { server: l.server, name: str(t.name), file: l.file, n: 0 };
+      e.n++;
+      seen.set(id, e);
+    }
+  }
+  for (const e of seen.values()) if (e.n > 1) findings.push({ code: "TOOL_DUPLICATE_NAME", severity: "HIGH", file: e.file, target: `${nm.server(e.server)}/${nm.tool(e.name)}`, data: String(e.n) });
+  for (const l of listings) {
     const server = nm.server(l.server);
     if (!l.tools.length) findings.push({ code: "TOOLS_FILE_EMPTY", severity: "INFO", file: l.file, target: `server ${server}`, data: "" });
     for (const t0 of l.tools) {
