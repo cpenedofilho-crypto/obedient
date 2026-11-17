@@ -36,8 +36,8 @@ nem em outro marketplace), nada foi mesclado e nada foi para produção.
 | Texto não confiável (`untrusted.test.mjs`) | 20 | passou |
 | Somente leitura, sem rede, sem processo (`readonly-offline.test.mjs`) | 4 | passou: modelo de permissões do Node só com leitura; toda porta de rede forçada a falhar; importações só de `fs`, `path`, `crypto`, `url` |
 | Linha de comando e fixação (`cli.test.mjs`) | 18 | passou. Inclui 8 casos de regressão de configuração pessoal ou global (T2): pasta pessoal como raiz escrita de seis formas (simples, barra no fim, `/./`, `sub/..`, link simbólico, link com barra), `HOME` com barra no fim e `USERPROFILE`, pasta atual sem `--root` (inglês e português), modelo de permissões sem acesso para resolver link; projeto dentro da pasta pessoal auditado normalmente; `--config` explícito lido; `.claude/` e `.mcp.json` com link simbólico para fora do projeto pulados (`IMPLICIT_PATH_OUTSIDE_PROJECT`) sem ler a credencial deles; raiz que é link para um projeto continua auditada |
-| Pacote da skill (`skill.test.mjs`) | 22 | passou: frontmatter num subconjunto estrito de YAML; `compatibility` só com as versões de Node testadas (22 e 24) e compatibilidade só estrutural com Cursor 2.4+; nenhum documento cita Node 18 ou 20; as regras 5 a 7 do agente (não abrir JSON bruto, perguntar antes de configuração pessoal ou global, não criar fixação sem pedido); a descrição suspeita é lida por uma pessoa fora da conversa, nunca colada nela; rotação de credencial recomendada a menos que o arquivo nunca tenha saído da máquina, e na dúvida rotacionar (no `SKILL.md` e nas mensagens fixas de `LITERAL_SECRET`, `URL_CREDENTIALS` e `URL_SECRET_PARAM`, nos dois idiomas); `LICENSE` com o texto integral da AGPL (sha256 fixo) e `NOTICE` com copyright, licença, fonte e terceiros; SPDX em todo `.mjs`; nenhum link relativo saindo da pasta; nenhuma oferta de licença comercial como disponível; exemplos pelo caminho da skill; nenhum nome de cliente, produto ou pessoa. Regra 2 sem rotação incondicional (T1); instrução de parada quando o script não está no disco, antes do primeiro comando; `checks.md` com as duas colunas, inglês e português, em todas as linhas (T3). Teste de mutação: 13 mutações reprovam (Node 18, cada regra removida, `LICENSE` alterada, `NOTICE` sem terceiros, link para fora, licença comercial "oferecida", descrição sem "fora da conversa", permissão de colar, rotação incondicional, sem "na dúvida", mensagem sem a ressalva) |
-| Versões do Node (fora do monorepo, pasta copiada) | 102 por versão | passou no Node 22.23.4 e no 24.22.1. Node 18 e 20 **não testados** (não instalados no ambiente; a instalação foi barrada pela política da sessão), por isso não são declarados |
+| Pacote da skill (`skill.test.mjs`) | 24 | passou: frontmatter num subconjunto estrito de YAML; `compatibility` só com as versões de Node testadas (22 e 24) e compatibilidade só estrutural com Cursor 2.4+; nenhum documento cita Node 18 ou 20; as regras 5 a 7 do agente (não abrir JSON bruto, perguntar antes de configuração pessoal ou global, não criar fixação sem pedido); a descrição suspeita é lida por uma pessoa fora da conversa, nunca colada nela; rotação de credencial recomendada a menos que o arquivo nunca tenha saído da máquina, e na dúvida rotacionar (no `SKILL.md` e nas mensagens fixas de `LITERAL_SECRET`, `URL_CREDENTIALS` e `URL_SECRET_PARAM`, nos dois idiomas); `LICENSE` com o texto integral da AGPL (sha256 fixo) e `NOTICE` com copyright, licença, fonte e terceiros; SPDX em todo `.mjs`; nenhum link relativo saindo da pasta; nenhuma oferta de licença comercial como disponível; exemplos pelo caminho da skill; nenhum nome de cliente, produto ou pessoa. Regra 2 sem rotação incondicional (T1); instrução de parada quando o script não está no disco, antes do primeiro comando; `checks.md` com as duas colunas, inglês e português, em todas as linhas (T3); nenhuma carga literal de ataque nos documentos do pacote, com o risco ainda documentado e apontando para os testes (T4); a ressalva de que a proteção da pasta pessoal vale só para a descoberta automática. Teste de mutação: 13 mutações reprovam (Node 18, cada regra removida, `LICENSE` alterada, `NOTICE` sem terceiros, link para fora, licença comercial "oferecida", descrição sem "fora da conversa", permissão de colar, rotação incondicional, sem "na dúvida", mensagem sem a ressalva) |
+| Versões do Node (fora do monorepo, pasta copiada) | 104 por versão | passou no Node 22.23.4 e no 24.22.1. Node 18 e 20 **não testados** (não instalados no ambiente; a instalação foi barrada pela política da sessão), por isso não são declarados |
 | gitleaks 8.24.3 (a mesma versão do CI, checksum conferido) sobre `skills/`, `tests/skills/`, `docs/skills/` | — | nenhum vazamento (as credenciais de teste são geradas na execução, nunca gravadas) |
 | `npm run check` do repositório inteiro | 573 testes; typecheck (inclui `tsconfig.skills.json`, estrito); licenças | 572 passaram, 0 falharam, 1 pulado (anterior, só roda no Postgres do CI) |
 
@@ -118,7 +118,13 @@ simbólico; execução da pasta de um projeto no Node 22 e 24 com credencial fal
 nenhum trecho de 8 caracteres na saída) e descrição hostil (`TOOL_INJECTION_SIGNAL`, texto não
 reproduzido).
 
-## 8. Exemplos de ataque na documentação diante do verificador da Agensi (T4, proposta, não aplicada)
+## 8. Exemplos de ataque na documentação diante do verificador da Agensi (T4)
+
+**Aplicado em 17/11/2026 (item 1 da proposta, por decisão do responsável):** os passos 5 e 6 do teste
+manual nos README descrevem o caso em palavras ("uma descrição que manda o agente desconsiderar as
+instruções anteriores", "um valor que imita o formato de um token real") e apontam para os testes do
+repositório, que continuam com as cargas literais. Um teste reprova se a frase literal ou um prefixo de
+credencial voltar aos documentos do pacote. Os itens 2 a 4 abaixo continuam como proposta.
 
 Nada foi removido nem escondido. Levantamento do pacote (sem `tests/`):
 
@@ -126,8 +132,8 @@ Nada foi removido nem escondido. Levantamento do pacote (sem `tests/`):
 | --- | --- | --- | --- |
 | README en/pt, "What it checks" | `curl \| sh`, `sh -c` | descreve o que é detectado | baixo |
 | `references/checks.md` | `https://user:pass@host`, `169.254.0.0/16`, `curl … \| sh` | descreve o que é detectado | baixo |
-| README en/pt, teste manual passo 5 | `"API_KEY": "sk-test-` mais 30 letras | carga com formato de credencial | médio |
-| README en/pt, teste manual passo 6 | a frase "ignore previous instructions" | carga de injeção literal | **alto** |
+| README en/pt, teste manual passo 5 | ~~prefixo de credencial mais 30 letras~~ → descrição | carga com formato de credencial | resolvido |
+| README en/pt, teste manual passo 6 | ~~frase de injeção literal~~ → descrição e link para os testes | carga de injeção literal | resolvido |
 | `scripts/lib/untrusted.mjs`, `secrets.mjs`, `endpoint.mjs` | expressões regulares de detecção | código do detector | médio, inevitável |
 
 Proposta de apresentação:

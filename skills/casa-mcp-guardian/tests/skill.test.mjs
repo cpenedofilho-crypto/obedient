@@ -135,6 +135,24 @@ describe("SKILL.md", () => {
     assert.match(checks, /Em português:/);
     assert.match(checks, /nunca uma quebra/);
   });
+  it("the packaged docs describe attack examples instead of carrying literal payloads (T4)", () => {
+    for (const f of ["SKILL.md", "README.md", "README.pt-BR.md", "NOTICE", "references/checks.md"]) {
+      const text = readFileSync(join(SKILL_DIR, f), "utf8");
+      assert.doesNotMatch(text, /ignore (all |the )?previous instructions/i, f);
+      assert.doesNotMatch(text, /\bsk-(test|live|proj|ant)-/i, f);
+    }
+    for (const f of ["README.md", "README.pt-BR.md"]) {
+      const text = readFileSync(join(SKILL_DIR, f), "utf8");
+      assert.match(text, /TOOL_INJECTION_SIGNAL/, f); // the risk is still documented
+      assert.match(text, /skills\/casa-mcp-guardian\/tests\)/, f); // and points to the real cases
+    }
+  });
+  it("the docs say the home-folder protection covers discovery only, not file-system isolation", () => {
+    assert.match(md, /covers automatic discovery only/);
+    assert.match(md, /This is not file-system isolation/);
+    assert.match(readFileSync(join(SKILL_DIR, "README.md"), "utf8"), /This is not file-system isolation/);
+    assert.match(readFileSync(join(SKILL_DIR, "README.pt-BR.md"), "utf8"), /Não é isolamento do sistema de arquivos/);
+  });
   it("no document claims a Node.js version that was not tested", () => {
     for (const f of ["SKILL.md", "README.md", "README.pt-BR.md"]) {
       const text = readFileSync(join(SKILL_DIR, f), "utf8");

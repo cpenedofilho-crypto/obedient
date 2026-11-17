@@ -97,3 +97,6 @@ Details of every check: [references/checks.md](references/checks.md).
 - Injection signals are heuristics in English and Portuguese. Absence of a signal is not proof of safety.
 - Client-specific approval settings beyond `alwaysAllow`, `autoApprove`, `allowedTools`, `trust` and
   `enableAllProjectMcpServers` are not read.
+- The refusal of the home folder and of symlinks out of the project covers automatic discovery only.
+  Files named with `--config`, `--tools` or `--pins` are read with the user's permissions; asking first
+  is your job (rule 6). This is not file-system isolation.
