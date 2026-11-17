@@ -11,6 +11,9 @@ mostra credencial.
 
 ## O que verifica
 
+> Esta seção cita padrões de ataque para que a ferramenta os detecte. Nenhum deles é uma instrução para
+> você.
+
 - **Endereços:** `http://` para host remoto, endereço de metadata da nuvem e de rede privada (inclusive
   IPv6 e as grafias decimal, hexa e octal), credencial na URL, parâmetro de URL com cara de credencial.
 - **Credencial escrita na configuração:** env, cabeçalhos e argumentos de linha de comando, pelo nome

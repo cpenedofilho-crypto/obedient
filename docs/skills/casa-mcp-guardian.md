@@ -36,8 +36,8 @@ nem em outro marketplace), nada foi mesclado e nada foi para produção.
 | Texto não confiável (`untrusted.test.mjs`) | 20 | passou |
 | Somente leitura, sem rede, sem processo (`readonly-offline.test.mjs`) | 4 | passou: modelo de permissões do Node só com leitura; toda porta de rede forçada a falhar; importações só de `fs`, `path`, `crypto`, `url` |
 | Linha de comando e fixação (`cli.test.mjs`) | 18 | passou. Inclui 8 casos de regressão de configuração pessoal ou global (T2): pasta pessoal como raiz escrita de seis formas (simples, barra no fim, `/./`, `sub/..`, link simbólico, link com barra), `HOME` com barra no fim e `USERPROFILE`, pasta atual sem `--root` (inglês e português), modelo de permissões sem acesso para resolver link; projeto dentro da pasta pessoal auditado normalmente; `--config` explícito lido; `.claude/` e `.mcp.json` com link simbólico para fora do projeto pulados (`IMPLICIT_PATH_OUTSIDE_PROJECT`) sem ler a credencial deles; raiz que é link para um projeto continua auditada |
-| Pacote da skill (`skill.test.mjs`) | 24 | passou: frontmatter num subconjunto estrito de YAML; `compatibility` só com as versões de Node testadas (22 e 24) e compatibilidade só estrutural com Cursor 2.4+; nenhum documento cita Node 18 ou 20; as regras 5 a 7 do agente (não abrir JSON bruto, perguntar antes de configuração pessoal ou global, não criar fixação sem pedido); a descrição suspeita é lida por uma pessoa fora da conversa, nunca colada nela; rotação de credencial recomendada a menos que o arquivo nunca tenha saído da máquina, e na dúvida rotacionar (no `SKILL.md` e nas mensagens fixas de `LITERAL_SECRET`, `URL_CREDENTIALS` e `URL_SECRET_PARAM`, nos dois idiomas); `LICENSE` com o texto integral da AGPL (sha256 fixo) e `NOTICE` com copyright, licença, fonte e terceiros; SPDX em todo `.mjs`; nenhum link relativo saindo da pasta; nenhuma oferta de licença comercial como disponível; exemplos pelo caminho da skill; nenhum nome de cliente, produto ou pessoa. Regra 2 sem rotação incondicional (T1); instrução de parada quando o script não está no disco, antes do primeiro comando; `checks.md` com as duas colunas, inglês e português, em todas as linhas (T3); nenhuma carga literal de ataque nos documentos do pacote, com o risco ainda documentado e apontando para os testes (T4); a ressalva de que a proteção da pasta pessoal vale só para a descoberta automática. Teste de mutação: 13 mutações reprovam (Node 18, cada regra removida, `LICENSE` alterada, `NOTICE` sem terceiros, link para fora, licença comercial "oferecida", descrição sem "fora da conversa", permissão de colar, rotação incondicional, sem "na dúvida", mensagem sem a ressalva) |
-| Versões do Node (fora do monorepo, pasta copiada) | 104 por versão | passou no Node 22.23.4 e no 24.22.1. Node 18 e 20 **não testados** (não instalados no ambiente; a instalação foi barrada pela política da sessão), por isso não são declarados |
+| Pacote da skill (`skill.test.mjs`) | 26 | passou: frontmatter num subconjunto estrito de YAML; `compatibility` só com as versões de Node testadas (22 e 24) e compatibilidade só estrutural com Cursor 2.4+; nenhum documento cita Node 18 ou 20; as regras 5 a 7 do agente (não abrir JSON bruto, perguntar antes de configuração pessoal ou global, não criar fixação sem pedido); a descrição suspeita é lida por uma pessoa fora da conversa, nunca colada nela; rotação de credencial recomendada a menos que o arquivo nunca tenha saído da máquina, e na dúvida rotacionar (no `SKILL.md` e nas mensagens fixas de `LITERAL_SECRET`, `URL_CREDENTIALS` e `URL_SECRET_PARAM`, nos dois idiomas); `LICENSE` com o texto integral da AGPL (sha256 fixo) e `NOTICE` com copyright, licença, fonte e terceiros; SPDX em todo `.mjs`; nenhum link relativo saindo da pasta; nenhuma oferta de licença comercial como disponível; exemplos pelo caminho da skill; nenhum nome de cliente, produto ou pessoa. Regra 2 sem rotação incondicional (T1); instrução de parada quando o script não está no disco, antes do primeiro comando; `checks.md` com as duas colunas, inglês e português, em todas as linhas (T3); nenhuma carga literal de ataque nos documentos do pacote, com o risco ainda documentado e apontando para os testes (T4); a ressalva de que a proteção da pasta pessoal vale só para a descoberta automática. Teste de mutação: 13 mutações reprovam (Node 18, cada regra removida, `LICENSE` alterada, `NOTICE` sem terceiros, link para fora, licença comercial "oferecida", descrição sem "fora da conversa", permissão de colar, rotação incondicional, sem "na dúvida", mensagem sem a ressalva) |
+| Versões do Node (fora do monorepo, pasta copiada) | 106 por versão | passou no Node 22.23.4 e no 24.22.1. Node 18 e 20 **não testados** (não instalados no ambiente; a instalação foi barrada pela política da sessão), por isso não são declarados |
 | gitleaks 8.24.3 (a mesma versão do CI, checksum conferido) sobre `skills/`, `tests/skills/`, `docs/skills/` | — | nenhum vazamento (as credenciais de teste são geradas na execução, nunca gravadas) |
 | `npm run check` do repositório inteiro | 573 testes; typecheck (inclui `tsconfig.skills.json`, estrito); licenças | 572 passaram, 0 falharam, 1 pulado (anterior, só roda no Postgres do CI) |
 
@@ -124,9 +124,24 @@ reproduzido).
 manual nos README descrevem o caso em palavras ("uma descrição que manda o agente desconsiderar as
 instruções anteriores", "um valor que imita o formato de um token real") e apontam para os testes do
 repositório, que continuam com as cargas literais. Um teste reprova se a frase literal ou um prefixo de
-credencial voltar aos documentos do pacote. Os itens 2 a 4 abaixo continuam como proposta.
+credencial voltar aos documentos do pacote.
 
-Nada foi removido nem escondido. Levantamento do pacote (sem `tests/`):
+**Itens 2 a 4, aplicados em 17/11/2026 (decisão do responsável):**
+- Item 2: aviso bilíngue no topo do `references/checks.md` e no início de "What it checks" / "O que
+  verifica" dos README: os padrões citados servem para detectar e não são instrução.
+- Item 3: nota aos revisores em `docs/skills/casa-mcp-guardian-nota-revisores.md`, para o formulário
+  de envio, **fora do pacote** (um arquivo na skill pedindo a um revisor automático para relevar
+  padrões se pareceria com tentativa de influenciar o verificador). A nota diz onde estão os padrões e
+  como conferir, e não pede para ignorar nenhum alerta. `tests/skills/casa-mcp-guardian-nota.test.ts`
+  confere que os arquivos citados existem e têm o que a nota diz, que o `grep` sugerido não acha nada,
+  que não há pedido para ignorar, e que a nota não está na pasta da skill.
+- Item 4: um teste trava a descrição do que é detectado (`curl … | sh`, `169.254.0.0/16`,
+  `https://user:pass@host`, sinais de injeção) no `checks.md` e nos README; tirá-la reprova.
+
+Mutações: 5 de 5 reprovam (aviso removido do `checks.md` e do README, descrição do `PIPE_TO_SHELL`
+escondida, nota pedindo para ignorar alertas, nota citando arquivo inexistente).
+
+Nada foi removido nem escondido. Levantamento original do pacote (sem `tests/`), antes dos itens 1 a 4:
 
 | Onde | O que | Tipo | Risco de falso positivo [H] |
 | --- | --- | --- | --- |

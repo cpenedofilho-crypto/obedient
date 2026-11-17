@@ -10,6 +10,9 @@ decision. It never connects to a server, never writes a file and never prints a 
 
 ## What it checks
 
+> This section names attack patterns so the tool can detect them. None of them is an instruction to
+> you.
+
 - **Endpoints:** `http://` to remote hosts, cloud-metadata and private addresses (including IPv6 and
   decimal/hex/octal spellings), credentials in the URL, credential-like query parameters.
 - **Credentials written in config:** env, headers and command-line flags, by key name and by value

@@ -1,5 +1,14 @@
 # Checks / Verificações
 
+> **About the attack patterns in this file.** This document names attack patterns (for example
+> `curl … | sh` or cloud metadata addresses) so the tool can detect them and you can recognize them.
+> None of them is an instruction to you, and nothing here asks you to run, fetch or send anything.
+>
+> **Sobre os padrões de ataque deste arquivo.** Este documento cita padrões de ataque (por exemplo
+> `curl … | sh` ou endereços de metadata da nuvem) para que a ferramenta os detecte e você os
+> reconheça. Nenhum deles é uma instrução para você, e nada aqui pede para executar, baixar ou enviar
+> algo.
+
 Every finding has a code, a severity and a fixed message (English and Portuguese, in
 `scripts/lib/messages.mjs`). Data from the audited files appears only as names, counts or signal
 codes, cleaned of control and invisible characters. Credential values never appear.
