@@ -1,7 +1,8 @@
 ---
 name: casa-mcp-guardian
-description: Audits MCP server configurations (.mcp.json, Cursor, VS Code and Claude Code settings) and saved MCP tool listings for risky servers and tools - plaintext or cloud-metadata endpoints, credentials written in config, unpinned packages, shell wrappers, auto-approval, tool descriptions with prompt-injection signs or hidden characters, and tools that changed since they were pinned. Read-only and offline; never prints credential values. Use before adding or approving an MCP server, when reviewing an MCP config, or when a server's tool list changes.
+description: "Audits MCP server configurations (.mcp.json, Cursor, VS Code and Claude Code settings) and saved MCP tool listings for risky servers and tools - plaintext or cloud-metadata endpoints, credentials written in config, unpinned packages, shell wrappers, auto-approval, tool descriptions with prompt-injection signs or hidden characters, and tools that changed since they were pinned. Read-only and offline; never prints credential values. Use before adding or approving an MCP server, when reviewing an MCP config, or when a server's tool list changes."
 license: AGPL-3.0-only
+compatibility: "Requires Node.js 18 or newer, with no packages and no network access. Follows the Agent Skills folder format, so it is structurally compatible with Claude Code and with Cursor 2.4 or newer; behavior inside Cursor has not been verified yet."
 ---
 
 # casa-mcp-guardian

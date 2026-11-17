@@ -36,9 +36,9 @@ nem em outro marketplace), nada foi mesclado e nada foi para produção.
 | Texto não confiável (`untrusted.test.mjs`) | 20 | passou |
 | Somente leitura, sem rede, sem processo (`readonly-offline.test.mjs`) | 4 | passou: modelo de permissões do Node só com leitura; toda porta de rede forçada a falhar; importações só de `fs`, `path`, `crypto`, `url` |
 | Linha de comando e fixação (`cli.test.mjs`) | 10 | passou |
-| Pacote da skill (`skill.test.mjs`) | 6 | passou: formato do `SKILL.md`, documentação bilíngue, todo código documentado, nenhum nome de cliente, produto ou pessoa |
+| Pacote da skill (`skill.test.mjs`) | 9 | passou: frontmatter num subconjunto estrito de YAML (`description` e `compatibility` entre aspas duplas, sem escape), `compatibility` com Node.js 18+ e compatibilidade só estrutural com Cursor 2.4+, documentação bilíngue, todo código documentado, nenhum nome de cliente, produto ou pessoa. Teste de mutação: tirar as aspas da `description` reprova |
 | gitleaks 8.24.3 (a mesma versão do CI, checksum conferido) sobre `skills/`, `tests/skills/`, `docs/skills/` | — | nenhum vazamento (as credenciais de teste são geradas na execução, nunca gravadas) |
-| `npm run check` do repositório inteiro | 549 testes; typecheck (inclui o novo `tsconfig.skills.json`, estrito); licenças | 548 passaram, 0 falharam, 1 pulado (anterior, só roda no Postgres do CI) |
+| `npm run check` do repositório inteiro | 552 testes; typecheck (inclui o novo `tsconfig.skills.json`, estrito); licenças | 551 passaram, 0 falharam, 1 pulado (anterior, só roda no Postgres do CI) |
 
 **Defeitos que os testes pegaram e foram corrigidos antes do commit:**
 - bandeira e cabeçalho com hífen (`--api-key`, `X-Api-Key`) não eram reconhecidos como sensíveis;
@@ -64,7 +64,7 @@ lendo; nenhum achado. Só contagens e códigos foram exibidos.
 
 1. **Licença de distribuição**: manter AGPL-3.0-only, relicenciar para Apache-2.0, ou licença comercial. Decisão do titular (D15). Até lá, a skill só deve circular sob AGPL.
 2. **Revisão humana do `SKILL.md`**: é texto que orienta o modelo de quem instalar.
-3. **Compatibilidade com o Cursor**: não verificada; testar numa versão do Cursor que leia pastas com `SKILL.md`.
+3. **Compatibilidade com o Cursor**: **estrutural** com o Cursor 2.4+ (formato de pasta, `name` igual à pasta, `description` entre aspas, `compatibility` no frontmatter, conferidos por `tests/skill.test.mjs`). **Funcional: não verificada**; o roteiro de teste manual está no README (seção "Manual test in Cursor" / "Teste manual no Cursor"). O item do PR só se marca depois desse teste, com versão do Cursor e sistema registrados.
 4. **Avaliação de acionamento**: medir se o agente aciona a skill nos pedidos certos e não nos errados.
 5. **Modo ao vivo opcional** (listar ferramentas direto do servidor com `fetchSeguro`): ficou fora de propósito.
 6. **Saída SARIF** para integrar com a aba de segurança do GitHub: não feito.

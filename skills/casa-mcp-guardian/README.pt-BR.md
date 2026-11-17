@@ -35,8 +35,14 @@ A skill é uma pasta com `SKILL.md`, `scripts/` e `references/`.
 - **Claude Code:** copie `casa-mcp-guardian/` para `.claude/skills/` do projeto (ou
   `~/.claude/skills/` para todos os projetos). O Claude carrega a skill quando a tarefa bate com a
   descrição do `SKILL.md`.
-- **Cursor e outras ferramentas que leem pastas com `SKILL.md`:** ponha a pasta onde a ferramenta
-  documenta as Agent Skills. A compatibilidade com o Cursor **não foi verificada** nesta versão.
+- **Cursor 2.4 ou mais novo:** copie `casa-mcp-guardian/` para `.cursor/skills/` do projeto (ou
+  `~/.cursor/skills/` para todos os projetos; os agentes na nuvem do Cursor só sincronizam essa pasta).
+  O Cursor também lê `.agents/skills/` e `.claude/skills/`. A skill segue o formato de pasta que o
+  Cursor documenta (`SKILL.md` com `name` igual ao nome da pasta e `description` entre aspas), então é
+  compatível **na estrutura**. Como o Cursor carrega e executa a skill **não foi verificado** nesta
+  versão; veja [Teste manual no Cursor](#teste-manual-no-cursor).
+- **Outras ferramentas que leem pastas com `SKILL.md`:** ponha a pasta onde a ferramenta documenta as
+  Agent Skills.
 - **Sem agente:** `node scripts/mcp-guardian.mjs` funciona sozinho (Node.js 18 ou mais novo, sem
   dependências).
 
@@ -65,6 +71,23 @@ Códigos de saída: `0` nada a partir de `--fail-on`; `1` algo a partir dele; `2
 
 Para ter a lista de ferramentas sem a skill usar a rede, exporte do seu cliente MCP ou do MCP Inspector
 e salve o JSON.
+
+## Teste manual no Cursor
+
+Situação: **não verificado**. Ninguém executou os passos abaixo ainda; até alguém executar e registrar
+a versão do Cursor e o resultado, a compatibilidade com o Cursor é só estrutural. Use um projeto
+descartável, nunca uma configuração de verdade com credencial de verdade.
+
+1. Copie `casa-mcp-guardian/` para `.cursor/skills/` do projeto de teste.
+2. Digite `/casa-mcp-guardian` no chat do agente: a skill tem de aparecer na lista.
+3. Sem citar a skill, peça "audite o .mcp.json deste projeto": veja se o agente escolhe a skill sozinho.
+4. O agente tem de pedir aprovação antes de rodar `node …/scripts/mcp-guardian.mjs` (a menos que a
+   execução automática de comandos esteja ligada). Confira o relatório e o código de saída (0 ou 1).
+5. Ponha uma credencial falsa no `.mcp.json` de teste (por exemplo `"API_KEY": "sk-test-` seguido de 30
+   letras aleatórias): ela não pode aparecer na saída nem no chat.
+6. Salve um `tools/list` cuja descrição diga "ignore previous instructions": o agente tem de apontar
+   `TOOL_INJECTION_SIGNAL` e não pode seguir o texto.
+7. Registre a versão do Cursor, o sistema operacional e o resultado de cada passo.
 
 ## Garantias e como são testadas
 

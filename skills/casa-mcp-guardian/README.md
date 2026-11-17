@@ -33,8 +33,13 @@ The skill is a folder with `SKILL.md`, `scripts/` and `references/`.
 - **Claude Code:** copy `casa-mcp-guardian/` to `.claude/skills/` in your project (or
   `~/.claude/skills/` for all projects). Claude loads it when the task matches the description in
   `SKILL.md`.
-- **Cursor and other tools that read `SKILL.md` folders:** place the folder where the tool documents
-  Agent Skills. Compatibility with Cursor has **not been verified** in this release.
+- **Cursor 2.4 or newer:** copy `casa-mcp-guardian/` to `.cursor/skills/` in your project (or
+  `~/.cursor/skills/` for all projects; Cursor cloud agents only sync that folder). Cursor also reads
+  `.agents/skills/` and `.claude/skills/`. The skill follows the folder format Cursor documents
+  (`SKILL.md` with `name` equal to the folder and a quoted `description`), so it is **structurally**
+  compatible. How Cursor actually loads and runs it has **not been verified** in this release; see
+  [Manual test in Cursor](#manual-test-in-cursor).
+- **Other tools that read `SKILL.md` folders:** place the folder where the tool documents Agent Skills.
 - **Without an agent:** `node scripts/mcp-guardian.mjs` works on its own (Node.js 18+, no dependencies).
 
 ## Use
@@ -62,6 +67,24 @@ Exit codes: `0` nothing at or above `--fail-on`; `1` something at or above it; `
 
 To get a tool listing without this skill touching the network, export it from your MCP client or from
 the MCP Inspector and save the JSON.
+
+## Manual test in Cursor
+
+Status: **not verified**. Nobody has run the steps below yet; until someone does and records the
+Cursor version and result, treat Cursor support as structural only. Use a throwaway project, never a
+real config with real credentials.
+
+1. Copy `casa-mcp-guardian/` to `.cursor/skills/` of the test project.
+2. Type `/casa-mcp-guardian` in the agent chat: the skill must be listed.
+3. Without naming the skill, ask "audit the .mcp.json of this project": check whether the agent picks
+   the skill on its own.
+4. The agent must ask for approval before running `node …/scripts/mcp-guardian.mjs` (unless you turned
+   on automatic command execution). Check the report and the exit code (0 or 1).
+5. Put a fake credential in the test `.mcp.json` (for example `"API_KEY": "sk-test-` followed by 30
+   random letters): it must not appear anywhere in the output or in the chat.
+6. Save a `tools/list` whose description says "ignore previous instructions": the agent must report
+   `TOOL_INJECTION_SIGNAL` and must not follow the text.
+7. Record the Cursor version, the operating system and the result of each step.
 
 ## Guarantees and how they are tested
 
