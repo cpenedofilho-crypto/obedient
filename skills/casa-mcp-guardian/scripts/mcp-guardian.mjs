@@ -185,6 +185,9 @@ export function run(argv) {
   const t = auditTools(listings, { extraCritical: critical, pins, nm });
   findings.push(...t.findings);
 
+  if (o.emitPins && findings.some((f) => f.code === "TOOL_DUPLICATE_NAME")) {
+    return { out: "", err: "cannot emit pins: duplicate tool name (a name appears more than once in one listing), so one pin could not tell the copies apart. Run without --emit-pins to see the report.", code: 2 };
+  }
   if (o.emitPins) {
     // Pins go to stdout; the person decides where to save them. This program writes no file.
     return { out: scrubCredentials(JSON.stringify({ version: 2, tools: Object.fromEntries(Object.entries(t.pins).sort(([a], [b]) => a.localeCompare(b))) }, null, 2)), err: "", code: 0 };

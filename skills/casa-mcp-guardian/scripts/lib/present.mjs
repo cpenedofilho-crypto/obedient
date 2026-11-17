@@ -22,16 +22,17 @@ import { safeText } from "./untrusted.mjs";
 export const ID_DOMAIN = "casa-mcp-guardian/id/v1";
 
 /**
- * 128-bit opaque identifier: SHA-256 over the domain, a kind and length-prefixed parts, truncated to
- * 32 hex characters. Stable and deterministic, independent of how names are displayed. It identifies;
+ * 128-bit opaque identifier: SHA-256 over the domain and the JSON form of [kind, ...parts], truncated to
+ * 32 hex characters. JSON keeps lone UTF-16 surrogates distinct ("\ud800" is not "\udc00" nor U+FFFD),
+ * which the UTF-8 encoder would merge, and makes the parts unambiguous. Stable and deterministic, independent of how names are displayed. It identifies;
  * it does NOT anonymize: a predictable name can be found by trying candidates.
  * @param {"server" | "tool"} kind
  * @param {string[]} parts
  */
 export function opaqueId(kind, ...parts) {
   const h = createHash("sha256");
-  h.update(`${ID_DOMAIN}\0${kind}`);
-  for (const p of parts) h.update(`\0${p.length}:${p}`);
+  h.update(`${ID_DOMAIN}\0`);
+  h.update(JSON.stringify([kind, ...parts]));
   return h.digest("hex").slice(0, 32);
 }
 

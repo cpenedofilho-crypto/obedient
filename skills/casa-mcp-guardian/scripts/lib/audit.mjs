@@ -258,6 +258,11 @@ export function auditTools(listings, o = {}) {
   /** @type {Map<string, Set<string>>} */
   const byName = new Map();
   for (const l of listings) {
+    // The same tool name twice in one listing: a pin cannot tell the two apart, so it is always a finding.
+    /** @type {Map<string, number>} */
+    const count = new Map();
+    for (const t of l.tools) count.set(str(t.name), (count.get(str(t.name)) ?? 0) + 1);
+    for (const [n, k] of count) if (k > 1) findings.push({ code: "TOOL_DUPLICATE_NAME", severity: "HIGH", file: l.file, target: `${nm.server(l.server)}/${nm.tool(n)}`, data: String(k) });
     const server = nm.server(l.server);
     if (!l.tools.length) findings.push({ code: "TOOLS_FILE_EMPTY", severity: "INFO", file: l.file, target: `server ${server}`, data: "" });
     for (const t of l.tools) {
@@ -295,7 +300,8 @@ export function auditTools(listings, o = {}) {
           const id = opaqueId("tool", l.server, rawName);
           const target = `${nm.server(l.server)}/${nm.tool(rawName)}`;
           if (!(id in stored)) findings.push({ code: "TOOL_NEW", severity: "MEDIUM", file: "", target, data: "" });
-          else if (stored[id]?.sha256 !== pins[id]?.sha256) findings.push({ code: "TOOL_CHANGED", severity: "HIGH", file: "", target, data: "" });
+          // Each tool against its OWN hash: with duplicate names, every copy is checked.
+          else if (stored[id]?.sha256 !== pinOf(t)) findings.push({ code: "TOOL_CHANGED", severity: "HIGH", file: "", target, data: "" });
         }
       }
       const listed = new Set(listings.map((l) => opaqueId("server", l.server)));
