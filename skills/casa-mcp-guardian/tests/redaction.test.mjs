@@ -7,11 +7,12 @@
 // standard error. Classification and exit codes must not depend on the mode.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../scripts/mcp-guardian.mjs";
 import { opaqueId } from "../scripts/lib/present.mjs";
-import { fragments, syntheticTokens, tempProject } from "./helpers.mjs";
+import { CLI, fragments, syntheticTokens, tempProject } from "./helpers.mjs";
 
 /** All synthetic secrets of one seed, plus DNS-safe and scheme-safe variants. */
 function secretsFor(seed) {
@@ -21,7 +22,8 @@ function secretsFor(seed) {
 }
 
 /** Builds a project where every free-text field carries a different secret. Returns the planted values. */
-function plant(seed) {
+/** @param {number} seed @param {"mcpServers" | "servers" | "mcp.servers"} [layout] */
+function plant(seed, layout = "mcpServers") {
   const s = secretsFor(seed);
   // The format rotates with the seed: over 8 seeds, every field gets every format, letters-only included.
   const pick = (/** @type {number} */ i) => Object.values(s)[(i + seed) % Object.values(s).length] + String(i);
@@ -31,8 +33,7 @@ function plant(seed) {
   const S = Array.from({ length: 40 }, (_, i) => P(i));
   const host = `${s.dns}.example.com`;
   planted.push(s.dns, s.scheme);
-  const cfg = {
-    mcpServers: {
+  const entries = {
       [`srv_${S[0]}`]: { type: "http", url: `https://${host}/hooks/${S[1]}?token=${S[2]}&api_key_${S[3]}=1` },
       [`srv2_${S[4]}`]: { type: S[5], url: `https://u${S[6]}:p${S[7]}@h.example.com/` },
       [`srv3_${S[8]}`]: { url: `${s.scheme}://h.example.com/x` },
@@ -43,8 +44,10 @@ function plant(seed) {
         alwaysAllow: [`tool_${S[20]}`, `tool_${S[21]}`],
       },
       [`srv5_${S[22]}`]: { command: "npx", args: ["-y", `pkg${S[23]}@${S[24]}`] },
-    },
+      [`srv6_${S[0]}x`]: { type: "http", url: `https://[2001:db8::1]:8443/${S[1]}x` },
   };
+  /** @type {Record<string, unknown>} */
+  const cfg = layout === "servers" ? { servers: entries } : layout === "mcp.servers" ? { mcp: { servers: entries } } : { mcpServers: entries };
   const tool = (/** @type {string} */ name, /** @type {string} */ secret) => ({
     name, description: `Lists things. ${secret}`, inputSchema: { type: "object", properties: { [`p_${S[25]}`]: { type: "string", description: S[26] } } }, annotations: { [`x${S[27]}`]: true, readOnlyHint: true },
   });
@@ -69,9 +72,9 @@ function assertNoFragment(text, secrets, where) {
 }
 
 describe("protected mode: no planted secret, whatever its format, in any output", () => {
-  for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
-    it(`seed ${seed}: Markdown (en, pt), JSON, pins and standard error`, () => {
-      const { args, planted } = plant(seed);
+  for (const [seed, layout] of /** @type {const} */ ([[1, "mcpServers"], [2, "mcpServers"], [3, "servers"], [4, "servers"], [5, "mcp.servers"], [6, "mcp.servers"], [7, "mcpServers"], [8, "servers"]])) {
+    it(`seed ${seed}, layout ${layout}: Markdown (en, pt), JSON, pins and standard error`, () => {
+      const { args, planted } = plant(seed, layout);
       const outputs = [
         run([...args, "--redact-names"]),
         run([...args, "--redact-names", "--lang", "pt"]),
@@ -87,6 +90,17 @@ describe("protected mode: no planted secret, whatever its format, in any output"
         assert.ok(codes.has(c), `${c} present`);
     });
   }
+
+  it("the real executable (child process): stdout and stderr of every output form", () => {
+    for (const [seed, layout] of /** @type {const} */ ([[11, "mcpServers"], [12, "servers"], [13, "mcp.servers"]])) {
+      const { args, planted } = plant(seed, layout);
+      for (const extra of [[], ["--lang", "pt"], ["--format", "json"], ["--emit-pins"], ["--fail-on", "never"]]) {
+        const r = spawnSync(process.execPath, [CLI, ...args, "--redact-names", ...extra], { encoding: "utf8" });
+        assertNoFragment(`${r.stdout}\n${r.stderr}`, planted, `child ${layout} ${extra.join(" ")}`);
+        assert.ok(r.status === 0 || r.status === 1, `exit ${r.status}`);
+      }
+    }
+  });
 
   it("error paths never repeat the input either", () => {
     const { planted, S, dir } = plant(9);

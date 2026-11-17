@@ -12,7 +12,8 @@ Source code: the files in this folder are the complete source. They are maintain
 https://github.com/cpenedofilho-crypto/obedient (folder skills/casa-mcp-guardian).
 
 Third-party components: none. The scripts use only Node.js built-in modules (node:fs,
-node:path, node:crypto, node:url, and homedir from node:os) and bundle no third-party code.
+node:path, node:crypto, node:url, and homedir and userInfo from node:os) and bundle no third-party
+code.
 
 Origin: adapted by the same author from the OBEDIENT repository (packages/integration-gateway
 and packages/server), which is also AGPL-3.0-only. Rules tied to specific products were removed.

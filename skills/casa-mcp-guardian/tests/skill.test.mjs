@@ -198,6 +198,8 @@ describe("SKILL.md", () => {
     assert.match(flat, /9\. \*\*Protected mode by default\.\*\* Always run the script with `--redact-names`/);
     assert.match(flat, /only when the user explicitly asks to see the names in this conversation, and only for the run they asked for/);
     assert.match(flat, /anything that leaves the conversation .* uses protected output only/);
+    assert.match(flat, /a guessable name can be recovered from its id by trying candidates, so do not send a pin file anywhere unless the user asks/);
+    assert.match(flat, /a server really called `server-2` may appear as `server-1`/);
     // Every command the agent could copy runs in protected mode.
     const commands = [...md.matchAll(/^node <path-to-this-skill>\/scripts\/mcp-guardian\.mjs(.*)$/gm)];
     assert.ok(commands.length >= 4);

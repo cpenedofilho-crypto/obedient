@@ -69,7 +69,8 @@ node scripts/mcp-guardian.mjs --format json --fail-on critical  # for CI
 | `--fail-on LEVEL\|never` | Exit 1 at or above this severity (default HIGH). |
 | `--root DIR` | Folder that relative paths refer to (default: current folder). |
 
-Exit codes: `0` nothing at or above `--fail-on`; `1` something at or above it; `2` usage error.
+Exit codes: `0` nothing at or above `--fail-on`; `1` something at or above it; `2` usage error or an
+input that could not be processed (fixed message, never input or a stack trace).
 
 To get a tool listing without this skill touching the network, export it from your MCP client or from
 the MCP Inspector and save the JSON.
@@ -115,8 +116,11 @@ and offline behavior (below), the agent's compliance depends on the model.
 
 Pins (`--emit-pins`, version 2) are keyed by an opaque 128-bit id (SHA-256 over a fixed domain and the
 server and tool names, truncated), so they compare the same in both modes. The id identifies; it does not
-anonymize: a predictable name can be found by trying candidates. The default mode adds a readable label
-for people; the protected mode leaves it out.
+anonymize: a predictable name can be found by trying candidates, so a pin file is not something to
+publish. The default mode adds a readable label for people; the protected mode leaves it out.
+`--emit-pins` refuses (exit 2) a listing that could not be read, is empty, repeats a tool name or nests
+too deeply, so a pin file never silently leaves a tool out. In protected reports, labels are numbered
+within the report: a server really called `server-2` may appear as `server-1`.
 
 ## Guarantees and how they are tested
 
@@ -127,7 +131,7 @@ The tests live in the [source repository](https://github.com/cpenedofilho-crypto
 | No personal or global config read implicitly | Home folder as root (plain, trailing slash, `..`, symlink, current folder, `HOME` or `USERPROFILE`) is refused; a symlinked `.claude/` pointing outside the project is skipped (`tests/cli.test.mjs`). |
 | Read-only, no processes | Runs under Node's permission model with read access only (`tests/readonly-offline.test.mjs`). |
 | Offline | Runs with every network entry point (`net`, `tls`, `dns`, `http`, `https`, `fetch`, `WebSocket`) forced to throw. |
-| Imports only `fs`, `path`, `crypto`, `url` and `homedir` from `os` | Static check of every source file. |
+| Imports only `fs`, `path`, `crypto`, `url`, and `homedir` and `userInfo` from `os` | Static check of every source file. |
 | No credential in any output | Random credentials of every supported shape; no output (Markdown, JSON, English, Portuguese, pins, errors) contains the value or any 8-character piece of it (`tests/no-leak.test.mjs`). |
 | Untrusted text stays data | Descriptions are never reproduced; ANSI, bidi, zero-width and Markdown control characters are removed from names (`tests/untrusted.test.mjs`). |
 | Same verdicts as the original classifier | Regression cases ported from the OBEDIENT integration gateway (`tests/classify.test.mjs`), plus a parity test against the original source in the OBEDIENT repository. |

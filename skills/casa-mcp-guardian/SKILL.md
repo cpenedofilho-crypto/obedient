@@ -43,7 +43,11 @@ DESTRUCTIVE) from the tool **name** and boolean annotations only.
    without `--redact-names` only when the user explicitly asks to see the names in this conversation,
    and only for the run they asked for; say that names will then appear here. Whatever was authorized,
    anything that leaves the conversation (an issue, a pull request, a ticket, a message to other people,
-   another tool or system) uses protected output only.
+   another tool or system) uses protected output only. Two limits of the protected mode to keep in mind:
+   pin files (`--emit-pins`) hold ids derived from the names, and a guessable name can be recovered
+   from its id by trying candidates, so do not send a pin file anywhere unless the user asks for it;
+   and the labels are numbered within one report, so a server really called `server-2` may appear as
+   `server-1`.
 
 ## How to run
 
@@ -77,7 +81,9 @@ Other options: `--format json`, `--fail-on INFO|LOW|MEDIUM|HIGH|CRITICAL|never`
 (default HIGH), `--root DIR`, and `--critical-pattern TEXT|/REGEX/` (repeatable) to mark tools that
 move money or do irreversible things in the user's own stack as CRITICAL.
 
-Exit code: `0` nothing at or above `--fail-on`, `1` something at or above it, `2` usage error.
+Exit code: `0` nothing at or above `--fail-on`, `1` something at or above it, `2` usage error or an input
+that could not be processed (for example `--emit-pins` on a listing that could not be read, is empty,
+repeats a tool name or nests too deeply). A `2` prints a fixed message, never input or a stack trace.
 
 The script never writes a file. `--emit-pins` prints to standard output; the user chooses where to
 save it.

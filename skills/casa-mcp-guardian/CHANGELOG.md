@@ -20,7 +20,11 @@ First public version. Read-only, offline audit of MCP configs and saved `tools/l
   and the URL path and query are never shown.
 - Pins version 2: keyed by an opaque, domain-separated 128-bit id, so they compare the same in both
   modes. The id identifies; it does not anonymize.
-- Reports in Markdown or JSON, English or Portuguese. Exit codes 0, 1 and 2.
+- A tool name repeated in one listing is always a finding (TOOL_DUPLICATE_NAME); a definition nested
+  too deeply to inspect is a finding (TOOL_SCHEMA_TOO_DEEP); `--emit-pins` refuses unreadable, empty,
+  duplicated or too-deep listings.
+- Reports in Markdown or JSON, English or Portuguese. Exit codes 0, 1 and 2 (2 = usage error or an
+  input that could not be processed; fixed message, never input or a stack trace).
 - Requires Node.js 22 or newer (tested on 22 and 24). No dependencies.
 - Agent Skills format. Structurally compatible with Claude Code and Cursor 2.4+; loading and
   triggering were not tested in either.

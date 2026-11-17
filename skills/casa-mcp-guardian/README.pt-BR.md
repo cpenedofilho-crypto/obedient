@@ -74,7 +74,8 @@ node scripts/mcp-guardian.mjs --format json --fail-on critical  # para CI
 | `--fail-on NÍVEL\|never` | Sai com 1 a partir desta gravidade (padrão HIGH). |
 | `--root PASTA` | Pasta de referência dos caminhos relativos (padrão: a atual). |
 
-Códigos de saída: `0` nada a partir de `--fail-on`; `1` algo a partir dele; `2` erro de uso.
+Códigos de saída: `0` nada a partir de `--fail-on`; `1` algo a partir dele; `2` erro de uso ou entrada
+que não pôde ser processada (mensagem fixa, nunca a entrada nem rastro de pilha).
 
 Para ter a lista de ferramentas sem a skill usar a rede, exporte do seu cliente MCP ou do MCP Inspector
 e salve o JSON.
@@ -120,8 +121,12 @@ garante só leitura e ausência de rede (abaixo); o cumprimento pelo agente depe
 
 A fixação (`--emit-pins`, versão 2) usa como chave um identificador opaco de 128 bits (SHA-256 sobre um
 domínio fixo e os nomes de servidor e ferramenta, truncado), e por isso compara igual nos dois modos. O
-identificador identifica; não anonimiza: um nome previsível pode ser descoberto por tentativa. O modo
-padrão acrescenta um rótulo legível para pessoas; o protegido não.
+identificador identifica; não anonimiza: um nome previsível pode ser descoberto por tentativa, então
+arquivo de fixação não é para publicar. O modo padrão acrescenta um rótulo legível para pessoas; o
+protegido não. `--emit-pins` recusa (código 2) listagem que não pôde ser lida, está vazia, repete nome
+de ferramenta ou aninha demais, para a fixação nunca deixar uma ferramenta de fora em silêncio. No
+relatório protegido, os rótulos são numerados dentro do relatório: um servidor chamado de fato
+`server-2` pode aparecer como `server-1`.
 
 ## Garantias e como são testadas
 
@@ -132,7 +137,7 @@ Os testes ficam no [repositório de origem](https://github.com/cpenedofilho-cryp
 | Nenhuma configuração pessoal ou global lida implicitamente | Pasta pessoal como raiz (simples, com barra no fim, `..`, link simbólico, pasta atual, `HOME` ou `USERPROFILE`) é recusada; um `.claude/` com link simbólico para fora do projeto é pulado (`tests/cli.test.mjs`). |
 | Só leitura, sem abrir processo | Roda no modelo de permissões do Node só com leitura (`tests/readonly-offline.test.mjs`). |
 | Sem rede | Roda com toda porta de rede (`net`, `tls`, `dns`, `http`, `https`, `fetch`, `WebSocket`) forçada a falhar. |
-| Só importa `fs`, `path`, `crypto`, `url` e `homedir` de `os` | Checagem estática de todo arquivo-fonte. |
+| Só importa `fs`, `path`, `crypto`, `url`, e `homedir` e `userInfo` de `os` | Checagem estática de todo arquivo-fonte. |
 | Nenhuma credencial na saída | Credenciais aleatórias de todos os formatos suportados; nenhuma saída (Markdown, JSON, inglês, português, fixação, erros) contém o valor nem qualquer trecho de 8 caracteres dele (`tests/no-leak.test.mjs`). |
 | Texto não confiável continua sendo dado | Descrição nunca é reproduzida; ANSI, bidi, largura zero e caracteres de Markdown saem dos nomes (`tests/untrusted.test.mjs`). |
 | Mesmos veredictos do classificador original | Casos de regressão trazidos do gateway de integrações do OBEDIENT (`tests/classify.test.mjs`) e um teste de paridade contra o código original no repositório do OBEDIENT. |

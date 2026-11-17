@@ -4,9 +4,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { userInfo } from "node:os";
 import { assessUrl } from "../scripts/lib/endpoint.mjs";
 import { syntheticTokens } from "./helpers.mjs";
@@ -213,4 +210,3 @@ describe("F9: default-mode names are masked before they are cut", () => {
   });
 });
 
-export { createHash, join, writeFileSync };
