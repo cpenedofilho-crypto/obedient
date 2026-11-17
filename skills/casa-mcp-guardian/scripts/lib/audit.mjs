@@ -11,8 +11,9 @@ import { readFileSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { classifyTool, riskRank } from "./classify.mjs";
 import { assessUrl } from "./endpoint.mjs";
+import { opaqueId, presenter } from "./present.mjs";
 import { findLiteralSecrets } from "./secrets.mjs";
-import { allDescriptions, hasHiddenCharacters, injectionSignals, safeText } from "./untrusted.mjs";
+import { allDescriptions, hasHiddenCharacters, injectionSignals } from "./untrusted.mjs";
 
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 export const SEVERITIES = /** @type {const} */ (["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]);
@@ -91,6 +92,14 @@ function npmPinned(spec) {
   return /^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/.test(v);
 }
 
+/** The package NAME of a spec, without version, tag, range, extra or anything after it: a spec may
+ * carry free text ("pkg@<anything>"), and only the name is needed to say it is unpinned.
+ * @param {string} spec @param {boolean} python */
+export function packageName(spec, python) {
+  if (python) return (/^[A-Za-z0-9._-]+/.exec(spec) ?? [""])[0];
+  return (/^(?:@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+/.exec(spec) ?? [""])[0];
+}
+
 /**
  * @param {string} command
  * @param {string[]} args
@@ -118,13 +127,13 @@ export function assessCommand(command, args) {
   let spec = null;
   if (RUNNERS.has(name)) spec = firstPositional(args);
   else if (DLX.has(name) && (args[0] === "dlx" || args[0] === "exec")) spec = firstPositional(args.slice(1));
-  if (spec && !spec.startsWith(".") && !spec.startsWith("/") && !npmPinned(spec)) out.push({ code: "UNPINNED_PACKAGE", severity: "MEDIUM", data: spec });
+  if (spec && !spec.startsWith(".") && !spec.startsWith("/") && !npmPinned(spec)) out.push({ code: "UNPINNED_PACKAGE", severity: "MEDIUM", data: packageName(spec, false) });
 
   if (PY_RUNNERS.has(name)) {
     const list = name === "pipx" && args[0] === "run" ? args.slice(1) : args;
     const from = list.indexOf("--from");
     const pySpec = from >= 0 ? list[from + 1] ?? "" : firstPositional(list) ?? "";
-    if (pySpec && !/(==|@)\d/.test(pySpec)) out.push({ code: "UNPINNED_PACKAGE", severity: "MEDIUM", data: pySpec });
+    if (pySpec && !/(==|@)\d/.test(pySpec)) out.push({ code: "UNPINNED_PACKAGE", severity: "MEDIUM", data: packageName(pySpec, true) });
   }
   if (CONTAINERS.has(name) && args.includes("run") && !args.some((a) => /@sha256:[0-9a-f]{64}$/.test(a))) out.push({ code: "UNPINNED_IMAGE", severity: "MEDIUM", data: "" });
   return out;
@@ -132,10 +141,11 @@ export function assessCommand(command, args) {
 
 /**
  * @param {unknown} cfg parsed config
- * @param {string} file label for the report (basename or relative path)
+ * @param {string} file label for the report, already presented
+ * @param {import("./present.mjs").Presenter} [nm] how free text is shown (default: names with tokens masked)
  * @returns {{ findings: Finding[], servers: { name: string, transport: string, endpoint: string }[] }}
  */
-export function auditConfig(cfg, file) {
+export function auditConfig(cfg, file, nm = presenter(false)) {
   /** @type {Finding[]} */
   const findings = [];
   /** @type {{ name: string, transport: string, endpoint: string }[]} */
@@ -149,7 +159,7 @@ export function auditConfig(cfg, file) {
     return { findings, servers };
   }
   for (const [rawName, entryRaw] of Object.entries(/** @type {Record<string, unknown>} */ (box))) {
-    const name = safeText(rawName, 60);
+    const name = nm.server(rawName);
     const target = `server ${name}`;
     if (!entryRaw || typeof entryRaw !== "object" || Array.isArray(entryRaw)) { findings.push({ code: "SERVER_UNRECOGNIZED", severity: "LOW", file, target, data: "" }); continue; }
     const e = /** @type {Record<string, unknown>} */ (entryRaw);
@@ -158,24 +168,30 @@ export function auditConfig(cfg, file) {
     const args = Array.isArray(e.args) ? e.args.filter((a) => typeof a === "string").map(String) : [];
     if (url) {
       const a = assessUrl(url);
-      servers.push({ name, transport: str(e.type) || "http", endpoint: safeText(a.display, 100) });
-      for (const f of a.findings) findings.push({ code: f.code, severity: f.severity, file, target, data: safeText(f.detail, 120) });
+      const pt = a.parts;
+      const endpoint = pt ? `${nm.protocol(pt.protocol.replace(/:$/, ""))}://${nm.host(pt.host)}/${pt.hasPath ? "[path omitted]" : ""}${pt.hasQuery ? "?[query omitted]" : ""}` : a.display;
+      servers.push({ name, transport: nm.transport(str(e.type)) || "http", endpoint });
+      for (const f of a.findings) {
+        const data = f.code === "URL_SECRET_PARAM" ? nm.params(a.params) : f.code === "URL_SECRET_PATH" ? f.detail : "";
+        findings.push({ code: f.code, severity: f.severity, file, target, data });
+      }
     } else if (command) {
-      servers.push({ name, transport: "stdio", endpoint: safeText(`${cmdName(command)} ${args.length ? "…" : ""}`.trim(), 60) });
-      for (const f of assessCommand(command, args)) findings.push({ ...f, file, target, data: safeText(f.data, 80) });
+      servers.push({ name, transport: "stdio", endpoint: `${nm.command(cmdName(command))}${args.length ? " …" : ""}` });
+      // SHELL_WRAPPER names a shell from a fixed list; UNPINNED_PACKAGE names a package (free text).
+      for (const f of assessCommand(command, args)) findings.push({ ...f, file, target, data: f.code === "UNPINNED_PACKAGE" ? nm.pkg(f.data) : f.data });
     } else {
       findings.push({ code: "SERVER_UNRECOGNIZED", severity: "LOW", file, target, data: "" });
     }
     // Literal secrets anywhere in the entry except the URL (handled above). Key paths only.
     const { url: _u, serverUrl: _s, httpUrl: _h, ...rest } = e;
     for (const hit of findLiteralSecrets(rest, `servers.${rawName}`)) {
-      findings.push({ code: "LITERAL_SECRET", severity: "HIGH", file, target, data: safeText(`${hit.path.replace(`servers.${rawName}`, "")} (${hit.why})`, 120) });
+      findings.push({ code: "LITERAL_SECRET", severity: "HIGH", file, target, data: `${nm.keyPath(hit.path.replace(`servers.${rawName}`, ""))} (${hit.why})` });
     }
     for (const key of ["alwaysAllow", "autoApprove", "autoapprove", "allowedTools"]) {
       const v = e[key];
       if (Array.isArray(v) && v.length) {
         const all = v.some((x) => x === "*" || x === "all");
-        findings.push({ code: all ? "AUTO_APPROVE_ALL" : "AUTO_APPROVE", severity: all ? "CRITICAL" : "HIGH", file, target, data: all ? key : `${key}: ${v.filter((x) => typeof x === "string").slice(0, 8).map((x) => safeText(x, 40)).join(", ")}` });
+        findings.push({ code: all ? "AUTO_APPROVE_ALL" : "AUTO_APPROVE", severity: all ? "CRITICAL" : "HIGH", file, target, data: all ? key : `${key}: ${nm.toolList(v.filter((x) => typeof x === "string").map(String))}` });
       }
     }
     if (e.trust === true) findings.push({ code: "AUTO_APPROVE_ALL", severity: "CRITICAL", file, target, data: "trust: true" });
@@ -208,26 +224,45 @@ export function toolsFromListing(v) {
 }
 
 /**
+ * A pin (version 2). The key is opaqueId("tool", server, tool): 128 bits, stable whatever the display
+ * mode. `server` is opaqueId("server", server), to tell a removed tool from a server not listed this
+ * time. `label` is the default-mode display name, only for people; it is never used to compare.
+ * @typedef {{ server: string, sha256: string, label?: string }} PinEntry
+ */
+/** @param {unknown} p @returns {Record<string, PinEntry> | null} */
+function validPins(p) {
+  const o = /** @type {any} */ (p);
+  if (!o || o.version !== 2 || !o.tools || typeof o.tools !== "object" || Array.isArray(o.tools)) return null;
+  for (const [k, v] of Object.entries(o.tools)) {
+    const e = /** @type {any} */ (v);
+    if (!/^[0-9a-f]{32}$/.test(k) || !e || typeof e !== "object" || !/^[0-9a-f]{32}$/.test(String(e.server)) || !/^[0-9a-f]{64}$/.test(String(e.sha256))) return null;
+    if (e.label !== undefined && typeof e.label !== "string") return null;
+  }
+  return o.tools;
+}
+
+/**
  * @typedef {{ server: string, tool: string, risk: string, category: string, usable: boolean, signals: string[] }} ToolRow
  * @param {{ server: string, file: string, tools: Record<string, unknown>[] }[]} listings
- * @param {{ extraCritical?: RegExp[], pins?: unknown }} [o]
- * @returns {{ findings: Finding[], rows: ToolRow[], pins: Record<string, string> }}
+ * @param {{ extraCritical?: RegExp[], pins?: unknown, nm?: import("./present.mjs").Presenter }} [o]
+ * @returns {{ findings: Finding[], rows: ToolRow[], pins: Record<string, PinEntry> }}
  */
 export function auditTools(listings, o = {}) {
   /** @type {Finding[]} */
   const findings = [];
   /** @type {ToolRow[]} */
   const rows = [];
-  /** @type {Record<string, string>} */
+  const nm = o.nm ?? presenter(false);
+  /** @type {Record<string, PinEntry>} */
   const pins = {};
   /** @type {Map<string, Set<string>>} */
   const byName = new Map();
   for (const l of listings) {
-    const server = safeText(l.server, 60);
+    const server = nm.server(l.server);
     if (!l.tools.length) findings.push({ code: "TOOLS_FILE_EMPTY", severity: "INFO", file: l.file, target: `server ${server}`, data: "" });
     for (const t of l.tools) {
       const rawName = str(t.name);
-      const tool = safeText(rawName, 80) || "(no name)";
+      const tool = nm.tool(rawName);
       const target = `${server}/${tool}`;
       const c = classifyTool(t, { extraCritical: o.extraCritical });
       const signals = [...new Set(allDescriptions(t).flatMap((d) => injectionSignals(d)))];
@@ -239,28 +274,33 @@ export function auditTools(listings, o = {}) {
       if (c.hintContradicts) findings.push({ code: "TOOL_HINT_CONTRADICTS", severity: "MEDIUM", file: l.file, target, data: `${c.risk}/${c.category}` });
       if (!c.usable) findings.push({ code: "TOOL_NO_OBJECT_SCHEMA", severity: "MEDIUM", file: l.file, target, data: "" });
       rows.push({ server, tool, risk: c.risk, category: c.category, usable: c.usable, signals });
-      pins[`${l.server}/${rawName}`] = pinOf(t);
+      const label = nm.pinLabel(l.server, rawName);
+      pins[opaqueId("tool", l.server, rawName)] = { server: opaqueId("server", l.server), sha256: pinOf(t), ...(label ? { label } : {}) };
       const seen = byName.get(rawName) ?? new Set();
       seen.add(l.server);
       byName.set(rawName, seen);
     }
   }
   for (const [name, servers] of byName) {
-    if (name && servers.size > 1) findings.push({ code: "TOOL_NAME_COLLISION", severity: "MEDIUM", file: "", target: safeText(name, 80), data: [...servers].map((s) => safeText(s, 40)).join(", ") });
+    if (name && servers.size > 1) findings.push({ code: "TOOL_NAME_COLLISION", severity: "MEDIUM", file: "", target: nm.tool(name), data: [...servers].map((x) => nm.server(x)).join(", ") });
   }
   if (o.pins !== undefined) {
-    const p = /** @type {any} */ (o.pins);
-    const stored = p && p.version === 1 && p.tools && typeof p.tools === "object" && !Array.isArray(p.tools) ? /** @type {Record<string, unknown>} */ (p.tools) : null;
+    const stored = validPins(o.pins);
     if (!stored) findings.push({ code: "PINS_INVALID", severity: "HIGH", file: "", target: "", data: "" });
     else {
-      for (const [key, hash] of Object.entries(pins)) {
-        if (!(key in stored)) findings.push({ code: "TOOL_NEW", severity: "MEDIUM", file: "", target: safeText(key, 120), data: "" });
-        else if (stored[key] !== hash) findings.push({ code: "TOOL_CHANGED", severity: "HIGH", file: "", target: safeText(key, 120), data: "" });
+      // Compared by opaque id only: the display mode never changes the result.
+      for (const l of listings) {
+        for (const t of l.tools) {
+          const rawName = str(t.name);
+          const id = opaqueId("tool", l.server, rawName);
+          const target = `${nm.server(l.server)}/${nm.tool(rawName)}`;
+          if (!(id in stored)) findings.push({ code: "TOOL_NEW", severity: "MEDIUM", file: "", target, data: "" });
+          else if (stored[id]?.sha256 !== pins[id]?.sha256) findings.push({ code: "TOOL_CHANGED", severity: "HIGH", file: "", target, data: "" });
+        }
       }
-      const listed = new Set(listings.map((l) => l.server));
-      for (const key of Object.keys(stored)) {
-        const server = key.split("/")[0] ?? "";
-        if (listed.has(server) && !(key in pins)) findings.push({ code: "TOOL_REMOVED", severity: "LOW", file: "", target: safeText(key, 120), data: "" });
+      const listed = new Set(listings.map((l) => opaqueId("server", l.server)));
+      for (const [id, e] of Object.entries(stored)) {
+        if (listed.has(e.server) && !(id in pins)) findings.push({ code: "TOOL_REMOVED", severity: "LOW", file: "", target: nm.removed(e.label), data: "" });
       }
     }
   }

@@ -193,6 +193,22 @@ describe("SKILL.md", () => {
       assert.doesNotMatch(text, /\(0\.1\)/, f);
     }
   });
+  it("rule 9 and both READMEs make the protected mode mandatory before sharing, and say what it covers (T8.2)", () => {
+    const flat = md.replace(/\s+/g, " ");
+    assert.match(flat, /9\. \*\*Protected mode before the report leaves this conversation\.\*\*/);
+    assert.match(flat, /run the script again with `--redact-names` and share only that output/);
+    assert.match(flat, /masks token-like parts of names by a heuristic that can miss a secret/);
+    const en = readFileSync(join(SKILL_DIR, "README.md"), "utf8").replace(/\s+/g, " ");
+    const pt = readFileSync(join(SKILL_DIR, "README.pt-BR.md"), "utf8").replace(/\s+/g, " ");
+    assert.match(en, /## Two modes/);
+    assert.match(en, /Required before sharing a report/);
+    assert.match(en, /The id identifies; it does not anonymize/);
+    assert.match(en, /\*\*Never shown\*\* \| \*\*Never shown\*\*/);
+    assert.match(pt, /## Dois modos/);
+    assert.match(pt, /Obrigatório antes de compartilhar um relatório/);
+    assert.match(pt, /O identificador identifica; não anonimiza/);
+    assert.match(pt, /\*\*Nunca aparecem\*\* \| \*\*Nunca aparecem\*\*/);
+  });
   it("no document claims a Node.js version that was not tested", () => {
     for (const f of ["SKILL.md", "README.md", "README.pt-BR.md"]) {
       const text = readFileSync(join(SKILL_DIR, f), "utf8");

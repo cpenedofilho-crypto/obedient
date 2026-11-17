@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { opaqueId } from "../scripts/lib/present.mjs";
 import { CLI, SKILL_DIR, tempProject } from "./helpers.mjs";
 
 const SCRIPTS = join(SKILL_DIR, "scripts");
@@ -19,7 +20,8 @@ function fixture() {
   return tempProject({
     ".mcp.json": { mcpServers: { a: { type: "http", url: "https://mcp.example.com/mcp" }, b: { command: "npx", args: ["-y", "some-server"] } } },
     "tools.json": { tools: [{ name: "list_x", inputSchema: { type: "object" } }, { name: "delete_x", inputSchema: { type: "object" } }] },
-    "pins.json": { version: 1, tools: { "srv/list_x": "0".repeat(64) } },
+    // Version 2 pins: opaque 128-bit id per tool; a wrong hash makes "list_x" a changed tool.
+    "pins.json": { version: 2, tools: { [opaqueId("tool", "srv", "list_x")]: { server: opaqueId("server", "srv"), sha256: "0".repeat(64) } } },
   });
 }
 
@@ -30,7 +32,7 @@ describe("the script itself", () => {
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(r.stderr, /ERR_ACCESS_DENIED/);
     const out = JSON.parse(r.stdout);
-    assert.deepEqual(out.mode, { network: false, writes: false, toolCalls: false });
+    assert.deepEqual(out.mode, { network: false, writes: false, toolCalls: false, names: "masked-heuristic" });
     assert.ok(out.findings.some((f) => f.code === "TOOL_CHANGED"));
   });
 

@@ -28,7 +28,7 @@ import { auditConfig, auditTools, readJsonFile, severityRank, SEVERITIES, toolsF
 import { parseCriticalPatterns } from "./lib/classify.mjs";
 import { renderJson, renderMarkdown } from "./lib/report.mjs";
 import { scrubCredentials } from "./lib/secrets.mjs";
-import { safeText } from "./lib/untrusted.mjs";
+import { presenter } from "./lib/present.mjs";
 
 /** Canonical form of a path: resolved (which also drops "." , ".." and a trailing separator), symlinks
  * followed when the process may see them, case folded where the file system usually ignores case.
@@ -77,16 +77,16 @@ function present(f) {
 /** Project-level config files looked up when no --config is given. Never the home folder. */
 export const DEFAULT_CONFIGS = [".mcp.json", ".cursor/mcp.json", ".vscode/mcp.json", ".claude/settings.json", ".claude/settings.local.json"];
 
-const USAGE = `usage: mcp-guardian.mjs [--config FILE]... [--tools [SERVER=]FILE]... [--pins FILE] [--emit-pins]
+const USAGE = `usage: mcp-guardian.mjs [--config FILE]... [--tools [SERVER=]FILE]... [--pins FILE] [--emit-pins] [--redact-names]
                        [--critical-pattern TEXT|/REGEX/]... [--format md|json] [--lang en|pt]
                        [--fail-on INFO|LOW|MEDIUM|HIGH|CRITICAL|never] [--root DIR]`;
 
 /**
  * @param {string[]} argv
- * @returns {{ ok: true, o: { configs: string[], tools: { server: string, file: string }[], pins: string | null, emitPins: boolean, critical: string[], format: "md" | "json", lang: "en" | "pt", failOn: string, root: string } } | { ok: false, error: string }}
+ * @returns {{ ok: true, o: { configs: string[], tools: { server: string, file: string }[], pins: string | null, emitPins: boolean, critical: string[], format: "md" | "json", lang: "en" | "pt", failOn: string, root: string, redact: boolean } } | { ok: false, error: string }}
  */
 export function parseArgs(argv) {
-  const o = { configs: /** @type {string[]} */ ([]), tools: /** @type {{ server: string, file: string }[]} */ ([]), pins: /** @type {string | null} */ (null), emitPins: false, critical: /** @type {string[]} */ ([]), format: /** @type {"md" | "json"} */ ("md"), lang: /** @type {"en" | "pt"} */ ("en"), failOn: "HIGH", root: process.cwd() };
+  const o = { configs: /** @type {string[]} */ ([]), tools: /** @type {{ server: string, file: string }[]} */ ([]), pins: /** @type {string | null} */ (null), emitPins: false, critical: /** @type {string[]} */ ([]), format: /** @type {"md" | "json"} */ ("md"), lang: /** @type {"en" | "pt"} */ ("en"), failOn: "HIGH", root: process.cwd(), redact: false };
   for (let i = 0; i < argv.length; i++) {
     const a = /** @type {string} */ (argv[i]);
     const next = () => {
@@ -102,14 +102,15 @@ export function parseArgs(argv) {
         o.tools.push(eq > 0 && !/^[A-Za-z]:[\\/]/.test(v) ? { server: v.slice(0, eq), file: v.slice(eq + 1) } : { server: "", file: v });
       } else if (a === "--pins") o.pins = next();
       else if (a === "--emit-pins") o.emitPins = true;
+      else if (a === "--redact-names") o.redact = true;
       else if (a === "--critical-pattern") o.critical.push(next());
       else if (a === "--format") { const v = next(); if (v !== "md" && v !== "json") throw new Error("--format is md or json"); o.format = v; }
       else if (a === "--lang") { const v = next(); if (v !== "en" && v !== "pt") throw new Error("--lang is en or pt"); o.lang = v; }
       else if (a === "--fail-on") { const v = next().toUpperCase(); if (v !== "NEVER" && !SEVERITIES.includes(/** @type {any} */ (v))) throw new Error("--fail-on is INFO, LOW, MEDIUM, HIGH, CRITICAL or never"); o.failOn = v; }
       else if (a === "--root") o.root = next();
       else if (a === "-h" || a === "--help") return { ok: false, error: USAGE };
-      // Echo the option only when it is a plain option name: a pasted credential must not come back.
-      else return { ok: false, error: `unknown option${/^--?[a-z][a-z-]{0,30}$/.test(a) ? ` ${a}` : ""}\n${USAGE}` };
+      // Never echoed: a pasted credential, even one that looks like an option name, must not come back.
+      else return { ok: false, error: `unknown option\n${USAGE}` };
     } catch (e) {
       return { ok: false, error: `${e instanceof Error ? e.message : String(e)}\n${USAGE}` };
     }
@@ -127,10 +128,12 @@ export function run(argv) {
   if (!p.ok) return { out: "", err: p.error, code: 2 };
   const o = p.o;
   let critical;
-  try { critical = parseCriticalPatterns(o.critical); } catch (e) { return { out: "", err: `invalid --critical-pattern: ${e instanceof Error ? safeText(e.message, 120) : ""}`, code: 2 }; }
+  // Fixed text: the regular-expression error would repeat the pattern, which is input.
+  try { critical = parseCriticalPatterns(o.critical); } catch { return { out: "", err: "invalid --critical-pattern (not a valid /regex/, or longer than 200 characters)", code: 2 }; }
+  const nm = presenter(o.redact, DEFAULT_CONFIGS);
   const root = resolve(o.root);
   /** @param {string} f */
-  const label = (f) => safeText(relative(root, resolve(root, f)) || f, 120);
+  const label = (f) => nm.file(relative(root, resolve(root, f)) || f);
 
   /** @type {import("./lib/audit.mjs").Finding[]} */
   const findings = [];
@@ -157,7 +160,7 @@ export function run(argv) {
     files.push(label(path));
     const r = readJsonFile(path);
     if (!r.ok) { findings.push({ code: r.code, severity: "HIGH", file: label(path), target: "", data: "" }); continue; }
-    const a = auditConfig(r.value, label(path));
+    const a = auditConfig(r.value, label(path), nm);
     findings.push(...a.findings);
     servers.push(...a.servers);
   }
@@ -168,7 +171,8 @@ export function run(argv) {
     files.push(label(path));
     const r = readJsonFile(path);
     if (!r.ok) { findings.push({ code: r.code, severity: "HIGH", file: label(path), target: "", data: "" }); continue; }
-    listings.push({ server: t.server || safeText(t.file.replace(/^.*[\\/]/, "").replace(/\.json$/i, ""), 60), file: label(path), tools: toolsFromListing(r.value) });
+    // Raw server name: it is presented (masked or replaced) by the audit, and hashed into the pin ids.
+    listings.push({ server: t.server || t.file.replace(/^.*[\\/]/, "").replace(/\.json$/i, ""), file: label(path), tools: toolsFromListing(r.value) });
   }
   let pins;
   if (o.pins) {
@@ -178,15 +182,15 @@ export function run(argv) {
     if (!r.ok) findings.push({ code: r.code, severity: "HIGH", file: label(path), target: "", data: "" });
     else pins = r.value;
   }
-  const t = auditTools(listings, { extraCritical: critical, pins });
+  const t = auditTools(listings, { extraCritical: critical, pins, nm });
   findings.push(...t.findings);
 
   if (o.emitPins) {
     // Pins go to stdout; the person decides where to save them. This program writes no file.
-    return { out: scrubCredentials(JSON.stringify({ version: 1, tools: Object.fromEntries(Object.entries(t.pins).sort()) }, null, 2)), err: "", code: 0 };
+    return { out: scrubCredentials(JSON.stringify({ version: 2, tools: Object.fromEntries(Object.entries(t.pins).sort(([a], [b]) => a.localeCompare(b))) }, null, 2)), err: "", code: 0 };
   }
   const report = { files, servers, findings, rows: t.rows };
-  const out = o.format === "json" ? renderJson(report) : renderMarkdown(report, o.lang);
+  const out = o.format === "json" ? renderJson(report, o.redact) : renderMarkdown(report, o.lang, o.redact);
   const worst = findings.reduce((m, f) => Math.max(m, severityRank(f.severity)), -1);
   const code = o.failOn === "NEVER" ? 0 : worst >= severityRank(/** @type {any} */ (o.failOn)) ? 1 : 0;
   return { out, err: "", code };

@@ -36,6 +36,13 @@ DESTRUCTIVE) from the tool **name** and boolean annotations only.
    user asks for pins and names (or approves) the file; never create or overwrite a pin file on your
    own initiative.
 8. A clean report is not a guarantee. Say what was checked and what was not (see Limits).
+9. **Protected mode before the report leaves this conversation.** Whenever the report, or any part of
+   it, will be shared or sent anywhere else (an issue, a pull request, a ticket, a chat or an email with
+   other people, another tool or system), run the script again with `--redact-names` and share only
+   that output. The default mode masks token-like parts of names by a heuristic that can miss a secret
+   written inside a name; the protected mode replaces every free identifier by a neutral label. Inside
+   this conversation the default mode is fine for working on the user's own config, unless the user
+   asks for names to stay out of the conversation too.
 
 ## How to run
 
@@ -65,7 +72,7 @@ node <path-to-this-skill>/scripts/mcp-guardian.mjs --tools github=github-tools.j
 node <path-to-this-skill>/scripts/mcp-guardian.mjs --tools github=github-tools-new.json --pins mcp-pins.json
 ```
 
-Other options: `--format json`, `--fail-on INFO|LOW|MEDIUM|HIGH|CRITICAL|never`
+Other options: `--redact-names` (protected mode, rule 9), `--format json`, `--fail-on INFO|LOW|MEDIUM|HIGH|CRITICAL|never`
 (default HIGH), `--root DIR`, and `--critical-pattern TEXT|/REGEX/` (repeatable) to mark tools that
 move money or do irreversible things in the user's own stack as CRITICAL.
 

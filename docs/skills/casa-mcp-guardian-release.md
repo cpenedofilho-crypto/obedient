@@ -84,7 +84,7 @@ First public version. Read-only, offline audit of MCP configs and saved `tools/l
 ## 5. Pacote reproduzível
 
 Conteúdo: `SKILL.md`, `README.md`, `README.pt-BR.md`, `LICENSE`, `NOTICE`, `CHANGELOG.md`,
-`references/`, `scripts/` (15 arquivos). `tests/` fica no repositório. Zip com a pasta `casa-mcp-guardian/` na
+`references/`, `scripts/` (16 arquivos desde o T8.2). `tests/` fica no repositório. Zip com a pasta `casa-mcp-guardian/` na
 raiz, entradas em ordem alfabética, data fixa e permissão 644; o mesmo commit gera os mesmos bytes.
 Receita usada na preparação (Python 3, só biblioteca padrão), rodada de dentro da pasta da skill:
 

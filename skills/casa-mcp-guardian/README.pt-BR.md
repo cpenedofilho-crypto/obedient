@@ -67,7 +67,8 @@ node scripts/mcp-guardian.mjs --format json --fail-on critical  # para CI
 | --- | --- |
 | `--config ARQUIVO` | Configuração a auditar (pode repetir). Sem ela (e sem `--tools`): `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.claude/settings.json`, `.claude/settings.local.json` em `--root`. Nunca a pasta pessoal: sem `--config`, uma raiz que é a pasta pessoal (escrita de qualquer forma) é recusada, e um caminho padrão que sai do projeto por link simbólico é pulado (`IMPLICIT_PATH_OUTSIDE_PROJECT`). |
 | `--tools [SERVIDOR=]ARQUIVO` | Um resultado de `tools/list` salvo: lista, `{ "tools": [...] }` ou resposta JSON-RPC (pode repetir). |
-| `--pins ARQUIVO` / `--emit-pins` | Compara com a fixação salva / imprime a fixação na saída padrão. |
+| `--pins ARQUIVO` / `--emit-pins` | Compara com a fixação salva / imprime a fixação (versão 2) na saída padrão. |
+| `--redact-names` | Modo protegido: identificadores livres trocados por rótulos neutros. Obrigatório antes de compartilhar um relatório. |
 | `--critical-pattern TEXTO\|/REGEX/` | Suas ferramentas críticas, por exemplo as que movem dinheiro no seu ambiente (pode repetir). |
 | `--format md\|json`, `--lang en\|pt` | Formato e idioma do relatório. |
 | `--fail-on NÍVEL\|never` | Sai com 1 a partir desta gravidade (padrão HIGH). |
@@ -105,6 +106,22 @@ auditar só a pasta do projeto a menos que você concorde com uma configuração
 gravar arquivo de fixação quando você pedir, e parar (sem recriar o script) se
 `scripts/mcp-guardian.mjs` não estiver no disco. São instruções ao modelo, não garantias: o próprio script
 garante só leitura e ausência de rede (abaixo); o cumprimento pelo agente depende do modelo.
+
+## Dois modos
+
+| | Padrão | Protegido (`--redact-names`) |
+| --- | --- | --- |
+| Para | Trabalhar na sua própria configuração, localmente | Relatório que vai ser compartilhado ou enviado a outro sistema |
+| Nomes de servidor e de ferramenta | Aparecem; trechos com cara de token são mascarados | Trocados por `server-1`, `tool-3`… |
+| Nomes de arquivo, hosts, comandos, chaves de configuração, nomes de parâmetro de URL, nomes de pacote, ferramentas aprovadas automaticamente, rótulos de fixação | Aparecem, mascarados do mesmo jeito | Trocados por rótulos neutros ou contagens |
+| Valores (env, cabeçalhos, argumentos, caminho, query e usuário da URL, versões de pacote, descrições) | **Nunca aparecem** | **Nunca aparecem** |
+| Risco, categoria, gravidade, códigos de achado, código de saída | Iguais | Iguais |
+| Risco residual | O mascaramento é heurística: medido em tokens aleatórios, deixa passar cerca de 0-1% com 40 caracteres e 12-25% com 16; segredo escrito como palavras comuns dentro de um nome não é pego | Testado com segredos de todos os formatos plantados em todo campo de texto livre: nenhum trecho em nenhuma saída. Só sai vocabulário fixo (códigos, gravidades, risco, os nomes fixos de arquivo de configuração, tipos de transporte e chaves de aprovação conhecidos) |
+
+A fixação (`--emit-pins`, versão 2) usa como chave um identificador opaco de 128 bits (SHA-256 sobre um
+domínio fixo e os nomes de servidor e ferramenta, truncado), e por isso compara igual nos dois modos. O
+identificador identifica; não anonimiza: um nome previsível pode ser descoberto por tentativa. O modo
+padrão acrescenta um rótulo legível para pessoas; o protegido não.
 
 ## Garantias e como são testadas
 

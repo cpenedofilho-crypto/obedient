@@ -22,6 +22,8 @@ const L = {
     untrusted: "Tool names and descriptions come from the servers and are untrusted data. Descriptions are not reproduced here.",
     summary: "Summary", yes: "yes", no: "no",
     riskNote: "Risk and category come from the tool NAME and boolean annotations only; an annotation never lowers what the name reveals.",
+    masked: "Names are shown with token-like parts masked. That is a heuristic and can miss a secret written inside a name: before sharing this report or sending it to another system, run again with --redact-names.",
+    redacted: "Protected mode (--redact-names): server and tool names, file names, hosts, commands, config keys, URL parameters, package names and pin labels are replaced by neutral labels.",
   },
   pt: {
     heading: "Relatório do MCP Guardian", mode: "Execução somente leitura: nenhuma conexão de rede, nenhum arquivo escrito, nenhuma ferramenta chamada.",
@@ -31,19 +33,22 @@ const L = {
     untrusted: "Nomes e descrições de ferramenta vêm dos servidores e são dados não confiáveis. As descrições não são reproduzidas aqui.",
     summary: "Resumo", yes: "sim", no: "não",
     riskNote: "Risco e categoria saem só do NOME da ferramenta e das anotações booleanas; anotação nunca rebaixa o que o nome revela.",
+    masked: "Os nomes aparecem com os trechos que parecem token mascarados. Isso é heurística e pode deixar passar um segredo escrito dentro de um nome: antes de compartilhar este relatório ou enviá-lo a outro sistema, rode de novo com --redact-names.",
+    redacted: "Modo protegido (--redact-names): nomes de servidor e de ferramenta, nomes de arquivo, hosts, comandos, chaves de configuração, parâmetros de URL, nomes de pacote e rótulos de fixação são trocados por rótulos neutros.",
   },
 };
 
 /**
  * @param {{ files: string[], servers: { name: string, transport: string, endpoint: string }[], findings: Finding[], rows: ToolRow[] }} r
  * @param {"en" | "pt"} lang
+ * @param {boolean} [redacted]
  */
-export function renderMarkdown(r, lang) {
+export function renderMarkdown(r, lang, redacted = false) {
   const t = L[lang];
   const findings = [...r.findings].sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
   const count = (/** @type {string} */ s) => findings.filter((f) => f.severity === s).length;
   /** @type {string[]} */
-  const out = [`# ${t.heading}`, "", `> ${t.mode}`, ""];
+  const out = [`# ${t.heading}`, "", `> ${t.mode}`, ">", `> ${redacted ? t.redacted : t.masked}`, ""];
   out.push(`**${t.summary}:** CRITICAL ${count("CRITICAL")} · HIGH ${count("HIGH")} · MEDIUM ${count("MEDIUM")} · LOW ${count("LOW")} · INFO ${count("INFO")}`, "");
   out.push(`## ${t.files}`, "", ...(r.files.length ? r.files.map((f) => `- ${f}`) : ["- —"]), "");
   if (r.servers.length) {
@@ -69,11 +74,12 @@ export function renderMarkdown(r, lang) {
 
 /**
  * @param {{ files: string[], servers: { name: string, transport: string, endpoint: string }[], findings: Finding[], rows: ToolRow[] }} r
+ * @param {boolean} [redacted]
  */
-export function renderJson(r) {
+export function renderJson(r, redacted = false) {
   const findings = [...r.findings].sort((a, b) => severityRank(b.severity) - severityRank(a.severity));
   return scrubCredentials(JSON.stringify({
-    tool: "casa-mcp-guardian", version: 1, mode: { network: false, writes: false, toolCalls: false },
+    tool: "casa-mcp-guardian", version: 1, mode: { network: false, writes: false, toolCalls: false, names: redacted ? "redacted" : "masked-heuristic" },
     files: r.files, servers: r.servers,
     findings: findings.map((f) => ({ ...f, title: title(f.code, "en") })),
     tools: r.rows,

@@ -76,6 +76,20 @@ export function hasToken(v) {
   return v.split(SEPARATORS).filter(Boolean).some(randomPiece);
 }
 
+/**
+ * Default-mode display of an identifier: long high-entropy runs, known credential shapes and pieces
+ * that read as random become "[masked]". A heuristic with a measured residual risk; --redact-names
+ * (scripts/lib/present.mjs) is the mode that does not depend on it.
+ * @param {string} v
+ */
+export function maskTokens(v) {
+  let t = v.replace(/[A-Za-z0-9_-]{24,}/g, (r) => (entropy(r) >= 4.3 ? "[masked]" : r));
+  for (const r of SHAPES) t = t.replace(new RegExp(r.source, `${r.flags.replace("g", "")}g`), "[masked]");
+  const parts = t.split(/([\/._:~@#?&=+\s-]+)/);
+  for (let i = 0; i < parts.length; i += 2) if (parts[i] && randomPiece(/** @type {string} */ (parts[i]))) parts[i] = "[masked]";
+  return parts.join("").replace(/\[masked\](?:[\/._:~@#?&=+\s-]+\[masked\])+/g, "[masked]");
+}
+
 /** @param {string} v */
 function isReference(v) {
   const t = v.trim();

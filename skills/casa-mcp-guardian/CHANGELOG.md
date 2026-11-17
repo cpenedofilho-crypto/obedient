@@ -13,6 +13,13 @@ First public version. Read-only, offline audit of MCP configs and saved `tools/l
 - Never reads personal or global configs implicitly: the home folder is refused as a root, and
   default paths that leave the project through a symlink are skipped. Files named with `--config`,
   `--tools` or `--pins` are read as given; this is not file-system isolation.
+- Two modes. Default: names readable, token-like parts masked (a heuristic with a measured residual
+  risk). Protected (`--redact-names`): every free identifier (server, tool and file names, hosts,
+  commands, config keys, URL parameter names, package names, pin labels) replaced by neutral labels;
+  required before a report is shared or sent to another system. Values are never shown in either mode,
+  and the URL path and query are never shown.
+- Pins version 2: keyed by an opaque, domain-separated 128-bit id, so they compare the same in both
+  modes. The id identifies; it does not anonymize.
 - Reports in Markdown or JSON, English or Portuguese. Exit codes 0, 1 and 2.
 - Requires Node.js 22 or newer (tested on 22 and 24). No dependencies.
 - Agent Skills format. Structurally compatible with Claude Code and Cursor 2.4+; loading and

@@ -62,7 +62,8 @@ node scripts/mcp-guardian.mjs --format json --fail-on critical  # for CI
 | --- | --- |
 | `--config FILE` | Config to audit (repeatable). Without it (and without `--tools`): `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.claude/settings.json`, `.claude/settings.local.json` in `--root`. Never the home folder: without `--config`, a root that is the home folder (however written) is refused, and a default path that leads out of the project through a symlink is skipped (`IMPLICIT_PATH_OUTSIDE_PROJECT`). |
 | `--tools [SERVER=]FILE` | A saved `tools/list` result: array, `{ "tools": [...] }` or a JSON-RPC response (repeatable). |
-| `--pins FILE` / `--emit-pins` | Compare with saved pins / print pins to standard output. |
+| `--pins FILE` / `--emit-pins` | Compare with saved pins / print pins (version 2) to standard output. |
+| `--redact-names` | Protected mode: free identifiers replaced by neutral labels. Required before sharing a report. |
 | `--critical-pattern TEXT\|/REGEX/` | Your own critical tools, e.g. the ones that move money in your stack (repeatable). |
 | `--format md\|json`, `--lang en\|pt` | Report format and language. |
 | `--fail-on LEVEL\|never` | Exit 1 at or above this severity (default HIGH). |
@@ -100,6 +101,22 @@ to work from the report instead of opening the raw config or `tools/list` JSON, 
 project folder unless you agree to a personal or global config, to save a pin file only when you
 ask for it, and to stop (never recreate the script) if `scripts/mcp-guardian.mjs` is not on disk. These are instructions to the model, not guarantees: the script itself enforces read-only
 and offline behavior (below), the agent's compliance depends on the model.
+
+## Two modes
+
+| | Default | Protected (`--redact-names`) |
+| --- | --- | --- |
+| For | Working on your own config, locally | A report that will be shared or sent to another system |
+| Server and tool names | Shown; parts that look like tokens are masked | Replaced by `server-1`, `tool-3`… |
+| File names, hosts, commands, config keys, URL parameter names, package names, auto-approved tools, pin labels | Shown, masked the same way | Replaced by neutral labels or counts |
+| Values (env, headers, arguments, URL path, query and user info, package versions, descriptions) | **Never shown** | **Never shown** |
+| Risk, category, severity, finding codes, exit code | Same | Same |
+| Residual risk | The masking is a heuristic: measured on random tokens, it misses about 0-1% at 40 characters and 12-25% at 16; a secret written as ordinary words inside a name is not caught | Tested with secrets of every format planted in every free-text field: no fragment in any output. Only fixed vocabulary is printed (codes, severities, risk, the default config file names, known transport types and auto-approval keys) |
+
+Pins (`--emit-pins`, version 2) are keyed by an opaque 128-bit id (SHA-256 over a fixed domain and the
+server and tool names, truncated), so they compare the same in both modes. The id identifies; it does not
+anonymize: a predictable name can be found by trying candidates. The default mode adds a readable label
+for people; the protected mode leaves it out.
 
 ## Guarantees and how they are tested
 
