@@ -26,6 +26,8 @@ export const severityRank = (s) => SEVERITIES.indexOf(s);
  * @param {string} src
  */
 export function stripJsonc(src) {
+  // One pass, string-aware for both comments and trailing commas: text inside a string is never touched
+  // (a value such as "https://x/a,}" or "a // b" stays exactly as written).
   let out = "";
   let inStr = false;
   for (let i = 0; i < src.length; i++) {
@@ -38,9 +40,20 @@ export function stripJsonc(src) {
     if (c === '"') { inStr = true; out += c; continue; }
     if (c === "/" && src[i + 1] === "/") { while (i < src.length && src[i] !== "\n") i++; out += "\n"; continue; }
     if (c === "/" && src[i + 1] === "*") { i += 2; while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++; i++; continue; }
+    if (c === ",") {
+      // Trailing comma: the next thing outside comments and whitespace closes an object or an array.
+      let j = i + 1;
+      for (;;) {
+        while (j < src.length && /\s/.test(/** @type {string} */ (src[j]))) j++;
+        if (src[j] === "/" && src[j + 1] === "/") { while (j < src.length && src[j] !== "\n") j++; continue; }
+        if (src[j] === "/" && src[j + 1] === "*") { j += 2; while (j < src.length && !(src[j] === "*" && src[j + 1] === "/")) j++; j += 2; continue; }
+        break;
+      }
+      if (src[j] === "}" || src[j] === "]") continue;
+    }
     out += c;
   }
-  return out.replace(/,(\s*[}\]])/g, "$1");
+  return out;
 }
 
 /**
