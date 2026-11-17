@@ -111,7 +111,7 @@ garante só leitura e ausência de rede (abaixo); o cumprimento pelo agente depe
 
 | | Padrão | Protegido (`--redact-names`) |
 | --- | --- | --- |
-| Para | Trabalhar na sua própria configuração, localmente | Relatório que vai ser compartilhado ou enviado a outro sistema |
+| Para | Você mesmo rodar o script, na sua máquina | Toda execução por um agente (a skill manda usar este modo, a menos que você peça os nomes explicitamente) e todo relatório que vai ser compartilhado ou enviado a outro sistema |
 | Nomes de servidor e de ferramenta | Aparecem; trechos com cara de token são mascarados | Trocados por `server-1`, `tool-3`… |
 | Nomes de arquivo, hosts, comandos, chaves de configuração, nomes de parâmetro de URL, nomes de pacote, ferramentas aprovadas automaticamente, rótulos de fixação | Aparecem, mascarados do mesmo jeito | Trocados por rótulos neutros ou contagens |
 | Valores (env, cabeçalhos, argumentos, caminho, query e usuário da URL, versões de pacote, descrições) | **Nunca aparecem** | **Nunca aparecem** |

@@ -36,13 +36,14 @@ DESTRUCTIVE) from the tool **name** and boolean annotations only.
    user asks for pins and names (or approves) the file; never create or overwrite a pin file on your
    own initiative.
 8. A clean report is not a guarantee. Say what was checked and what was not (see Limits).
-9. **Protected mode before the report leaves this conversation.** Whenever the report, or any part of
-   it, will be shared or sent anywhere else (an issue, a pull request, a ticket, a chat or an email with
-   other people, another tool or system), run the script again with `--redact-names` and share only
-   that output. The default mode masks token-like parts of names by a heuristic that can miss a secret
-   written inside a name; the protected mode replaces every free identifier by a neutral label. Inside
-   this conversation the default mode is fine for working on the user's own config, unless the user
-   asks for names to stay out of the conversation too.
+9. **Protected mode by default.** Always run the script with `--redact-names`: server and tool names,
+   file names, hosts, commands, config keys, URL parameter names, package names and pin labels then
+   reach you, and the user's chat, only as neutral labels ("server-1", "tool-3"). The readable mode
+   (without `--redact-names`) is for the user running the script on their own machine. You may run it
+   without `--redact-names` only when the user explicitly asks to see the names in this conversation,
+   and only for the run they asked for; say that names will then appear here. Whatever was authorized,
+   anything that leaves the conversation (an issue, a pull request, a ticket, a message to other people,
+   another tool or system) uses protected output only.
 
 ## How to run
 
@@ -61,18 +62,18 @@ folder (exit code 2) and skips default paths that lead out of the project throug
 
 ```bash
 # Project config files (.mcp.json, .cursor/mcp.json, .vscode/mcp.json, .claude/settings*.json)
-node <path-to-this-skill>/scripts/mcp-guardian.mjs
+node <path-to-this-skill>/scripts/mcp-guardian.mjs --redact-names
 
 # A specific config and a saved tools/list result for server "github", report in Portuguese
-node <path-to-this-skill>/scripts/mcp-guardian.mjs --config .mcp.json --tools github=github-tools.json --lang pt
+node <path-to-this-skill>/scripts/mcp-guardian.mjs --redact-names --config .mcp.json --tools github=github-tools.json --lang pt
 
 # Detect silent tool changes ("rug pull"): print pins; the user decides whether and where to save them...
-node <path-to-this-skill>/scripts/mcp-guardian.mjs --tools github=github-tools.json --emit-pins
+node <path-to-this-skill>/scripts/mcp-guardian.mjs --redact-names --tools github=github-tools.json --emit-pins
 # ...later compare a new listing with the saved pins
-node <path-to-this-skill>/scripts/mcp-guardian.mjs --tools github=github-tools-new.json --pins mcp-pins.json
+node <path-to-this-skill>/scripts/mcp-guardian.mjs --redact-names --tools github=github-tools-new.json --pins mcp-pins.json
 ```
 
-Other options: `--redact-names` (protected mode, rule 9), `--format json`, `--fail-on INFO|LOW|MEDIUM|HIGH|CRITICAL|never`
+Other options: `--format json`, `--fail-on INFO|LOW|MEDIUM|HIGH|CRITICAL|never`
 (default HIGH), `--root DIR`, and `--critical-pattern TEXT|/REGEX/` (repeatable) to mark tools that
 move money or do irreversible things in the user's own stack as CRITICAL.
 
@@ -83,6 +84,9 @@ save it.
 
 ## How to read the report
 
+- In protected mode, `server-1`, `tool-3`, `file-2` are labels numbered within that one report. Do not
+  guess which real name each one is; if the user needs the mapping, they run the readable mode on their
+  own machine (or explicitly ask you for it, rule 9).
 - **Findings** are sorted by severity. Start with CRITICAL and HIGH; each row says what to do.
 - **Tools** lists every tool with risk and category. A HIGH or CRITICAL tool is not a defect: it is a
   tool that should require a person's approval in the client.

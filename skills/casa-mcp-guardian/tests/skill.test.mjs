@@ -195,9 +195,13 @@ describe("SKILL.md", () => {
   });
   it("rule 9 and both READMEs make the protected mode mandatory before sharing, and say what it covers (T8.2)", () => {
     const flat = md.replace(/\s+/g, " ");
-    assert.match(flat, /9\. \*\*Protected mode before the report leaves this conversation\.\*\*/);
-    assert.match(flat, /run the script again with `--redact-names` and share only that output/);
-    assert.match(flat, /masks token-like parts of names by a heuristic that can miss a secret/);
+    assert.match(flat, /9\. \*\*Protected mode by default\.\*\* Always run the script with `--redact-names`/);
+    assert.match(flat, /only when the user explicitly asks to see the names in this conversation, and only for the run they asked for/);
+    assert.match(flat, /anything that leaves the conversation .* uses protected output only/);
+    // Every command the agent could copy runs in protected mode.
+    const commands = [...md.matchAll(/^node <path-to-this-skill>\/scripts\/mcp-guardian\.mjs(.*)$/gm)];
+    assert.ok(commands.length >= 4);
+    for (const c of commands) assert.match(c[1] ?? "", /^ --redact-names\b/, c[0]);
     const en = readFileSync(join(SKILL_DIR, "README.md"), "utf8").replace(/\s+/g, " ");
     const pt = readFileSync(join(SKILL_DIR, "README.pt-BR.md"), "utf8").replace(/\s+/g, " ");
     assert.match(en, /## Two modes/);

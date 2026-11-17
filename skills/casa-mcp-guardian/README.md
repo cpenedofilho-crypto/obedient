@@ -106,7 +106,7 @@ and offline behavior (below), the agent's compliance depends on the model.
 
 | | Default | Protected (`--redact-names`) |
 | --- | --- | --- |
-| For | Working on your own config, locally | A report that will be shared or sent to another system |
+| For | Running the script yourself, on your own machine | Every run by an agent (the skill tells it to use this mode unless you explicitly ask for names), and any report that will be shared or sent to another system |
 | Server and tool names | Shown; parts that look like tokens are masked | Replaced by `server-1`, `tool-3`… |
 | File names, hosts, commands, config keys, URL parameter names, package names, auto-approved tools, pin labels | Shown, masked the same way | Replaced by neutral labels or counts |
 | Values (env, headers, arguments, URL path, query and user info, package versions, descriptions) | **Never shown** | **Never shown** |
