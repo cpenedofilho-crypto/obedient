@@ -1,0 +1,256 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Cláudio Penedo.
+// @ts-check
+//
+// The audit itself: config files and tool listings in, findings and a tool table out. Pure functions
+// over parsed JSON; the only I/O is `readJsonFile`, which READS a file the caller named. Nothing here
+// writes, spawns or connects.
+
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
+import { basename } from "node:path";
+import { classifyTool, riskRank } from "./classify.mjs";
+import { assessUrl } from "./endpoint.mjs";
+import { findLiteralSecrets } from "./secrets.mjs";
+import { allDescriptions, hasHiddenCharacters, injectionSignals, safeText } from "./untrusted.mjs";
+
+export const MAX_FILE_BYTES = 2 * 1024 * 1024;
+export const SEVERITIES = /** @type {const} */ (["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]);
+/** @typedef {typeof SEVERITIES[number]} Severity */
+/** @typedef {{ code: string, severity: Severity, file: string, target: string, data: string }} Finding */
+/** @param {Severity} s */
+export const severityRank = (s) => SEVERITIES.indexOf(s);
+
+/**
+ * Removes // and /* *\/ comments and trailing commas outside strings (VS Code's mcp.json is JSONC).
+ * @param {string} src
+ */
+export function stripJsonc(src) {
+  let out = "";
+  let inStr = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inStr) {
+      out += c;
+      if (c === "\\") { out += src[i + 1] ?? ""; i++; } else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; out += c; continue; }
+    if (c === "/" && src[i + 1] === "/") { while (i < src.length && src[i] !== "\n") i++; out += "\n"; continue; }
+    if (c === "/" && src[i + 1] === "*") { i += 2; while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++; i++; continue; }
+    out += c;
+  }
+  return out.replace(/,(\s*[}\]])/g, "$1");
+}
+
+/**
+ * Reads and parses a JSON(C) file the user named. Never follows into directories; refuses large files.
+ * @param {string} path
+ * @returns {{ ok: true, value: unknown } | { ok: false, code: "FILE_UNREADABLE" | "FILE_TOO_LARGE" | "FILE_NOT_JSON" }}
+ */
+export function readJsonFile(path) {
+  let st;
+  try { st = statSync(path); } catch { return { ok: false, code: "FILE_UNREADABLE" }; }
+  if (!st.isFile()) return { ok: false, code: "FILE_UNREADABLE" };
+  if (st.size > MAX_FILE_BYTES) return { ok: false, code: "FILE_TOO_LARGE" };
+  let text;
+  try { text = readFileSync(path, "utf8"); } catch { return { ok: false, code: "FILE_UNREADABLE" }; }
+  try { return { ok: true, value: JSON.parse(stripJsonc(text.replace(/^\uFEFF/, ""))) }; } catch { return { ok: false, code: "FILE_NOT_JSON" }; }
+}
+
+const RUNNERS = new Set(["npx", "bunx", "pnpx"]);
+const DLX = new Set(["pnpm", "yarn", "npm"]);
+const PY_RUNNERS = new Set(["uvx", "pipx"]);
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh"]);
+const CONTAINERS = new Set(["docker", "podman"]);
+
+/** @param {unknown} x */
+const str = (x) => (typeof x === "string" ? x : "");
+/** @param {string} c */
+const cmdName = (c) => basename(c.replace(/\\/g, "/")).toLowerCase();
+
+/** npm package spec has a version: "pkg@1.2.3", "@scope/pkg@1.2.3" (not "latest", not a range like ^). */
+/** @param {string} spec */
+function npmPinned(spec) {
+  const at = spec.startsWith("@") ? spec.indexOf("@", 1) : spec.indexOf("@");
+  if (at <= 0) return false;
+  const v = spec.slice(at + 1);
+  return /^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$/.test(v);
+}
+
+/**
+ * @param {string} command
+ * @param {string[]} args
+ * @returns {{ code: string, severity: Severity, data: string }[]}
+ */
+export function assessCommand(command, args) {
+  /** @type {{ code: string, severity: Severity, data: string }[]} */
+  const out = [];
+  const name = cmdName(command);
+  const joined = [command, ...args].join(" ");
+  if (/\b(curl|wget|iwr|invoke-webrequest)\b[^|]*\|\s*(sudo\s+)?(sh|bash|zsh|python3?|node|iex|pwsh|powershell)\b/i.test(joined)) {
+    out.push({ code: "PIPE_TO_SHELL", severity: "CRITICAL", data: "" });
+  }
+  if (SHELLS.has(name) && args.some((a) => /^(-c|\/c|\/k|-command|-encodedcommand)$/i.test(a))) out.push({ code: "SHELL_WRAPPER", severity: "HIGH", data: name });
+
+  /** First argument that is not a flag (and not the value of -p/--package). */
+  const firstPositional = (/** @type {string[]} */ list) => {
+    for (let i = 0; i < list.length; i++) {
+      const a = /** @type {string} */ (list[i]);
+      if (a === "-p" || a === "--package") return list[i + 1] ?? null;
+      if (!a.startsWith("-")) return a;
+    }
+    return null;
+  };
+  let spec = null;
+  if (RUNNERS.has(name)) spec = firstPositional(args);
+  else if (DLX.has(name) && (args[0] === "dlx" || args[0] === "exec")) spec = firstPositional(args.slice(1));
+  if (spec && !spec.startsWith(".") && !spec.startsWith("/") && !npmPinned(spec)) out.push({ code: "UNPINNED_PACKAGE", severity: "MEDIUM", data: spec });
+
+  if (PY_RUNNERS.has(name)) {
+    const list = name === "pipx" && args[0] === "run" ? args.slice(1) : args;
+    const from = list.indexOf("--from");
+    const pySpec = from >= 0 ? list[from + 1] ?? "" : firstPositional(list) ?? "";
+    if (pySpec && !/(==|@)\d/.test(pySpec)) out.push({ code: "UNPINNED_PACKAGE", severity: "MEDIUM", data: pySpec });
+  }
+  if (CONTAINERS.has(name) && args.includes("run") && !args.some((a) => /@sha256:[0-9a-f]{64}$/.test(a))) out.push({ code: "UNPINNED_IMAGE", severity: "MEDIUM", data: "" });
+  return out;
+}
+
+/**
+ * @param {unknown} cfg parsed config
+ * @param {string} file label for the report (basename or relative path)
+ * @returns {{ findings: Finding[], servers: { name: string, transport: string, endpoint: string }[] }}
+ */
+export function auditConfig(cfg, file) {
+  /** @type {Finding[]} */
+  const findings = [];
+  /** @type {{ name: string, transport: string, endpoint: string }[]} */
+  const servers = [];
+  const root = cfg && typeof cfg === "object" && !Array.isArray(cfg) ? /** @type {Record<string, unknown>} */ (cfg) : {};
+  // Claude Code project settings: everything in .mcp.json switched on without review.
+  if (root.enableAllProjectMcpServers === true) findings.push({ code: "ENABLE_ALL_PROJECT_SERVERS", severity: "MEDIUM", file, target: "enableAllProjectMcpServers", data: "" });
+  const box = root.mcpServers ?? root.servers ?? (root.mcp && typeof root.mcp === "object" ? /** @type {Record<string, unknown>} */ (root.mcp).servers : undefined);
+  if (!box || typeof box !== "object" || Array.isArray(box)) {
+    if (!("enableAllProjectMcpServers" in root)) findings.push({ code: "NO_SERVERS", severity: "INFO", file, target: "", data: "" });
+    return { findings, servers };
+  }
+  for (const [rawName, entryRaw] of Object.entries(/** @type {Record<string, unknown>} */ (box))) {
+    const name = safeText(rawName, 60);
+    const target = `server ${name}`;
+    if (!entryRaw || typeof entryRaw !== "object" || Array.isArray(entryRaw)) { findings.push({ code: "SERVER_UNRECOGNIZED", severity: "LOW", file, target, data: "" }); continue; }
+    const e = /** @type {Record<string, unknown>} */ (entryRaw);
+    const url = str(e.url) || str(e.serverUrl) || str(e.httpUrl);
+    const command = str(e.command);
+    const args = Array.isArray(e.args) ? e.args.filter((a) => typeof a === "string").map(String) : [];
+    if (url) {
+      const a = assessUrl(url);
+      servers.push({ name, transport: str(e.type) || "http", endpoint: safeText(a.display, 100) });
+      for (const f of a.findings) findings.push({ code: f.code, severity: f.severity, file, target, data: safeText(f.detail, 120) });
+    } else if (command) {
+      servers.push({ name, transport: "stdio", endpoint: safeText(`${cmdName(command)} ${args.length ? "…" : ""}`.trim(), 60) });
+      for (const f of assessCommand(command, args)) findings.push({ ...f, file, target, data: safeText(f.data, 80) });
+    } else {
+      findings.push({ code: "SERVER_UNRECOGNIZED", severity: "LOW", file, target, data: "" });
+    }
+    // Literal secrets anywhere in the entry except the URL (handled above). Key paths only.
+    const { url: _u, serverUrl: _s, httpUrl: _h, ...rest } = e;
+    for (const hit of findLiteralSecrets(rest, `servers.${rawName}`)) {
+      findings.push({ code: "LITERAL_SECRET", severity: "HIGH", file, target, data: safeText(`${hit.path.replace(`servers.${rawName}`, "")} (${hit.why})`, 120) });
+    }
+    for (const key of ["alwaysAllow", "autoApprove", "autoapprove", "allowedTools"]) {
+      const v = e[key];
+      if (Array.isArray(v) && v.length) {
+        const all = v.some((x) => x === "*" || x === "all");
+        findings.push({ code: all ? "AUTO_APPROVE_ALL" : "AUTO_APPROVE", severity: all ? "CRITICAL" : "HIGH", file, target, data: all ? key : `${key}: ${v.filter((x) => typeof x === "string").slice(0, 8).map((x) => safeText(x, 40)).join(", ")}` });
+      }
+    }
+    if (e.trust === true) findings.push({ code: "AUTO_APPROVE_ALL", severity: "CRITICAL", file, target, data: "trust: true" });
+  }
+  if (!servers.length && !findings.some((f) => f.code === "SERVER_UNRECOGNIZED")) findings.push({ code: "NO_SERVERS", severity: "INFO", file, target: "", data: "" });
+  return { findings, servers };
+}
+
+/** JSON with sorted keys: the same tool gives the same hash whatever the key order. */
+/** @param {unknown} v @returns {string} */
+export function stableJson(v) {
+  if (v === undefined) return "null";
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(",")}]`;
+  const o = /** @type {Record<string, unknown>} */ (v);
+  return `{${Object.keys(o).sort().filter((k) => o[k] !== undefined).map((k) => `${JSON.stringify(k)}:${stableJson(o[k])}`).join(",")}}`;
+}
+
+/** Pin of a tool: what the model sees (name, description, schema, annotations). */
+/** @param {Record<string, unknown>} t */
+export function pinOf(t) {
+  return createHash("sha256").update(stableJson({ name: t.name, description: t.description, inputSchema: t.inputSchema, annotations: t.annotations })).digest("hex");
+}
+
+/** @param {unknown} v @returns {Record<string, unknown>[]} */
+export function toolsFromListing(v) {
+  const o = /** @type {any} */ (v);
+  const list = Array.isArray(o) ? o : Array.isArray(o?.tools) ? o.tools : Array.isArray(o?.result?.tools) ? o.result.tools : [];
+  return list.filter((/** @type {unknown} */ t) => !!t && typeof t === "object" && !Array.isArray(t));
+}
+
+/**
+ * @typedef {{ server: string, tool: string, risk: string, category: string, usable: boolean, signals: string[] }} ToolRow
+ * @param {{ server: string, file: string, tools: Record<string, unknown>[] }[]} listings
+ * @param {{ extraCritical?: RegExp[], pins?: unknown }} [o]
+ * @returns {{ findings: Finding[], rows: ToolRow[], pins: Record<string, string> }}
+ */
+export function auditTools(listings, o = {}) {
+  /** @type {Finding[]} */
+  const findings = [];
+  /** @type {ToolRow[]} */
+  const rows = [];
+  /** @type {Record<string, string>} */
+  const pins = {};
+  /** @type {Map<string, Set<string>>} */
+  const byName = new Map();
+  for (const l of listings) {
+    const server = safeText(l.server, 60);
+    if (!l.tools.length) findings.push({ code: "TOOLS_FILE_EMPTY", severity: "INFO", file: l.file, target: `server ${server}`, data: "" });
+    for (const t of l.tools) {
+      const rawName = str(t.name);
+      const tool = safeText(rawName, 80) || "(no name)";
+      const target = `${server}/${tool}`;
+      const c = classifyTool(t, { extraCritical: o.extraCritical });
+      const signals = [...new Set(allDescriptions(t).flatMap((d) => injectionSignals(d)))];
+      const hostile = signals.filter((s) => !["encoded_payload", "html_comment", "very_long"].includes(s));
+      if (hostile.length) findings.push({ code: "TOOL_INJECTION_SIGNAL", severity: "HIGH", file: l.file, target, data: hostile.join(", ") });
+      const odd = signals.filter((s) => ["encoded_payload", "html_comment", "very_long"].includes(s));
+      if (odd.length) findings.push({ code: "TOOL_SUSPICIOUS_TEXT", severity: "MEDIUM", file: l.file, target, data: odd.join(", ") });
+      if (rawName && (hasHiddenCharacters(rawName) || /[\u0000-\u001f\u007f]/.test(rawName))) findings.push({ code: "TOOL_NAME_HIDDEN", severity: "HIGH", file: l.file, target, data: "" });
+      if (c.hintContradicts) findings.push({ code: "TOOL_HINT_CONTRADICTS", severity: "MEDIUM", file: l.file, target, data: `${c.risk}/${c.category}` });
+      if (!c.usable) findings.push({ code: "TOOL_NO_OBJECT_SCHEMA", severity: "MEDIUM", file: l.file, target, data: "" });
+      rows.push({ server, tool, risk: c.risk, category: c.category, usable: c.usable, signals });
+      pins[`${l.server}/${rawName}`] = pinOf(t);
+      const seen = byName.get(rawName) ?? new Set();
+      seen.add(l.server);
+      byName.set(rawName, seen);
+    }
+  }
+  for (const [name, servers] of byName) {
+    if (name && servers.size > 1) findings.push({ code: "TOOL_NAME_COLLISION", severity: "MEDIUM", file: "", target: safeText(name, 80), data: [...servers].map((s) => safeText(s, 40)).join(", ") });
+  }
+  if (o.pins !== undefined) {
+    const p = /** @type {any} */ (o.pins);
+    const stored = p && p.version === 1 && p.tools && typeof p.tools === "object" && !Array.isArray(p.tools) ? /** @type {Record<string, unknown>} */ (p.tools) : null;
+    if (!stored) findings.push({ code: "PINS_INVALID", severity: "HIGH", file: "", target: "", data: "" });
+    else {
+      for (const [key, hash] of Object.entries(pins)) {
+        if (!(key in stored)) findings.push({ code: "TOOL_NEW", severity: "MEDIUM", file: "", target: safeText(key, 120), data: "" });
+        else if (stored[key] !== hash) findings.push({ code: "TOOL_CHANGED", severity: "HIGH", file: "", target: safeText(key, 120), data: "" });
+      }
+      const listed = new Set(listings.map((l) => l.server));
+      for (const key of Object.keys(stored)) {
+        const server = key.split("/")[0] ?? "";
+        if (listed.has(server) && !(key in pins)) findings.push({ code: "TOOL_REMOVED", severity: "LOW", file: "", target: safeText(key, 120), data: "" });
+      }
+    }
+  }
+  rows.sort((a, b) => riskRank(/** @type {any} */ (b.risk)) - riskRank(/** @type {any} */ (a.risk)) || a.server.localeCompare(b.server) || a.tool.localeCompare(b.tool));
+  return { findings, rows, pins };
+}
