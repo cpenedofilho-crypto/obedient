@@ -21,10 +21,12 @@ const INVISIBLE = /[\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u
 /**
  * @param {unknown} v
  * @param {number} [max]
+ * @param {boolean} [dropControls] remove control characters instead of turning them into spaces (used
+ *   before masking, so a control character inside a token cannot split it in two)
  */
-export function safeText(v, max = 80) {
+export function safeText(v, max = 80, dropControls = false) {
   let t = typeof v === "string" ? v : String(v ?? "");
-  t = t.replace(ANSI, "").replace(INVISIBLE, "").replace(CONTROL, " ").replace(/\s+/g, " ").trim();
+  t = t.replace(ANSI, "").replace(INVISIBLE, "").replace(CONTROL, dropControls ? "" : " ").replace(/\s+/g, " ").trim();
   t = t.replace(/[|`<>]/g, (c) => ({ "|": "¦", "`": "'", "<": "‹", ">": "›" })[c] ?? c);
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }

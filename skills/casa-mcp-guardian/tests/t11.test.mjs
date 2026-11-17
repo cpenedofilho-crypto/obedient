@@ -7,10 +7,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../scripts/mcp-guardian.mjs";
 import { pinOf } from "../scripts/lib/audit.mjs";
-import { opaqueId } from "../scripts/lib/present.mjs";
+import { opaqueId, presenter } from "../scripts/lib/present.mjs";
 import { assessUrl } from "../scripts/lib/endpoint.mjs";
+import { looksLikeCredential } from "../scripts/lib/secrets.mjs";
 import { syntheticTokens } from "./helpers.mjs";
-import { CLI, tempProject } from "./helpers.mjs";
+import { CLI, fakeSecrets, tempProject } from "./helpers.mjs";
 
 /** @param {string[]} args @param {{ cwd?: string }} [o] */
 const cli = (args, o = {}) => {
@@ -153,5 +154,39 @@ describe("N7: a pin file never leaves a tool out silently", () => {
     const r = cli(["--root", dir, "--tools", "s=t.json", "--config", "missing.json", "--emit-pins"]);
     assert.equal(r.code, 2);
     assert.match(r.err, /an input file could not be read/);
+  });
+});
+
+describe("R1: a control character inside a token does not split it in default mode", () => {
+  it("C0, DEL and C1 controls are removed, not turned into spaces, before masking", () => {
+    const p = presenter(false);
+    for (const c of ["\u0001", "\u0007", "\u001f", "\u007f", "\u0085", "\u009f"]) {
+      const t = syntheticTokens(11, 32);
+      for (const tok of [fakeSecrets().aws, t.mixed, t.hex]) {
+        const z = `${tok.slice(0, 12)}${c}${tok.slice(12)}`;
+        for (const shownName of [p.server(z), p.tool(`get_${z}`), p.file(`cfg-${z}.json`), p.keyPath(`.env.TOKEN_${z}`)]) {
+          for (let i = 0; i + 8 <= tok.length; i++) assert.ok(!shownName.includes(tok.slice(i, i + 8)), `${JSON.stringify(c)} ${shownName}`);
+        }
+      }
+    }
+  });
+});
+
+describe("R5: a known credential shape glued to a name by an underscore is still recognized", () => {
+  it("get_<key>, <key>_x and tool_<key>_v2 are masked in default mode and found as literal secrets", () => {
+    const p = presenter(false);
+    const s = fakeSecrets();
+    const t = syntheticTokens(42, 40);
+    // Fixed JWT whose first segment is short enough to pass the random-piece check on its own: masking
+    // the long middle segment first used to leave this one on screen.
+    const jwt = `eyJ${t.mixed.slice(0, 20)}.eyJ${t.mixed.slice(3, 37)}.${t.base64url.slice(0, 30)}`;
+    for (const key of [jwt, s.aws, s.github, s.anthropic, s.jwt]) {
+      for (const name of [`get_${key}`, `${key}_x`, `tool_${key}_v2`]) {
+        for (const shownName of [p.server(name), p.tool(name), p.keyPath(`.env.${name}`)]) {
+          assert.ok(!shownName.includes(key.slice(4, 12)), shownName);
+        }
+        assert.ok(looksLikeCredential(name), name);
+      }
+    }
   });
 });

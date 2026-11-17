@@ -63,7 +63,7 @@ const TRANSPORTS = new Set(["http", "https", "sse", "stdio", "streamable-http", 
  * leave half a token that no longer looks like one).
  * @param {string} v @param {number} n */
 const shown = (v, n) => {
-  const masked = maskTokens(safeText(v, Number.MAX_SAFE_INTEGER));
+  const masked = maskTokens(safeText(v, Number.MAX_SAFE_INTEGER, true));
   return masked.length > n ? `${masked.slice(0, n - 1)}…` : masked;
 };
 

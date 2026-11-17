@@ -17,13 +17,15 @@ const REFERENCE = /^(\$\{[A-Za-z0-9_:.-]+\}|\$[A-Z_][A-Z0-9_]*|\{\{\s*[A-Za-z0-9
 const BEARER_REFERENCE = /^(Bearer|Basic|Token)\s+(\$\{[A-Za-z0-9_:.-]+\}|\$[A-Z_][A-Z0-9_]*|\{\{\s*[A-Za-z0-9_.-]+\s*\}\})$/i;
 
 /** Known credential shapes. Matching any of these is a finding even under an innocent key name. */
+// Boundaries are "not a letter or digit", not \b: "_" is a word character, so \b missed a key glued to
+// a name by an underscore ("get_AKIA...", "tool_ghp_...").
 const SHAPES = [
-  /\bsk-(?:ant-|proj-|live-)?[A-Za-z0-9_-]{20,}/, // Anthropic / OpenAI style
-  /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}/, // Stripe style
-  /\bgh[pousr]_[A-Za-z0-9]{30,}/, /\bgithub_pat_[A-Za-z0-9_]{40,}/,
-  /\bglpat-[A-Za-z0-9_-]{20,}/, /\bxox[abprs]-[A-Za-z0-9-]{10,}/,
-  /\bAKIA[0-9A-Z]{16}\b/, /\bAIza[0-9A-Za-z_-]{35}\b/, /\bhf_[A-Za-z0-9]{30,}/, /\bnpm_[A-Za-z0-9]{36}\b/,
-  /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/, // JWT
+  /(?<![A-Za-z0-9])sk-(?:ant-|proj-|live-)?[A-Za-z0-9_-]{20,}/, // Anthropic / OpenAI style
+  /(?<![A-Za-z0-9])(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}/, // Stripe style
+  /(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{30,}/, /(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{40,}/,
+  /(?<![A-Za-z0-9])glpat-[A-Za-z0-9_-]{20,}/, /(?<![A-Za-z0-9])xox[abprs]-[A-Za-z0-9-]{10,}/,
+  /(?<![A-Za-z0-9])AKIA[0-9A-Z]{16}(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{35}(?![A-Za-z0-9])/, /(?<![A-Za-z0-9])hf_[A-Za-z0-9]{30,}/, /(?<![A-Za-z0-9])npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])/,
+  /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/, // JWT
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
 ];
 
@@ -83,8 +85,11 @@ export function hasToken(v) {
  * @param {string} v
  */
 export function maskTokens(v) {
-  let t = v.replace(/[A-Za-z0-9_-]{24,}/g, (r) => (entropy(r) >= 4.3 ? "[masked]" : r));
+  // Known shapes first: masking a high-entropy run first could cut a shape (the middle of a JWT) and
+  // leave the rest of it no longer matching.
+  let t = v;
   for (const r of SHAPES) t = t.replace(new RegExp(r.source, `${r.flags.replace("g", "")}g`), "[masked]");
+  t = t.replace(/[A-Za-z0-9_-]{24,}/g, (r) => (entropy(r) >= 4.3 ? "[masked]" : r));
   const parts = t.split(/([\/._:~@#?&=+\s-]+)/);
   for (let i = 0; i < parts.length; i += 2) if (parts[i] && randomPiece(/** @type {string} */ (parts[i]))) parts[i] = "[masked]";
   return parts.join("").replace(/\[masked\](?:[\/._:~@#?&=+\s-]+\[masked\])+/g, "[masked]");

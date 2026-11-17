@@ -110,7 +110,7 @@ function npmPinned(spec) {
 export function packageName(spec0, python) {
   // Cleaned first: an invisible character inside the spec would otherwise end the name early and hand
   // half a token to the report, too short to look like one.
-  const spec = safeText(spec0, Number.MAX_SAFE_INTEGER);
+  const spec = safeText(spec0, Number.MAX_SAFE_INTEGER, true);
   if (python) return (/^[A-Za-z0-9._-]+/.exec(spec) ?? [""])[0];
   return (/^(?:@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+/.exec(spec) ?? [""])[0];
 }
