@@ -92,6 +92,20 @@ describe("SKILL.md", () => {
     assert.match(md, /No pin file unless asked/);
     assert.match(md, /never create or overwrite a pin file on your\s+own initiative/);
   });
+  it("a raw description is read by a person outside the conversation, never pasted into it", () => {
+    assert.match(md, /outside this conversation \(in their own editor\)/);
+    assert.match(md, /Do not open, paste or\s+summarize that description here, and do not ask the user to paste it/);
+    assert.doesNotMatch(md, /read\s+its description in the raw file\.\s*$/m);
+  });
+  it("rotation is recommended unless the file never left the machine; when in doubt, rotate", () => {
+    assert.match(md, /Recommend rotating it unless the user confirms the file never left this machine/);
+    assert.match(md, /when in doubt, rotate/);
+    assert.doesNotMatch(md, /because it has already been on disk/);
+    for (const code of ["LITERAL_SECRET", "URL_CREDENTIALS", "URL_SECRET_PARAM"]) {
+      assert.match(MESSAGES[code].fix_en, /unless the file never left this machine .*when in doubt, rotate\./, code);
+      assert.match(MESSAGES[code].fix_pt, /a menos que o arquivo nunca tenha saído desta máquina .*na dúvida, troque\./, code);
+    }
+  });
   it("no document claims a Node.js version that was not tested", () => {
     for (const f of ["SKILL.md", "README.md", "README.pt-BR.md"]) {
       const text = readFileSync(join(SKILL_DIR, f), "utf8");
