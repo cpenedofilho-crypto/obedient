@@ -1,0 +1,382 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:37ee7fe1-a931-525c-9598-55e50c4d1e44",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-17T23:36:40Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "casa-mcp-guardian-sbom-gen"
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "casa-mcp-guardian",
+      "name": "casa-mcp-guardian",
+      "version": "0.1.0",
+      "supplier": {
+        "name": "Cláudio Penedo"
+      },
+      "author": "Cláudio Penedo",
+      "copyright": "Copyright (C) 2026 Cláudio Penedo.",
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ],
+      "purl": "pkg:github/cpenedofilho-crypto/obedient@26ad14f3f22db9abde074eaddd9c490b54935c51#skills/casa-mcp-guardian",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "8464d96d506d03a2bfde9ae7dac5b2d2bcf41ffbac25349dda4c4b7e3e44be5e"
+        }
+      ],
+      "description": "Agent Skill: read-only, offline audit of MCP configs and saved tool listings.",
+      "properties": [
+        {
+          "name": "casa:release-status",
+          "value": "candidate (not released, tagged, signed or published)"
+        },
+        {
+          "name": "casa:source-commit",
+          "value": "26ad14f3f22db9abde074eaddd9c490b54935c51"
+        },
+        {
+          "name": "casa:package-file",
+          "value": "casa-mcp-guardian-0.1.0.zip"
+        },
+        {
+          "name": "casa:runtime-requirement",
+          "value": "Node.js >= 22 (not bundled)"
+        },
+        {
+          "name": "casa:third-party-components",
+          "value": "none"
+        }
+      ]
+    },
+    "properties": [
+      {
+        "name": "casa:comment",
+        "value": "Release candidate. Not released, tagged, signed or published. Describes the package built from commit 26ad14f3f22db9abde074eaddd9c490b54935c51 with the reproducible recipe in docs/skills/casa-mcp-guardian-release.md section 5."
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "file",
+      "bom-ref": "file:CHANGELOG.md",
+      "name": "CHANGELOG.md",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "d6929dc455cd52e5795288d07107c8dc5744e2fb"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "7e924b1aae371e519b9866518d03c04aaf403552afca3662d8e5e06328b62be5"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:LICENSE",
+      "name": "LICENSE",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "78e50e186b04c8fe1defaa098f1c192181b3d837"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:NOTICE",
+      "name": "NOTICE",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "f643c59397e8a634f0d75e55ff0d294083aa4a64"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "1590e4682e46f130f72dff46f150d61707d385ee82dc5133a1a75cdd838e8a54"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:README.md",
+      "name": "README.md",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "b948c914796cf0ca1a52c72f8a51ffc85538cfb6"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "2901c3fbb98f7d4f7d6b1969b2813d777351618199ecc4905af988e047b60535"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:README.pt-BR.md",
+      "name": "README.pt-BR.md",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "7d79ebb3978fe758e0c67aafa8f6270a45fb8032"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "889be03a2b1d3c55f943d88fb94cf67a71cc857eb7f413bab300583dd791abf1"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:SKILL.md",
+      "name": "SKILL.md",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "187c66bd89940a47a8cfb38b6c47163a40f41b4d"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "62d8a13fcf518ad137faf67e8baf5923d89429ecbb8c73b7b5312f8fea703335"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:references/checks.md",
+      "name": "references/checks.md",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "8f724fc9fc6d7976126ce301ddec004806f3c5d8"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "82ff4b0a5b0f079322a89b0ba898590985b63b6ea3c74f49a251fa45aafd067b"
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:scripts/lib/audit.mjs",
+      "name": "scripts/lib/audit.mjs",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "bcc86269f26036c282515957c74079a85d48e633"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "2aa27ad59bad9b6a105fb0a2ebf3ecdf129f874c388cd9253ef1a478f88fa3f0"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:scripts/lib/classify.mjs",
+      "name": "scripts/lib/classify.mjs",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "e5f790c1b96636ca02abd0b94e4e259087350e7a"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "7f1737b93fb503895203f792c0a903a1c4e6fe411a194af90638f6dd078e846f"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:scripts/lib/endpoint.mjs",
+      "name": "scripts/lib/endpoint.mjs",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "1511da7fa305ce96b542e92606f7f43ed63e449e"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "352f8b40eae918dd8f2f884bd3a152cbb64743088f4416311a60644f32db1b2d"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:scripts/lib/messages.mjs",
+      "name": "scripts/lib/messages.mjs",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "3f0dcdbbb14d9d81eedffa0b0c2e15f4da8f35d9"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "9fde2ad88f9b1191bd4b37df45b4d14fa5e89fd0e8f30e273506ca1a4c0ce78c"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:scripts/lib/present.mjs",
+      "name": "scripts/lib/present.mjs",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "c94bcf46d1ff60677f9759484d6e409a3d68dd72"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "043589d51bbf873bed1c42d48a959002ec477385aa15cca09a8cc077c546a269"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:scripts/lib/report.mjs",
+      "name": "scripts/lib/report.mjs",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "9c16e35f0c10546cad1483115cf19872500efa28"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "f0918dc7b922264a42f42144f9e52aee7832a696d9dca0c041fdaedb78b23181"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:scripts/lib/secrets.mjs",
+      "name": "scripts/lib/secrets.mjs",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "c6ba795ce31ff909640bf5db9a3f8c216b7645e5"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "eae216f6d9e79d433cac24e1c0b40849f88c84cad54e7e40c2964c9a92977ce9"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:scripts/lib/untrusted.mjs",
+      "name": "scripts/lib/untrusted.mjs",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "99aaef546b58c27d7cb3b11530e8caa1e7f1b436"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "8395e1a18c9d5ab4235af6b2ab74fe9c2ccda989b7ec515d3c86a1e14cb1397a"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    },
+    {
+      "type": "file",
+      "bom-ref": "file:scripts/mcp-guardian.mjs",
+      "name": "scripts/mcp-guardian.mjs",
+      "hashes": [
+        {
+          "alg": "SHA-1",
+          "content": "9714faf4581152245547cfa53c7235f1ab8ad56e"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "755397d2c850da76e81c4664b6548a9ceb8ef48a0a7e4bf30b23ff678c3f4934"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-only"
+          }
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "casa-mcp-guardian",
+      "dependsOn": []
+    }
+  ]
+}

@@ -18,7 +18,7 @@ limites em `docs/skills/casa-mcp-guardian.md`.
       jurídica, junto com o sha256 do teste (`tests/skill.test.mjs`) e os registros
       (`docs/skills/casa-mcp-guardian.md` §5.8, `PROVENANCE.md`).
 - [ ] `LICENSE` da raiz: mesma variante `http`. Análise separada, porque vale para o repositório inteiro.
-- [ ] Revisão humana do `SKILL.md` (regras 1 a 8, instrução de parada, limites).
+- [ ] Revisão humana do `SKILL.md` (regras 1 a 9, instrução de parada, limites).
 - [ ] Nome: manter `casa-mcp-guardian` ou adotar o candidato "Casa de IA Quayguard", depois da busca na
       WIPO Global Brand Database, INPI, USPTO e EUIPO. Trocar o nome muda a pasta, o `name` do
       frontmatter e os testes: fazer **antes** da primeira tag.
@@ -115,8 +115,10 @@ Na release: trocar a data fixa pela data da tag, publicar o sha256 na nota e num
       credencial, e-mail, telefone ou CPF.
 - [ ] Execução do zip extraído: da pasta pessoal sai com código 2; num projeto com credencial falsa
       aponta `LITERAL_SECRET` sem nenhum trecho dela na saída.
-- [ ] Assinatura e SBOM (`GOVERNANCE.md` §5): a skill não tem dependência, então a SBOM é trivial;
-      **o método de assinatura (GPG ou Sigstore) não foi decidido**.
+- [ ] Assinatura e SBOM (`GOVERNANCE.md` §5). SBOM SPDX 2.3 e CycloneDX 1.5 do candidato preparadas e
+      validadas em `docs/skills/sbom/` (17/11/2026, commit `26ad14f`); precisam ser geradas de novo no
+      commit da tag se algum arquivo do pacote ou a data do zip mudar. **O método de assinatura (GPG ou
+      Sigstore) não foi decidido**, e nada foi assinado.
 
 ## 7. O que este roteiro não faz
 
