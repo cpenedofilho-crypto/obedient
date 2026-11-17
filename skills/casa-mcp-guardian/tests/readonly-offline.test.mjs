@@ -57,7 +57,7 @@ describe("the script itself", () => {
       const src = readFileSync(f, "utf8");
       for (const m of src.matchAll(/^\s*import\b([^;]*?)\bfrom\s+["']([^"']+)["']/gm)) {
         const mod = m[2];
-        if (mod === "node:os") { assert.match(m[1], /^\s*\{\s*homedir\s*\}\s*$/, `${f}: from node:os only homedir`); continue; }
+        if (mod === "node:os") { assert.match(m[1], /^\s*\{\s*homedir(,\s*userInfo)?\s*\}\s*$/, `${f}: from node:os only homedir and userInfo`); continue; }
         assert.ok(mod.startsWith("./") || ["node:fs", "node:path", "node:crypto", "node:url"].includes(mod), `${f} imports ${mod}`);
       }
       assert.doesNotMatch(src, /\b(writeFile|appendFile|createWriteStream|mkdir|rmSync|unlink|rename|copyFile|XMLHttpRequest|WebSocket)\b|(?<![.\w])(spawn|spawnSync|exec|execSync|execFile|fork|fetch|require)\s*\(/, f);

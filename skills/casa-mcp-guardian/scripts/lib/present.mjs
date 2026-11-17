@@ -57,8 +57,9 @@ const TRANSPORTS = new Set(["http", "https", "sse", "stdio", "streamable-http", 
  * }} Presenter
  */
 
-/** @param {string} v @param {number} n */
-const shown = (v, n) => maskTokens(safeText(v, n));
+/** Masked first, then cut: cutting first could leave half a token that no longer looks like one.
+ * @param {string} v @param {number} n */
+const shown = (v, n) => safeText(maskTokens(v), n);
 
 /**
  * @param {boolean} redacted

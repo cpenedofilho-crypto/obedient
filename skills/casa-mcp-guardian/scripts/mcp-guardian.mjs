@@ -21,7 +21,7 @@
 // Requires Node.js 22 or newer (tested on 22 and 24). No dependencies.
 
 import { existsSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { auditConfig, auditTools, readJsonFile, severityRank, SEVERITIES, toolsFromListing } from "./lib/audit.mjs";
@@ -44,6 +44,8 @@ export function homeFolders() {
   /** @type {string[]} */
   const raw = [];
   try { raw.push(homedir()); } catch { /* no home folder */ }
+  // homedir() follows $HOME; the account database does not, so a changed HOME cannot hide the real one.
+  try { raw.push(userInfo().homedir); } catch { /* no account entry */ }
   for (const v of [process.env.HOME, process.env.USERPROFILE]) if (v) raw.push(v);
   return [...new Set(raw.filter(Boolean).map(canonical))];
 }

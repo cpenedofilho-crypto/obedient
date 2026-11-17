@@ -7,6 +7,9 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { userInfo } from "node:os";
+import { assessUrl } from "../scripts/lib/endpoint.mjs";
+import { syntheticTokens } from "./helpers.mjs";
 import { main, run } from "../scripts/mcp-guardian.mjs";
 import { pinOf } from "../scripts/lib/audit.mjs";
 import { opaqueId } from "../scripts/lib/present.mjs";
@@ -151,6 +154,62 @@ describe("F5: --emit-pins refuses when an input could not be read", () => {
     const ok = cli(["--root", dir, "--tools", "s=ok.json", "--emit-pins"]);
     assert.equal(ok.code, 0);
     assert.equal(Object.keys(JSON.parse(ok.out).tools).length, 1);
+  });
+});
+
+describe("F6: the home folder is recognized even when HOME points elsewhere", () => {
+  it("run from the account's real home folder with HOME changed: refused", () => {
+    const real = userInfo().homedir;
+    const other = tempProject({});
+    const r = cli([], { cwd: real, env: { HOME: other, USERPROFILE: other } });
+    assert.equal(r.code, 2, r.out.slice(0, 200));
+    assert.match(r.err, /home folder/);
+  });
+});
+
+describe("F7: URL_SECRET_PATH also sees the raw path and the fragment", () => {
+  const t = syntheticTokens(7, 40).mixed;
+  it("a token removed by '..' normalization is still found", () => {
+    const a = assessUrl(`https://h.example.com/hooks/${t}/../x`);
+    assert.ok(a.findings.some((f) => f.code === "URL_SECRET_PATH"));
+    assert.ok(!a.display.includes(t.slice(0, 8)));
+  });
+  it("a token in the fragment is found and not shown", () => {
+    for (const u of [`https://h.example.com/app#${t}`, `https://h.example.com/app#access_token=${t}&x=1`]) {
+      const a = assessUrl(u);
+      assert.ok(a.findings.some((f) => f.code === "URL_SECRET_PATH"), u);
+      assert.ok(!a.display.includes(t.slice(0, 8)));
+    }
+  });
+  it("ordinary fragments and parent-folder segments do not trigger it", () => {
+    for (const u of ["https://h.example.com/docs/../mcp", "https://h.example.com/app#section-2", "https://h.example.com/#/settings"])
+      assert.ok(!assessUrl(u).findings.some((f) => f.code === "URL_SECRET_PATH"), u);
+  });
+});
+
+describe("F8: JSONC comments never merge tokens or hide lines", () => {
+  it("a block comment between tokens separates them (as VS Code does), so invalid JSON stays invalid", () => {
+    const dir = tempProject({ "a.json": `{"mcpServers": {"x": {"url": "https://a.example.com/", "n": 1/**/2}}}`, "b.json": `{"enableAllProjectMcpServers": tr/**/ue}` });
+    assert.ok(codes(["--root", dir, "--config", "a.json"]).includes("FILE_NOT_JSON"));
+    assert.ok(codes(["--root", dir, "--config", "b.json"]).includes("FILE_NOT_JSON"));
+  });
+  it("a line comment ends at CR as well as LF, so the next line is read", () => {
+    const dir = tempProject({ "s.json": '{"mcpServers":{"a":{"url":"https://example.com/"}}, // note\r"enableAllProjectMcpServers": true,\r"x": 1\n}' });
+    assert.ok(codes(["--root", dir, "--config", "s.json"]).includes("ENABLE_ALL_PROJECT_SERVERS"));
+  });
+});
+
+describe("F9: default-mode names are masked before they are cut", () => {
+  it("a token past the length limit is not half shown", () => {
+    for (let seed = 1; seed <= 6; seed++) {
+      const tok = syntheticTokens(seed, 40).mixed;
+      const name = `analytics-warehouse-connector-primary-eu-west-region-${tok}`;
+      const dir = tempProject({ ".mcp.json": { mcpServers: { [name]: { type: "http", url: "https://h.example.com/" } } }, "t.json": { tools: [{ name: `${name}_tool`, inputSchema: { type: "object" } }] } });
+      for (const extra of [[], ["--format", "json"], ["--emit-pins"]]) {
+        const out = run(["--root", dir, "--config", ".mcp.json", "--tools", `${name}=t.json`, "--fail-on", "never", ...extra]).out;
+        for (let i = 0; i + 6 <= tok.length; i++) assert.ok(!out.includes(tok.slice(i, i + 6)), `seed ${seed} ${extra.join(" ")}`);
+      }
+    }
   });
 });
 

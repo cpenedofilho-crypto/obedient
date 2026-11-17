@@ -77,10 +77,15 @@ export function assessUrl(raw) {
   if (u.username || u.password) findings.push({ code: "URL_CREDENTIALS", severity: "CRITICAL", detail: "" });
   const secretParams = [...u.searchParams.keys()].filter((k) => SECRET_PARAM.test(k));
   if (secretParams.length) findings.push({ code: "URL_SECRET_PARAM", severity: "HIGH", detail: String(secretParams.length) });
-  // On the original path, before it is hidden. Only a count goes out, never a segment.
+  // On the original path, before it is hidden: the normalized path, the RAW path as written (a "/../"
+  // would otherwise drop a token) and the fragment. Only a count goes out, never a segment.
+  const rest = raw.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, "");
+  const rawPath = rest.split(/[?#]/)[0] ?? "";
+  const fragment = rest.includes("#") ? rest.slice(rest.indexOf("#") + 1) : "";
+  const pieces = new Set([...u.pathname.split("/"), ...rawPath.split("/"), ...fragment.split(/[/?&=#]/)]);
   let tokenSegments = 0;
-  for (const seg of u.pathname.split("/")) {
-    if (!seg) continue;
+  for (const seg of pieces) {
+    if (!seg || seg === "." || seg === "..") continue;
     let s = seg;
     try { s = decodeURIComponent(seg); } catch { /* keep it encoded */ }
     if (hasToken(s)) tokenSegments++;

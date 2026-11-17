@@ -39,14 +39,15 @@ export function stripJsonc(src) {
       continue;
     }
     if (c === '"') { inStr = true; out += c; continue; }
-    if (c === "/" && src[i + 1] === "/") { while (i < src.length && src[i] !== "\n") i++; out += "\n"; continue; }
-    if (c === "/" && src[i + 1] === "*") { i += 2; while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++; i++; continue; }
+    // A line comment ends at LF or CR; a block comment becomes a space, so it never joins two tokens.
+    if (c === "/" && src[i + 1] === "/") { while (i < src.length && src[i] !== "\n" && src[i] !== "\r") i++; out += "\n"; continue; }
+    if (c === "/" && src[i + 1] === "*") { i += 2; while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) i++; i++; out += " "; continue; }
     if (c === ",") {
       // Trailing comma: the next thing outside comments and whitespace closes an object or an array.
       let j = i + 1;
       for (;;) {
         while (j < src.length && /\s/.test(/** @type {string} */ (src[j]))) j++;
-        if (src[j] === "/" && src[j + 1] === "/") { while (j < src.length && src[j] !== "\n") j++; continue; }
+        if (src[j] === "/" && src[j + 1] === "/") { while (j < src.length && src[j] !== "\n" && src[j] !== "\r") j++; continue; }
         if (src[j] === "/" && src[j + 1] === "*") { j += 2; while (j < src.length && !(src[j] === "*" && src[j + 1] === "/")) j++; j += 2; continue; }
         break;
       }
