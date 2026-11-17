@@ -81,7 +81,8 @@ const CONTAINERS = new Set(["docker", "podman"]);
 /** Flags of npx / npm exec / pnpm|yarn dlx / uvx / pipx run that take no value. */
 const BOOLEAN_FLAGS = new Set([
   "-y", "--yes", "--no", "--no-install", "--ignore-existing", "-q", "--quiet", "-s", "--silent", "-v", "--verbose",
-  "--prefer-offline", "--prefer-online", "--offline", "--no-color", "--color", "--no-progress", "-h", "--help",
+  "--prefer-offline", "--prefer-online", "--offline", "--no-color", "--no-progress", "-h", "--help",
+  "--ignore-scripts", "--no-save", "--legacy-peer-deps", "--no-update-notifier", "--bun", "--no-audit", "--no-fund",
   "--version", "--no-cache", "--refresh", "--isolated", "--no-python-downloads", "--system-site-packages",
   "--include-deps", "--preview", "--no-config", "--native-tls", "--no-build", "--no-sources",
 ]);
@@ -139,7 +140,10 @@ export function assessCommand(command, args) {
   const packageArg = (list, packageFlags) => {
     for (let i = 0; i < list.length; i++) {
       const a = /** @type {string} */ (list[i]);
+      if (a === "--") return list[i + 1] ?? null; // end of options: the next argument is the package
       if (packageFlags.has(a)) return list[i + 1] ?? null;
+      const eq = a.indexOf("=");
+      if (eq > 0 && packageFlags.has(a.slice(0, eq))) return a.slice(eq + 1) || null; // --package=pkg
       if (a.startsWith("-")) {
         if (!a.includes("=") && !BOOLEAN_FLAGS.has(a)) i++;
         continue;

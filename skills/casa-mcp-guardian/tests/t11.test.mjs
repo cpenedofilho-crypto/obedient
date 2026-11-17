@@ -74,3 +74,34 @@ describe("N6: an invisible character inside a token does not defeat default-mode
     }
   });
 });
+
+describe("N2 + N3: the package is found after '--', in '=' forms and after common boolean flags", () => {
+  const pkg = (/** @type {string} */ cmd, /** @type {string[]} */ args) => {
+    const dir = tempProject({ ".mcp.json": { mcpServers: { a: { command: cmd, args } } } });
+    const r = json(["--root", dir]);
+    return { names: r.findings.filter((/** @type {any} */ f) => f.code === "UNPINNED_PACKAGE").map((/** @type {any} */ f) => f.data), all: JSON.stringify(r) };
+  };
+  it("'--' marks the package (npx, npm exec)", () => {
+    assert.deepEqual(pkg("npx", ["--", "@scope/server"]).names, ["@scope/server"]);
+    assert.deepEqual(pkg("npm", ["exec", "--", "@scope/server"]).names, ["@scope/server"]);
+    assert.deepEqual(pkg("npm", ["exec", "--registry", "https://r.example.com", "--", "@scope/server"]).names, ["@scope/server"]);
+    assert.deepEqual(pkg("npx", ["--", "@scope/server@1.2.3"]).names, []);
+  });
+  it("common boolean flags do not hide the package", () => {
+    assert.deepEqual(pkg("npx", ["--ignore-scripts", "pkg"]).names, ["pkg"]);
+    assert.deepEqual(pkg("bunx", ["--bun", "pkg"]).names, ["pkg"]);
+    assert.deepEqual(pkg("npx", ["--yes", "--ignore-scripts", "--no-install", "pkg"]).names, ["pkg"]);
+  });
+  it("package flags written with '=' are read, and their value is the package", () => {
+    assert.deepEqual(pkg("npx", ["--package=@s/p", "cmd"]).names, ["@s/p"]);
+    assert.deepEqual(pkg("npx", ["-p=@s/p", "cmd"]).names, ["@s/p"]);
+    assert.deepEqual(pkg("npx", ["--package=@s/p@1.2.3", "cmd"]).names, []);
+    assert.deepEqual(pkg("uvx", ["--from=x", "cmd"]).names, ["x"]);
+    assert.deepEqual(pkg("pipx", ["run", "--spec=y", "cmd"]).names, ["y"]);
+  });
+  it("--color takes a value, and the value is never shown as a package", () => {
+    const r = pkg("npx", ["--color", "always", "pkg"]);
+    assert.deepEqual(r.names, ["pkg"]);
+    assert.ok(!r.all.includes("always"));
+  });
+});
