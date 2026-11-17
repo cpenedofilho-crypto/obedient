@@ -14,7 +14,8 @@ decision. It never connects to a server, never writes a file and never prints a 
 > you.
 
 - **Endpoints:** `http://` to remote hosts, cloud-metadata and private addresses (including IPv6 and
-  decimal/hex/octal spellings), credentials in the URL, credential-like query parameters.
+  decimal/hex/octal spellings), credentials in the URL, credential-like query parameters, a token in the
+  path (webhook-style). The report shows only `protocol//host/`: the path and the query are never printed.
 - **Credentials written in config:** env, headers and command-line flags, by key name and by value
   shape. Only the key path is reported.
 - **Supply chain:** `npx`/`uvx`/`pnpm dlx`/`pipx run` without an exact version, container images without

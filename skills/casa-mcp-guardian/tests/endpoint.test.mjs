@@ -3,7 +3,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { assessUrl, hostKind } from "../scripts/lib/endpoint.mjs";
-import { fakeSecrets } from "./helpers.mjs";
+import { fakeSecrets, syntheticTokens } from "./helpers.mjs";
 
 const codes = (u) => assessUrl(u).findings.map((f) => f.code);
 
@@ -44,3 +44,37 @@ describe("findings", () => {
     assert.equal(assessUrl("not a url").display, "[unparseable URL]");
   });
 });
+
+describe("the path is never shown; a token in it is a finding (T8.1)", () => {
+  it("display is protocol//host/ only, with markers for path and query", () => {
+    assert.equal(assessUrl("https://mcp.example.com/mcp").display, "https://mcp.example.com/[path omitted]");
+    assert.equal(assessUrl("https://mcp.example.com/").display, "https://mcp.example.com/");
+    assert.equal(assessUrl("https://mcp.example.com").display, "https://mcp.example.com/");
+    assert.equal(assessUrl("https://mcp.example.com:8443/v1/sse?x=1#frag").display, "https://mcp.example.com:8443/[path omitted]?[query omitted]");
+  });
+  it("webhook-style tokens of unknown format are found on the original path and never shown", () => {
+    for (let seed = 1; seed <= 25; seed++) {
+      for (const [kind, t] of Object.entries(syntheticTokens(seed, 40))) {
+        if (kind === "letters") continue; // letters-only: see the next test
+        for (const u of [`https://hooks.example.com/services/T0/B0/${t}`, `https://discord.example.com/api/webhooks/1/${t}`, `https://h.example.com/${t}/mcp`, `https://h.example.com/x/${encodeURIComponent(t)}`]) {
+          const a = assessUrl(u);
+          assert.ok(a.findings.some((f) => f.code === "URL_SECRET_PATH"), `${kind} seed ${seed}`);
+          assert.equal(a.display.includes(t.slice(0, 8)) || a.display.includes(t.slice(-8)), false);
+          assert.ok(a.findings.every((f) => !f.detail.includes(t.slice(4, 12))));
+        }
+      }
+    }
+  });
+  it("a letters-only token may not be found, but is never shown either", () => {
+    for (let seed = 1; seed <= 25; seed++) {
+      const t = syntheticTokens(seed, 40).letters;
+      const a = assessUrl(`https://hooks.example.com/services/${t}`);
+      assert.equal(a.display, "https://hooks.example.com/[path omitted]");
+    }
+  });
+  it("ordinary paths are not flagged", () => {
+    for (const u of ["https://mcp.example.com/mcp", "https://api.example.com/v1/sse", "https://api.example.com/api/v2/servers/github", "https://a.example.com/my_production_server_2024/mcp", "https://a.example.com/listAllIssuesForRepository", "https://a.example.com/2024-11-17/report", "https://a.example.com/getHTMLContent/index.html"])
+      assert.ok(!codes(u).includes("URL_SECRET_PATH"), u);
+  });
+});
+

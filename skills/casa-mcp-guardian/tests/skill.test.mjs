@@ -101,7 +101,7 @@ describe("SKILL.md", () => {
     assert.match(md, /Recommend rotating it unless the user confirms the file never left this machine/);
     assert.match(md, /when in doubt, rotate/);
     assert.doesNotMatch(md, /because it has already been on disk/);
-    for (const code of ["LITERAL_SECRET", "URL_CREDENTIALS", "URL_SECRET_PARAM"]) {
+    for (const code of ["LITERAL_SECRET", "URL_CREDENTIALS", "URL_SECRET_PARAM", "URL_SECRET_PATH"]) {
       assert.match(MESSAGES[code].fix_en, /unless the file never left this machine .*when in doubt, rotate\./, code);
       assert.match(MESSAGES[code].fix_pt, /a menos que o arquivo nunca tenha saído desta máquina .*na dúvida, troque\./, code);
     }

@@ -8,6 +8,11 @@
 //
 // Provenance: hostLocalOuPrivado() and validarEndpoint() from packages/integration-gateway/src/seguranca.ts
 // (same author, same license), turned from "throw" into findings.
+//
+// The URL path is never shown: webhooks carry their token in the path, in formats nobody can list.
+// URL_SECRET_PATH is decided on the ORIGINAL path, before it is hidden.
+
+import { hasToken } from "./secrets.mjs";
 
 /** @type {readonly [string, number][]} */
 const RESERVED_V4 = [
@@ -58,7 +63,7 @@ const SECRET_PARAM = /(token|secret|key|pass|pwd|auth|sig|signature|session|cred
 /**
  * @typedef {{ code: string, severity: "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL", detail: string }} UrlFinding `detail` holds data (names), never prose: the title comes from the message catalog.
  * @param {string} raw
- * @returns {{ display: string, findings: UrlFinding[] }} `display` never contains credentials or query values.
+ * @returns {{ display: string, findings: UrlFinding[] }} `display` never contains user info, path, query or fragment.
  */
 export function assessUrl(raw) {
   /** @type {UrlFinding[]} */
@@ -70,6 +75,15 @@ export function assessUrl(raw) {
   if (u.username || u.password) findings.push({ code: "URL_CREDENTIALS", severity: "CRITICAL", detail: "" });
   const secretParams = [...u.searchParams.keys()].filter((k) => SECRET_PARAM.test(k));
   if (secretParams.length) findings.push({ code: "URL_SECRET_PARAM", severity: "HIGH", detail: secretParams.slice(0, 5).map((k) => k.slice(0, 40)).join(", ") });
+  // On the original path, before it is hidden. Only a count goes out, never a segment.
+  let tokenSegments = 0;
+  for (const seg of u.pathname.split("/")) {
+    if (!seg) continue;
+    let s = seg;
+    try { s = decodeURIComponent(seg); } catch { /* keep it encoded */ }
+    if (hasToken(s)) tokenSegments++;
+  }
+  if (tokenSegments) findings.push({ code: "URL_SECRET_PATH", severity: "HIGH", detail: String(tokenSegments) });
   if (u.protocol !== "https:" && u.protocol !== "http:" && u.protocol !== "ws:" && u.protocol !== "wss:") {
     findings.push({ code: "URL_PROTOCOL", severity: "HIGH", detail: u.protocol });
   }
@@ -80,7 +94,8 @@ export function assessUrl(raw) {
   if ((u.protocol === "http:" || u.protocol === "ws:") && kind !== "loopback") {
     findings.push({ code: "URL_PLAINTEXT", severity: "HIGH", detail: "" });
   }
-  // Shown without user info, query values and fragment.
-  const display = `${u.protocol}//${u.host}${u.pathname}${u.search ? "?[query omitted]" : ""}`;
+  // Shown without user info, path, query and fragment.
+  const hasPath = u.pathname !== "" && u.pathname !== "/";
+  const display = `${u.protocol}//${u.host}/${hasPath ? "[path omitted]" : ""}${u.search ? "?[query omitted]" : ""}`;
   return { display, findings };
 }

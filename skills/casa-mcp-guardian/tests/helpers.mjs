@@ -24,6 +24,21 @@ export function fakeSecrets() {
   };
 }
 
+/**
+ * Deterministic synthetic secrets of UNKNOWN format (no known prefix): a fixed-seed generator, so the
+ * tests never flake. Kinds: hex, base64url, lower+digits, mixed case+digits, letters only.
+ * @param {number} seed
+ */
+export function syntheticTokens(seed = 1, len = 40) {
+  let x = seed >>> 0 || 1;
+  const next = () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x; };
+  const pick = (/** @type {string} */ abc) => Array.from({ length: len }, () => abc[next() % abc.length]).join("");
+  const L = "abcdefghijklmnopqrstuvwxyz", U = L.toUpperCase(), D = "0123456789";
+  return {
+    hex: pick("0123456789abcdef"), base64url: pick(L + U + D + "-_"), alnum: pick(L + D), mixed: pick(L + U + D), letters: pick(L + U),
+  };
+}
+
 /** Temporary folder with the given files (relative path -> string or object). */
 export function tempProject(files) {
   const dir = mkdtempSync(join(tmpdir(), "mcp-guardian-test-"));

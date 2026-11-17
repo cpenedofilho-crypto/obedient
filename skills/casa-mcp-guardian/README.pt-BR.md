@@ -15,7 +15,9 @@ mostra credencial.
 > você.
 
 - **Endereços:** `http://` para host remoto, endereço de metadata da nuvem e de rede privada (inclusive
-  IPv6 e as grafias decimal, hexa e octal), credencial na URL, parâmetro de URL com cara de credencial.
+  IPv6 e as grafias decimal, hexa e octal), credencial na URL, parâmetro de URL com cara de credencial,
+  token no caminho (estilo webhook). O relatório mostra só `protocolo//host/`: caminho e query nunca
+  aparecem.
 - **Credencial escrita na configuração:** env, cabeçalhos e argumentos de linha de comando, pelo nome
   da chave e pelo formato do valor. Só o caminho da chave aparece.
 - **Cadeia de suprimento:** `npx`/`uvx`/`pnpm dlx`/`pipx run` sem versão exata, imagem de contêiner sem

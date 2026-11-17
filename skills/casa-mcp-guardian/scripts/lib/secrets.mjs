@@ -32,6 +32,50 @@ export function looksLikeCredential(v) {
   return SHAPES.some((r) => r.test(v));
 }
 
+/** Shannon entropy in bits per character. @param {string} s */
+function entropy(s) {
+  /** @type {Map<string, number>} */
+  const n = new Map();
+  for (const c of s) n.set(c, (n.get(c) ?? 0) + 1);
+  let e = 0;
+  for (const k of n.values()) { const p = k / s.length; e -= p * Math.log2(p); }
+  return e;
+}
+
+const SEPARATORS = /[\/._:~@#?&=+\s-]+/;
+
+/**
+ * A piece (no separators) that reads as random rather than as a word: hex, or letters broken into
+ * single lowercase letters, many digit groups, upper runs split by single lowercase letters, long
+ * consonant clusters, long vowel-poor lowercase. Names such as "getUserProfileV2", "erc20",
+ * "getHTMLContent" do not. @param {string} p
+ */
+function randomPiece(p) {
+  if (p.length < 8) return false;
+  if (/^[0-9a-f]+$/i.test(p) && /[a-f]/i.test(p) && /\d/.test(p)) return true;
+  const runs = p.match(/[a-z]+|[A-Z]+|\d+/g) ?? [];
+  const singleLower = runs.slice(0, -1).filter((r) => /^[a-z]$/.test(r)).length;
+  const digitGroups = runs.filter((r) => /^\d/.test(r)).length;
+  const upperShort = runs.filter((r, i) => /^[A-Z]{2,}$/.test(r) && /^[a-z]$/.test(runs[i + 1] ?? "") && /^[A-Z]/.test(runs[i + 2] ?? "")).length;
+  const consonants = /[bcdfghjklmnpqrstvwxz]{6,}/.test(p);
+  const longLower = runs.some((r) => /^[a-z]{16,}$/.test(r) && (r.match(/[aeiouy]/g) ?? []).length / r.length < 0.3);
+  return singleLower >= 2 || digitGroups >= 3 || upperShort >= 2 || consonants || longLower;
+}
+
+/**
+ * True when `v` carries something that looks like a secret of unknown format: a known credential
+ * shape, a long high-entropy run of identifier characters (separators included, so base64url counts
+ * whole), or a piece that reads as random. A heuristic: measured on random tokens, detection is
+ * near-complete from 32 characters and weak at 16 (see docs/skills/casa-mcp-guardian.md). Use it for
+ * findings, never as the only thing between a secret and the output.
+ * @param {string} v
+ */
+export function hasToken(v) {
+  if (looksLikeCredential(v)) return true;
+  if ((v.match(/[A-Za-z0-9_-]{24,}/g) ?? []).some((r) => entropy(r) >= 4.3)) return true;
+  return v.split(SEPARATORS).filter(Boolean).some(randomPiece);
+}
+
 /** @param {string} v */
 function isReference(v) {
   const t = v.trim();
