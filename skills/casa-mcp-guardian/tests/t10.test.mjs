@@ -66,4 +66,40 @@ describe("F2: names that differ only in lone surrogates get different ids", () =
   });
 });
 
+describe("F3: the value of a flag is never taken for the package", () => {
+  const c = (/** @type {string} */ cmd, /** @type {string[]} */ args) => {
+    const dir = tempProject({ ".mcp.json": { mcpServers: { a: { command: cmd, args } } } });
+    return json(["--root", dir]);
+  };
+  const SECRET = "kingfisherpaperlantern";
+  it("npx --token VALUE @scope/server: the package is @scope/server and VALUE never appears", () => {
+    for (const extra of [[], ["--lang", "pt"]]) {
+      const dir = tempProject({ ".mcp.json": { mcpServers: { a: { command: "npx", args: ["--token", SECRET, "@scope/server"] } } } });
+      const out = run(["--root", dir, "--fail-on", "never", ...extra]).out;
+      assert.ok(!out.includes(SECRET), "markdown");
+    }
+    const r = c("npx", ["--token", SECRET, "@scope/server"]);
+    assert.ok(!JSON.stringify(r).includes(SECRET), "json");
+    assert.deepEqual(r.findings.filter((/** @type {any} */ f) => f.code === "UNPINNED_PACKAGE").map((/** @type {any} */ f) => f.data), ["@scope/server"]);
+  });
+  it("value-taking flags are skipped, so the real package is judged", () => {
+    const pkg = (/** @type {any} */ r) => r.findings.filter((/** @type {any} */ f) => f.code === "UNPINNED_PACKAGE").map((/** @type {any} */ f) => f.data);
+    assert.deepEqual(pkg(c("npx", ["--registry", "https://r.example.com", "real-pkg@1.2.3"])), []);
+    assert.deepEqual(pkg(c("npx", ["--registry", "https://r.example.com", "real-pkg"])), ["real-pkg"]);
+    assert.deepEqual(pkg(c("npx", ["-y", "--api-key", SECRET, "real-pkg"])), ["real-pkg"]);
+    assert.deepEqual(pkg(c("uvx", ["--index-url", "https://i.example.com", "pkg==1.0.0"])), []);
+    assert.deepEqual(pkg(c("uvx", ["--index-url", "https://i.example.com", "pkg"])), ["pkg"]);
+    assert.deepEqual(pkg(c("pipx", ["run", "--index-url", "https://i.example.com", "pkg"])), ["pkg"]);
+    assert.deepEqual(pkg(c("pnpm", ["dlx", "--reporter", "silent", "srv"])), ["srv"]);
+    // Boolean flags still do not swallow the package.
+    assert.deepEqual(pkg(c("npx", ["-y", "@scope/server"])), ["@scope/server"]);
+    assert.deepEqual(pkg(c("npx", ["--yes", "--quiet", "server@latest"])), ["server"]);
+    assert.deepEqual(pkg(c("uvx", ["--offline", "mcp-server-x"])), ["mcp-server-x"]);
+  });
+  it("an unknown flag never makes its value the package: at worst the package is not judged", () => {
+    const r = c("npx", ["--some-new-flag", SECRET]);
+    assert.ok(!JSON.stringify(r).includes(SECRET));
+  });
+});
+
 export { createHash, join, writeFileSync };

@@ -77,6 +77,16 @@ const DLX = new Set(["pnpm", "yarn", "npm"]);
 const PY_RUNNERS = new Set(["uvx", "pipx"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh"]);
 const CONTAINERS = new Set(["docker", "podman"]);
+/** Flags of npx / npm exec / pnpm|yarn dlx / uvx / pipx run that take no value. */
+const BOOLEAN_FLAGS = new Set([
+  "-y", "--yes", "--no", "--no-install", "--ignore-existing", "-q", "--quiet", "-s", "--silent", "-v", "--verbose",
+  "--prefer-offline", "--prefer-online", "--offline", "--no-color", "--color", "--no-progress", "-h", "--help",
+  "--version", "--no-cache", "--refresh", "--isolated", "--no-python-downloads", "--system-site-packages",
+  "--include-deps", "--preview", "--no-config", "--native-tls", "--no-build", "--no-sources",
+]);
+/** Flags whose value is the package itself. */
+const NPM_PACKAGE_FLAGS = new Set(["-p", "--package"]);
+const PY_PACKAGE_FLAGS = new Set(["--from", "--spec"]);
 
 /** @param {unknown} x */
 const str = (x) => (typeof x === "string" ? x : "");
@@ -115,24 +125,33 @@ export function assessCommand(command, args) {
   }
   if (SHELLS.has(name) && args.some((a) => /^(-c|\/c|\/k|-command|-encodedcommand)$/i.test(a))) out.push({ code: "SHELL_WRAPPER", severity: "HIGH", data: name });
 
-  /** First argument that is not a flag (and not the value of -p/--package). */
-  const firstPositional = (/** @type {string[]} */ list) => {
+  /**
+   * The package argument: the first argument that is neither a flag nor a flag's VALUE. A flag written
+   * without "=" takes the next argument as its value unless it is a known boolean flag, so the value of
+   * "--token VALUE" or "--registry URL" is never taken for the package (and never printed). At worst an
+   * unknown boolean flag hides the package, and the package is not judged.
+   * @param {string[]} list @param {ReadonlySet<string>} packageFlags flags whose value IS the package
+   */
+  const packageArg = (list, packageFlags) => {
     for (let i = 0; i < list.length; i++) {
       const a = /** @type {string} */ (list[i]);
-      if (a === "-p" || a === "--package") return list[i + 1] ?? null;
-      if (!a.startsWith("-")) return a;
+      if (packageFlags.has(a)) return list[i + 1] ?? null;
+      if (a.startsWith("-")) {
+        if (!a.includes("=") && !BOOLEAN_FLAGS.has(a)) i++;
+        continue;
+      }
+      return a;
     }
     return null;
   };
   let spec = null;
-  if (RUNNERS.has(name)) spec = firstPositional(args);
-  else if (DLX.has(name) && (args[0] === "dlx" || args[0] === "exec")) spec = firstPositional(args.slice(1));
+  if (RUNNERS.has(name)) spec = packageArg(args, NPM_PACKAGE_FLAGS);
+  else if (DLX.has(name) && (args[0] === "dlx" || args[0] === "exec")) spec = packageArg(args.slice(1), NPM_PACKAGE_FLAGS);
   if (spec && !spec.startsWith(".") && !spec.startsWith("/") && !npmPinned(spec)) out.push({ code: "UNPINNED_PACKAGE", severity: "MEDIUM", data: packageName(spec, false) });
 
   if (PY_RUNNERS.has(name)) {
     const list = name === "pipx" && args[0] === "run" ? args.slice(1) : args;
-    const from = list.indexOf("--from");
-    const pySpec = from >= 0 ? list[from + 1] ?? "" : firstPositional(list) ?? "";
+    const pySpec = packageArg(list, PY_PACKAGE_FLAGS) ?? "";
     if (pySpec && !/(==|@)\d/.test(pySpec)) out.push({ code: "UNPINNED_PACKAGE", severity: "MEDIUM", data: packageName(pySpec, true) });
   }
   if (CONTAINERS.has(name) && args.includes("run") && !args.some((a) => /@sha256:[0-9a-f]{64}$/.test(a))) out.push({ code: "UNPINNED_IMAGE", severity: "MEDIUM", data: "" });
