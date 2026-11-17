@@ -59,7 +59,7 @@ node scripts/mcp-guardian.mjs                                   # arquivos de co
 node scripts/mcp-guardian.mjs --config .mcp.json --lang pt      # um arquivo, relatório em português
 node scripts/mcp-guardian.mjs --tools github=tools.json         # um tools/list salvo
 node scripts/mcp-guardian.mjs --tools github=tools.json --emit-pins > mcp-pins.json
-node scripts/mcp-guardian.mjs --tools github=tools-novo.json --pins mcp-pins.json
+node scripts/mcp-guardian.mjs --tools github=tools-novo.json --pins mcp-pins.json --fail-on medium
 node scripts/mcp-guardian.mjs --format json --fail-on critical  # para CI
 ```
 
@@ -124,7 +124,7 @@ domínio fixo e os nomes de servidor e ferramenta, truncado), e por isso compara
 identificador identifica; não anonimiza: um nome previsível pode ser descoberto por tentativa, então
 arquivo de fixação não é para publicar. O modo padrão acrescenta um rótulo legível para pessoas; o
 protegido não. `--emit-pins` recusa (código 2) listagem que não pôde ser lida, está vazia, repete nome
-de ferramenta, aninha demais ou tem entradas que não são ferramentas, para a fixação nunca deixar uma ferramenta de fora em silêncio; a mesma ferramenta do mesmo servidor duas vezes, numa listagem ou entre listagens, é sempre `TOOL_DUPLICATE_NAME`. Fixações de versões anteriores (1 e 2) são recusadas: gere de novo. No
+de ferramenta, aninha demais ou tem entradas que não são ferramentas, para a fixação nunca deixar de fora em silêncio uma ferramenta que recebeu (resposta paginada de `tools/list`, com `nextCursor`, não é detectada: salve todas as páginas na listagem); a mesma ferramenta do mesmo servidor duas vezes, numa listagem ou entre listagens, é sempre `TOOL_DUPLICATE_NAME`. Fixações de versões anteriores (1 e 2) são recusadas: gere de novo. No
 relatório protegido, os rótulos são numerados dentro do relatório: um servidor chamado de fato
 `server-2` pode aparecer como `server-1`.
 

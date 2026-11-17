@@ -54,7 +54,7 @@ node scripts/mcp-guardian.mjs                                   # project config
 node scripts/mcp-guardian.mjs --config .mcp.json --lang pt      # one file, report in Portuguese
 node scripts/mcp-guardian.mjs --tools github=tools.json         # a saved tools/list result
 node scripts/mcp-guardian.mjs --tools github=tools.json --emit-pins > mcp-pins.json
-node scripts/mcp-guardian.mjs --tools github=tools-new.json --pins mcp-pins.json
+node scripts/mcp-guardian.mjs --tools github=tools-new.json --pins mcp-pins.json --fail-on medium
 node scripts/mcp-guardian.mjs --format json --fail-on critical  # for CI
 ```
 
@@ -119,7 +119,7 @@ server and tool names, truncated), so they compare the same in both modes. The i
 anonymize: a predictable name can be found by trying candidates, so a pin file is not something to
 publish. The default mode adds a readable label for people; the protected mode leaves it out.
 `--emit-pins` refuses (exit 2) a listing that could not be read, is empty, repeats a tool name or nests
-too deeply, or has entries that are not tools, so a pin file never silently leaves a tool out; the same tool of the same server twice, in one listing or across listings, is always `TOOL_DUPLICATE_NAME`. Pin files from earlier versions (1 and 2) are refused: emit them again. In protected reports, labels are numbered
+too deeply, or has entries that are not tools, so a pin file never silently leaves out a tool it was given (a paginated `tools/list` answer, with `nextCursor`, is not detected: save every page in the listing); the same tool of the same server twice, in one listing or across listings, is always `TOOL_DUPLICATE_NAME`. Pin files from earlier versions (1 and 2) are refused: emit them again. In protected reports, labels are numbered
 within the report: a server really called `server-2` may appear as `server-1`.
 
 ## Guarantees and how they are tested

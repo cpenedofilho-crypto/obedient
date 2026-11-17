@@ -198,7 +198,7 @@ export function run(argv) {
     return { out: "", err: "cannot emit pins: an input file could not be read, a listing is empty or has entries that are not tools, or a tool is nested too deeply to pin. Run without --emit-pins to see which.", code: 2 };
   }
   if (o.emitPins && findings.some((f) => f.code === "TOOL_DUPLICATE_NAME")) {
-    return { out: "", err: "cannot emit pins: duplicate tool name (a name appears more than once in one listing), so one pin could not tell the copies apart. Run without --emit-pins to see the report.", code: 2 };
+    return { out: "", err: "cannot emit pins: duplicate tool name (the same tool of the same server appears more than once, in one listing or across listings), so one pin could not tell the copies apart. Run without --emit-pins to see the report.", code: 2 };
   }
   if (o.emitPins) {
     // Pins go to stdout; the person decides where to save them. This program writes no file.
