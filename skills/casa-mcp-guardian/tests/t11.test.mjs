@@ -50,3 +50,27 @@ describe("N1: the same tool of the same server in two listings is never accepted
     assert.equal(Object.keys(JSON.parse(ok.out).tools).length, 2);
   });
 });
+
+describe("N6: an invisible character inside a token does not defeat default-mode masking", () => {
+  const TOKENS = ["aB3-xY9_kL2-mN7_pQ4-rS8_tU1-vW6", "Zq8xW2kL9mN4pR7tV3yB6cF1hJ5sD0gA", "q7154ccf8f143ed5872390226bfe5cb3"];
+  const HIDDEN = ["​", "\u001b[0m", "⁠", "‮", "﻿"];
+  it("server, tool, file, key, auto-approved tool and package names, in Markdown, JSON and pins", () => {
+    for (const tok of TOKENS) {
+      for (const h of HIDDEN) {
+        const z = `${tok.slice(0, 15)}${h}${tok.slice(15)}`;
+        const dir = tempProject({
+          [`cfg-${z}.json`]: { mcpServers: {
+            [`srv_${z}`]: { type: "http", url: "https://h.example.com/" },
+            b: { command: "npx", args: ["-y", `pkg_${z}`], env: { [`TOKEN_${z}`]: "x" }, alwaysAllow: [`tool_${z}`] },
+          } },
+          "t.json": { tools: [{ name: `get_${z}`, inputSchema: { type: "object" } }] },
+        });
+        for (const extra of [[], ["--format", "json"], ["--lang", "pt"], ["--emit-pins"]]) {
+          const r = run(["--root", dir, "--config", `cfg-${z}.json`, "--tools", `s_${z}=t.json`, "--fail-on", "never", ...extra]);
+          const text = `${r.out}\n${r.err}`;
+          for (let i = 0; i + 8 <= tok.length; i++) assert.ok(!text.includes(tok.slice(i, i + 8)), `${JSON.stringify(h)} ${extra.join(" ")}`);
+        }
+      }
+    }
+  });
+});

@@ -13,7 +13,7 @@ import { classifyTool, riskRank } from "./classify.mjs";
 import { assessUrl } from "./endpoint.mjs";
 import { opaqueId, presenter } from "./present.mjs";
 import { findLiteralSecrets } from "./secrets.mjs";
-import { allDescriptions, hasHiddenCharacters, injectionSignals } from "./untrusted.mjs";
+import { allDescriptions, hasHiddenCharacters, injectionSignals, safeText } from "./untrusted.mjs";
 
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 export const SEVERITIES = /** @type {const} */ (["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]);
@@ -105,8 +105,11 @@ function npmPinned(spec) {
 
 /** The package NAME of a spec, without version, tag, range, extra or anything after it: a spec may
  * carry free text ("pkg@<anything>"), and only the name is needed to say it is unpinned.
- * @param {string} spec @param {boolean} python */
-export function packageName(spec, python) {
+ * @param {string} spec0 @param {boolean} python */
+export function packageName(spec0, python) {
+  // Cleaned first: an invisible character inside the spec would otherwise end the name early and hand
+  // half a token to the report, too short to look like one.
+  const spec = safeText(spec0, Number.MAX_SAFE_INTEGER);
   if (python) return (/^[A-Za-z0-9._-]+/.exec(spec) ?? [""])[0];
   return (/^(?:@[A-Za-z0-9._~-]+\/)?[A-Za-z0-9._~-]+/.exec(spec) ?? [""])[0];
 }

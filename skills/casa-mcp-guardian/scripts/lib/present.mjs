@@ -57,9 +57,15 @@ const TRANSPORTS = new Set(["http", "https", "sse", "stdio", "streamable-http", 
  * }} Presenter
  */
 
-/** Masked first, then cut: cutting first could leave half a token that no longer looks like one.
+/**
+ * In this order: (1) clean (invisible characters, ANSI escapes and controls removed, so none of them can
+ * split a token and hide it from the mask); (2) mask; (3) cut to the length limit (cutting first could
+ * leave half a token that no longer looks like one).
  * @param {string} v @param {number} n */
-const shown = (v, n) => safeText(maskTokens(v), n);
+const shown = (v, n) => {
+  const masked = maskTokens(safeText(v, Number.MAX_SAFE_INTEGER));
+  return masked.length > n ? `${masked.slice(0, n - 1)}…` : masked;
+};
 
 /**
  * @param {boolean} redacted
