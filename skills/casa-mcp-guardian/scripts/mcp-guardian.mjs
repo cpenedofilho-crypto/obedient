@@ -14,16 +14,59 @@
 // read files you did not name (besides the fixed list of project config paths), or print the value of
 // a credential. Exit code: 0 = nothing at or above --fail-on; 1 = something at or above it; 2 = usage.
 //
-// Requires Node.js 18 or newer. No dependencies.
+// Personal and global configs are never read implicitly: without --config, a root that is the home
+// folder (however it is spelled: trailing slash, "..", a symlink) is refused, and a default path that
+// leads out of the project (a symlinked .claude or .cursor folder) is skipped and reported.
+//
+// Requires Node.js 22 or newer (tested on 22 and 24). No dependencies.
 
-import { existsSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { auditConfig, auditTools, readJsonFile, severityRank, SEVERITIES, toolsFromListing } from "./lib/audit.mjs";
 import { parseCriticalPatterns } from "./lib/classify.mjs";
 import { renderJson, renderMarkdown } from "./lib/report.mjs";
 import { scrubCredentials } from "./lib/secrets.mjs";
 import { safeText } from "./lib/untrusted.mjs";
+
+/** Canonical form of a path: resolved (which also drops "." , ".." and a trailing separator), symlinks
+ * followed when the process may see them, case folded where the file system usually ignores case.
+ * @param {string} p */
+export function canonical(p) {
+  let r = resolve(p);
+  try { r = realpathSync(r); } catch { /* not visible or does not exist: keep the resolved path */ }
+  return process.platform === "win32" || process.platform === "darwin" ? r.toLowerCase() : r;
+}
+
+/** Every spelling of the current user's home folder that this process can know of. */
+export function homeFolders() {
+  /** @type {string[]} */
+  const raw = [];
+  try { raw.push(homedir()); } catch { /* no home folder */ }
+  for (const v of [process.env.HOME, process.env.USERPROFILE]) if (v) raw.push(v);
+  return [...new Set(raw.filter(Boolean).map(canonical))];
+}
+
+/** True when `dir` is the home folder, however it is written.
+ * @param {string} dir */
+export function isHomeFolder(dir) {
+  const c = canonical(dir);
+  return homeFolders().includes(c);
+}
+
+/** True when `file` (after symlinks) is inside `root` (after symlinks).
+ * @param {string} file @param {string} root */
+function inside(file, root) {
+  const f = canonical(file);
+  const r = canonical(root);
+  return f === r || f.startsWith(r.endsWith(sep) ? r : r + sep);
+}
+
+const HOME_REFUSED = {
+  en: "refusing to look for MCP configs in the home folder: that is where personal and global configs live, and they are never read implicitly. Run from the project folder, or name a file with --config once the user has agreed to it.",
+  pt: "recusado procurar configurações MCP na pasta pessoal: ali ficam as configurações pessoais e globais, que nunca são lidas implicitamente. Rode da pasta do projeto, ou indique um arquivo com --config depois que a pessoa concordar.",
+};
 
 /** Exists and may be read; a path the process is not allowed to see counts as absent. */
 /** @param {string} f */
@@ -89,9 +132,22 @@ export function run(argv) {
   /** @param {string} f */
   const label = (f) => safeText(relative(root, resolve(root, f)) || f, 120);
 
-  const configs = o.configs.length ? o.configs : o.tools.length ? [] : DEFAULT_CONFIGS.map((f) => join(root, f)).filter(present);
   /** @type {import("./lib/audit.mjs").Finding[]} */
   const findings = [];
+  const implicit = !o.configs.length && !o.tools.length;
+  if (implicit && isHomeFolder(root)) return { out: "", err: HOME_REFUSED[o.lang], code: 2 };
+  /** @type {string[]} */
+  let configs = o.configs;
+  if (implicit) {
+    configs = [];
+    for (const f of DEFAULT_CONFIGS) {
+      const path = join(root, f);
+      if (!present(path)) continue;
+      // A default path that leads out of the project (symlinked folder) may be a personal config.
+      if (!inside(path, root)) { findings.push({ code: "IMPLICIT_PATH_OUTSIDE_PROJECT", severity: "MEDIUM", file: label(path), target: "", data: "" }); continue; }
+      configs.push(path);
+    }
+  }
   /** @type {{ name: string, transport: string, endpoint: string }[]} */
   const servers = [];
   /** @type {string[]} */

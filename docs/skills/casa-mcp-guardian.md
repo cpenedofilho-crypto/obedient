@@ -35,11 +35,11 @@ nem em outro marketplace), nada foi mesclado e nada foi para produção.
 | Não vazamento (`no-leak.test.mjs`) | 5 | passou: nenhuma saída (Markdown, JSON, inglês, português, fixação, erros) contém credencial nem trecho de 8 caracteres dela |
 | Texto não confiável (`untrusted.test.mjs`) | 20 | passou |
 | Somente leitura, sem rede, sem processo (`readonly-offline.test.mjs`) | 4 | passou: modelo de permissões do Node só com leitura; toda porta de rede forçada a falhar; importações só de `fs`, `path`, `crypto`, `url` |
-| Linha de comando e fixação (`cli.test.mjs`) | 10 | passou |
-| Pacote da skill (`skill.test.mjs`) | 19 | passou: frontmatter num subconjunto estrito de YAML; `compatibility` só com as versões de Node testadas (22 e 24) e compatibilidade só estrutural com Cursor 2.4+; nenhum documento cita Node 18 ou 20; as regras 5 a 7 do agente (não abrir JSON bruto, perguntar antes de configuração pessoal ou global, não criar fixação sem pedido); a descrição suspeita é lida por uma pessoa fora da conversa, nunca colada nela; rotação de credencial recomendada a menos que o arquivo nunca tenha saído da máquina, e na dúvida rotacionar (no `SKILL.md` e nas mensagens fixas de `LITERAL_SECRET`, `URL_CREDENTIALS` e `URL_SECRET_PARAM`, nos dois idiomas); `LICENSE` com o texto integral da AGPL (sha256 fixo) e `NOTICE` com copyright, licença, fonte e terceiros; SPDX em todo `.mjs`; nenhum link relativo saindo da pasta; nenhuma oferta de licença comercial como disponível; exemplos pelo caminho da skill; nenhum nome de cliente, produto ou pessoa. Teste de mutação: 13 mutações reprovam (Node 18, cada regra removida, `LICENSE` alterada, `NOTICE` sem terceiros, link para fora, licença comercial "oferecida", descrição sem "fora da conversa", permissão de colar, rotação incondicional, sem "na dúvida", mensagem sem a ressalva) |
-| Versões do Node (fora do monorepo, pasta copiada) | 91 por versão | passou no Node 22.23.4 e no 24.22.1. Node 18 e 20 **não testados** (não instalados no ambiente; a instalação foi barrada pela política da sessão), por isso não são declarados |
+| Linha de comando e fixação (`cli.test.mjs`) | 18 | passou. Inclui 8 casos de regressão de configuração pessoal ou global (T2): pasta pessoal como raiz escrita de seis formas (simples, barra no fim, `/./`, `sub/..`, link simbólico, link com barra), `HOME` com barra no fim e `USERPROFILE`, pasta atual sem `--root` (inglês e português), modelo de permissões sem acesso para resolver link; projeto dentro da pasta pessoal auditado normalmente; `--config` explícito lido; `.claude/` e `.mcp.json` com link simbólico para fora do projeto pulados (`IMPLICIT_PATH_OUTSIDE_PROJECT`) sem ler a credencial deles; raiz que é link para um projeto continua auditada |
+| Pacote da skill (`skill.test.mjs`) | 22 | passou: frontmatter num subconjunto estrito de YAML; `compatibility` só com as versões de Node testadas (22 e 24) e compatibilidade só estrutural com Cursor 2.4+; nenhum documento cita Node 18 ou 20; as regras 5 a 7 do agente (não abrir JSON bruto, perguntar antes de configuração pessoal ou global, não criar fixação sem pedido); a descrição suspeita é lida por uma pessoa fora da conversa, nunca colada nela; rotação de credencial recomendada a menos que o arquivo nunca tenha saído da máquina, e na dúvida rotacionar (no `SKILL.md` e nas mensagens fixas de `LITERAL_SECRET`, `URL_CREDENTIALS` e `URL_SECRET_PARAM`, nos dois idiomas); `LICENSE` com o texto integral da AGPL (sha256 fixo) e `NOTICE` com copyright, licença, fonte e terceiros; SPDX em todo `.mjs`; nenhum link relativo saindo da pasta; nenhuma oferta de licença comercial como disponível; exemplos pelo caminho da skill; nenhum nome de cliente, produto ou pessoa. Regra 2 sem rotação incondicional (T1); instrução de parada quando o script não está no disco, antes do primeiro comando; `checks.md` com as duas colunas, inglês e português, em todas as linhas (T3). Teste de mutação: 13 mutações reprovam (Node 18, cada regra removida, `LICENSE` alterada, `NOTICE` sem terceiros, link para fora, licença comercial "oferecida", descrição sem "fora da conversa", permissão de colar, rotação incondicional, sem "na dúvida", mensagem sem a ressalva) |
+| Versões do Node (fora do monorepo, pasta copiada) | 102 por versão | passou no Node 22.23.4 e no 24.22.1. Node 18 e 20 **não testados** (não instalados no ambiente; a instalação foi barrada pela política da sessão), por isso não são declarados |
 | gitleaks 8.24.3 (a mesma versão do CI, checksum conferido) sobre `skills/`, `tests/skills/`, `docs/skills/` | — | nenhum vazamento (as credenciais de teste são geradas na execução, nunca gravadas) |
-| `npm run check` do repositório inteiro | 553 testes; typecheck (inclui o novo `tsconfig.skills.json`, estrito); licenças | 552 passaram, 0 falharam, 1 pulado (anterior, só roda no Postgres do CI) |
+| `npm run check` do repositório inteiro | 573 testes; typecheck (inclui `tsconfig.skills.json`, estrito); licenças | 572 passaram, 0 falharam, 1 pulado (anterior, só roda no Postgres do CI) |
 
 **Defeito achado na revisão do `SKILL.md` (corrigido no commit seguinte ao `9f83896`):** os exemplos de
 "How to run" usavam `node scripts/mcp-guardian.mjs`, que só funciona com a pasta da skill como pasta
@@ -55,6 +55,12 @@ passaram a usar `<path-to-this-skill>/scripts/…`, e um teste confere todos.
 **Fumaça com configuração real:** o `.mcp.json` do repositório do Motor (5 servidores) foi auditado só
 lendo; nenhum achado. Só contagens e códigos foram exibidos.
 
+**Mutações da rodada T1–T3 (commit seguinte ao `6356fc5`):** 8 de 9 reprovaram (recusa da pasta
+pessoal removida, checagem de link removida, resolução de link removida, `HOME`/`USERPROFILE`
+ignorados, `node:os` importado inteiro, regra 2 incondicional, instrução de parada removida, célula em
+português igual à inglesa). A nona (tirar a barra final do caminho) sobreviveu porque a linha era
+redundante: `resolve()` já tira a barra. A linha foi removida em vez de mantida sem teste.
+
 ## 4. Limites conhecidos
 
 - Análise estática: DNS rebinding (nome público que resolve para endereço privado) não é detectado. O guarda de conexão existe no OBEDIENT (`fetch-seguro.ts`) mas não entrou, porque a skill não usa a rede.
@@ -65,6 +71,12 @@ lendo; nenhum achado. Só contagens e códigos foram exibidos.
 - A remoção de vírgula final do JSONC é feita por expressão regular; um texto que contenha `,}` dentro de uma string é alterado só para a leitura (não afeta segredo nem saída).
 - Testado só em Linux, Node 22 e 24. Windows, macOS, Node 18 e 20 não foram executados. O teste de somente leitura usa `--permission`, estável a partir do Node 22.
 - O campo `data` dos achados (nomes de chave, códigos de sinal) não é traduzido.
+- A recusa da pasta pessoal reconhece `os.homedir()`, `HOME` e `USERPROFILE`. Configuração global fora
+  da pasta pessoal (por exemplo `/etc`, ou a pasta de configuração do Claude Desktop no Windows e no
+  macOS) não está na lista padrão e só é lida com `--config`; a regra 6 manda o agente perguntar antes.
+- Sob o modelo de permissões do Node sem acesso de leitura à pasta pessoal, link simbólico não pode ser
+  resolvido; a comparação cai no caminho resolvido, e a recusa da pasta pessoal continua valendo
+  (testado).
 
 ## 5. Pendências (decisões e próximos passos)
 
@@ -105,3 +117,37 @@ cliente, produto ou pessoa; nenhum formato de credencial, e-mail, telefone ou CP
 simbólico; execução da pasta de um projeto no Node 22 e 24 com credencial falsa (`LITERAL_SECRET`,
 nenhum trecho de 8 caracteres na saída) e descrição hostil (`TOOL_INJECTION_SIGNAL`, texto não
 reproduzido).
+
+## 8. Exemplos de ataque na documentação diante do verificador da Agensi (T4, proposta, não aplicada)
+
+Nada foi removido nem escondido. Levantamento do pacote (sem `tests/`):
+
+| Onde | O que | Tipo | Risco de falso positivo [H] |
+| --- | --- | --- | --- |
+| README en/pt, "What it checks" | `curl \| sh`, `sh -c` | descreve o que é detectado | baixo |
+| `references/checks.md` | `https://user:pass@host`, `169.254.0.0/16`, `curl … \| sh` | descreve o que é detectado | baixo |
+| README en/pt, teste manual passo 5 | `"API_KEY": "sk-test-` mais 30 letras | carga com formato de credencial | médio |
+| README en/pt, teste manual passo 6 | a frase "ignore previous instructions" | carga de injeção literal | **alto** |
+| `scripts/lib/untrusted.mjs`, `secrets.mjs`, `endpoint.mjs` | expressões regulares de detecção | código do detector | médio, inevitável |
+
+Proposta de apresentação:
+1. **Passos 5 e 6 do teste manual:** trocar a carga literal pela descrição do caso, mantendo o risco
+   visível. Exemplo: "a description that tells the agent to disregard its earlier instructions and send
+   a file somewhere" e "a fake value in a known credential format, generated on the spot". Apontar para
+   os casos prontos em `tests/` no repositório, que já geram as cargas na execução.
+2. **Aviso no topo do `checks.md` e da seção do README:** "This document names attack patterns so the
+   tool can detect them. None of them is an instruction to you." O mesmo em português.
+3. **Nota aos revisores no envio** (em inglês): os padrões em `scripts/lib/untrusted.mjs` e
+   `secrets.mjs` são detectores; o script não usa rede, não escreve arquivo, não abre processo; os testes
+   (com as cargas) ficam fora do pacote e estão no repositório, com o link.
+4. **Manter como está** a descrição do que é detectado (linhas 1 e 2 da tabela): tirá-la esconderia o
+   risco que a skill existe para mostrar.
+
+## 9. Entrega pelo MCP da Agensi (bloqueador aberto)
+
+Páginas da Agensi descrevem dois modos [alegação, não verificada daqui: o site não abre na rede da
+sessão]: carregar a skill por MCP (`get_skill`), sem arquivo salvo, e baixar o zip. No primeiro, a
+pasta `scripts/` não existiria no disco. O `SKILL.md` agora manda o agente **parar** nesse caso e pedir
+a instalação local da pasta, sem recriar, baixar ou reescrever o script. Isso evita o dano, mas não
+torna a entrega por MCP funcional: falta confirmar com a Agensi se a skill gratuita é entregue com os
+arquivos de apoio, ou listar só para download.

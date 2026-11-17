@@ -10,6 +10,7 @@ export const MESSAGES = {
   FILE_UNREADABLE: { en: "File could not be read", pt: "Arquivo não pôde ser lido", fix_en: "Check the path and permissions.", fix_pt: "Confira o caminho e as permissões." },
   FILE_TOO_LARGE: { en: "File larger than the 2 MB limit; skipped", pt: "Arquivo maior que o limite de 2 MB; ignorado", fix_en: "Audit a smaller export.", fix_pt: "Audite uma exportação menor." },
   FILE_NOT_JSON: { en: "File is not valid JSON (comments and trailing commas are accepted)", pt: "Arquivo não é JSON válido (comentário e vírgula final são aceitos)", fix_en: "Fix the syntax.", fix_pt: "Corrija a sintaxe." },
+  IMPLICIT_PATH_OUTSIDE_PROJECT: { en: "Default config path leads outside the project (symlink); not read", pt: "Caminho padrão de configuração sai do projeto (link simbólico); não foi lido", fix_en: "It may be a personal or global config. If the user agrees, audit it with --config.", fix_pt: "Pode ser configuração pessoal ou global. Se a pessoa concordar, audite com --config." },
   NO_SERVERS: { en: "No MCP servers found in this file", pt: "Nenhum servidor MCP neste arquivo", fix_en: "Expected a `mcpServers` or `servers` object.", fix_pt: "Esperado um objeto `mcpServers` ou `servers`." },
   SERVER_UNRECOGNIZED: { en: "Server entry has neither `url` nor `command`", pt: "Servidor sem `url` nem `command`", fix_en: "Check the entry.", fix_pt: "Confira a entrada." },
   URL_INVALID: { en: "Server URL does not parse", pt: "URL do servidor não é válida", fix_en: "Fix the URL.", fix_pt: "Corrija a URL." },

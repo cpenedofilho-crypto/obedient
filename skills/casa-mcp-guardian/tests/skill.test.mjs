@@ -106,6 +106,35 @@ describe("SKILL.md", () => {
       assert.match(MESSAGES[code].fix_pt, /a menos que o arquivo nunca tenha saído desta máquina .*na dúvida, troque\./, code);
     }
   });
+  it("rule 2 does not order rotation unconditionally (T1)", () => {
+    const rule2 = /^2\. \*\*Never print[\s\S]*?(?=^3\. )/m.exec(md)?.[0] ?? "";
+    assert.ok(rule2, "rule 2 found");
+    assert.doesNotMatch(rule2, /say it should be rotated/);
+    assert.match(rule2, /Recommend rotating\s+it unless the user confirms the file never left this machine/);
+    assert.match(rule2, /when in doubt, rotate/);
+  });
+  it("the agent stops when the script is not on disk and never recreates it", () => {
+    assert.match(md, /\*\*Stop if the script is not on disk\.\*\*/);
+    assert.match(md, /exists as a local file/);
+    assert.match(md, /stop and tell the user to\s+install the whole skill folder locally first/);
+    assert.match(md, /Do not recreate, download or rewrite the script/);
+    // The stop comes before the first command the agent could run.
+    assert.ok(md.indexOf("Stop if the script is not on disk") < md.indexOf("node <path-to-this-skill>"));
+  });
+  it("references/checks.md explains every check in English and Portuguese (T3)", () => {
+    const checks = readFileSync(join(SKILL_DIR, "references/checks.md"), "utf8");
+    const rows = checks.split("\n").filter((l) => /^\| `/.test(l));
+    assert.ok(rows.length >= 25, `${rows.length} rows`);
+    for (const r of rows) {
+      const cells = r.split(/(?<!\\)\|/).slice(1, -1).map((c) => c.trim());
+      assert.equal(cells.length, 4, r.slice(0, 40));
+      assert.ok(cells[2].length > 10 && cells[3].length > 10, r.slice(0, 40));
+      assert.notEqual(cells[2], cells[3], r.slice(0, 40));
+    }
+    assert.equal((checks.match(/\| Why \| Por quê \|/g) || []).length, 2);
+    assert.match(checks, /Em português:/);
+    assert.match(checks, /nunca uma quebra/);
+  });
   it("no document claims a Node.js version that was not tested", () => {
     for (const f of ["SKILL.md", "README.md", "README.pt-BR.md"]) {
       const text = readFileSync(join(SKILL_DIR, f), "utf8");

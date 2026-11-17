@@ -3,8 +3,8 @@
 //   · read-only and no child processes: it runs under Node's permission model with read access only
 //     (any write or spawn throws ERR_ACCESS_DENIED);
 //   · offline: a preload makes every network entry point throw, and the run still succeeds;
-//   · statically, the sources import only node:fs, node:path, node:crypto and node:url, and contain no
-//     write, spawn or network call.
+//   · statically, the sources import only node:fs, node:path, node:crypto, node:url and `homedir` from
+//     node:os (to recognize the home folder), and contain no write, spawn or network call.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -50,11 +50,12 @@ describe("the script itself", () => {
     assert.match(r.stdout, /MCP Guardian/);
   });
 
-  it("imports only fs, path, crypto and url, and has no write, spawn or network call", () => {
+  it("imports only fs, path, crypto, url and os.homedir, and has no write, spawn or network call", () => {
     for (const f of sources()) {
       const src = readFileSync(f, "utf8");
-      for (const m of src.matchAll(/^\s*import\b[^;]*?\bfrom\s+["']([^"']+)["']/gm)) {
-        const mod = m[1];
+      for (const m of src.matchAll(/^\s*import\b([^;]*?)\bfrom\s+["']([^"']+)["']/gm)) {
+        const mod = m[2];
+        if (mod === "node:os") { assert.match(m[1], /^\s*\{\s*homedir\s*\}\s*$/, `${f}: from node:os only homedir`); continue; }
         assert.ok(mod.startsWith("./") || ["node:fs", "node:path", "node:crypto", "node:url"].includes(mod), `${f} imports ${mod}`);
       }
       assert.doesNotMatch(src, /\b(writeFile|appendFile|createWriteStream|mkdir|rmSync|unlink|rename|copyFile|XMLHttpRequest|WebSocket)\b|(?<![.\w])(spawn|spawnSync|exec|execSync|execFile|fork|fetch|require)\s*\(/, f);

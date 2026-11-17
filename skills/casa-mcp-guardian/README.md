@@ -55,7 +55,7 @@ node scripts/mcp-guardian.mjs --format json --fail-on critical  # for CI
 
 | Option | Meaning |
 | --- | --- |
-| `--config FILE` | Config to audit (repeatable). Without it (and without `--tools`): `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.claude/settings.json`, `.claude/settings.local.json` in `--root`. Never the home folder. |
+| `--config FILE` | Config to audit (repeatable). Without it (and without `--tools`): `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.claude/settings.json`, `.claude/settings.local.json` in `--root`. Never the home folder: without `--config`, a root that is the home folder (however written) is refused, and a default path that leads out of the project through a symlink is skipped (`IMPLICIT_PATH_OUTSIDE_PROJECT`). |
 | `--tools [SERVER=]FILE` | A saved `tools/list` result: array, `{ "tools": [...] }` or a JSON-RPC response (repeatable). |
 | `--pins FILE` / `--emit-pins` | Compare with saved pins / print pins to standard output. |
 | `--critical-pattern TEXT\|/REGEX/` | Your own critical tools, e.g. the ones that move money in your stack (repeatable). |
@@ -90,8 +90,8 @@ real config with real credentials.
 
 `SKILL.md` tells the agent to treat everything from an MCP server as data, never to show a credential,
 to work from the report instead of opening the raw config or `tools/list` JSON, to audit only the
-project folder unless you agree to a personal or global config, and to save a pin file only when you
-ask for it. These are instructions to the model, not guarantees: the script itself enforces read-only
+project folder unless you agree to a personal or global config, to save a pin file only when you
+ask for it, and to stop (never recreate the script) if `scripts/mcp-guardian.mjs` is not on disk. These are instructions to the model, not guarantees: the script itself enforces read-only
 and offline behavior (below), the agent's compliance depends on the model.
 
 ## Guarantees and how they are tested
@@ -100,9 +100,10 @@ The tests live in the [source repository](https://github.com/cpenedofilho-crypto
 
 | Guarantee | Test |
 | --- | --- |
+| No personal or global config read implicitly | Home folder as root (plain, trailing slash, `..`, symlink, current folder, `HOME` or `USERPROFILE`) is refused; a symlinked `.claude/` pointing outside the project is skipped (`tests/cli.test.mjs`). |
 | Read-only, no processes | Runs under Node's permission model with read access only (`tests/readonly-offline.test.mjs`). |
 | Offline | Runs with every network entry point (`net`, `tls`, `dns`, `http`, `https`, `fetch`, `WebSocket`) forced to throw. |
-| Imports only `fs`, `path`, `crypto`, `url` | Static check of every source file. |
+| Imports only `fs`, `path`, `crypto`, `url` and `homedir` from `os` | Static check of every source file. |
 | No credential in any output | Random credentials of every supported shape; no output (Markdown, JSON, English, Portuguese, pins, errors) contains the value or any 8-character piece of it (`tests/no-leak.test.mjs`). |
 | Untrusted text stays data | Descriptions are never reproduced; ANSI, bidi, zero-width and Markdown control characters are removed from names (`tests/untrusted.test.mjs`). |
 | Same verdicts as the original classifier | Regression cases ported from the OBEDIENT integration gateway (`tests/classify.test.mjs`), plus a parity test against the original source in the OBEDIENT repository. |

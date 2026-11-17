@@ -2,9 +2,12 @@
 // Command line: discovery, config formats, exit codes, pins.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_CONFIGS, parseArgs, run } from "../scripts/mcp-guardian.mjs";
+import { DEFAULT_CONFIGS, isHomeFolder, parseArgs, run } from "../scripts/mcp-guardian.mjs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, realpathSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { assessCommand } from "../scripts/lib/audit.mjs";
-import { tempProject } from "./helpers.mjs";
+import { CLI, fakeSecrets, tempProject } from "./helpers.mjs";
 
 const json = (args) => JSON.parse(run([...args, "--format", "json", "--fail-on", "never"]).out);
 const codes = (args) => json(args).findings.map((f) => f.code);
@@ -102,3 +105,114 @@ describe("pins (silent tool changes)", () => {
     assert.ok(codes(["--root", dir, "--tools", "s=t.json", "--pins", "p.json"]).includes("PINS_INVALID"));
   });
 });
+
+describe("personal and global configs are never read implicitly", () => {
+  const GLOBAL = (secret) => ({
+    ".mcp.json": { mcpServers: { personal: { command: "node", args: ["s.js"], env: { API_KEY: secret } } } },
+    ".claude/settings.json": { enableAllProjectMcpServers: true, mcpServers: { g: { command: "node", env: { TOKEN: secret } } } },
+    ".cursor/mcp.json": { mcpServers: { c: { url: "http://c.example.com" } } },
+  });
+  /** Runs `fn` with HOME (and USERPROFILE) pointing at `home`, then restores them. */
+  function withHome(home, fn, profile = home) {
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    process.env.HOME = home;
+    process.env.USERPROFILE = profile;
+    try { return fn(); } finally {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  }
+  const refused = (r) => {
+    assert.equal(r.code, 2);
+    assert.equal(r.out, "");
+    assert.match(r.err, /home folder|pasta pessoal/);
+  };
+
+  it("a root that is the home folder is refused, however it is written", () => {
+    const s = fakeSecrets().github;
+    const home = tempProject({ ...GLOBAL(s), "sub/keep.txt": "x" });
+    const link = join(tempProject({}), "home-link");
+    symlinkSync(home, link);
+    withHome(home, () => {
+      for (const root of [home, `${home}/`, `${home}/./`, join(home, "sub", ".."), link, `${link}/`]) {
+        assert.ok(isHomeFolder(root), root);
+        const r = run(["--root", root, "--format", "json"]);
+        refused(r);
+        assert.ok(!r.err.includes(s.slice(4, 12)));
+      }
+    });
+  });
+
+  it("HOME with a trailing slash, and USERPROFILE, are recognized too", () => {
+    const home = tempProject(GLOBAL(fakeSecrets().github));
+    const other = tempProject({});
+    withHome(`${home}/`, () => refused(run(["--root", home])), other);
+    withHome(other, () => refused(run(["--root", home])), home);
+  });
+
+  it("running from the home folder with no --root (current folder) is refused, in the chosen language", () => {
+    const home = tempProject(GLOBAL(fakeSecrets().github));
+    for (const [lang, re] of [["en", /home folder/], ["pt", /pasta pessoal/]]) {
+      const r = spawnSync(process.execPath, [CLI, "--format", "json", "--lang", lang], { cwd: home, env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8" });
+      assert.equal(r.status, 2, r.stderr);
+      assert.equal(r.stdout, "");
+      assert.match(r.stderr, re);
+    }
+  });
+
+  it("the refusal holds under the read-only permission model, where symlinks cannot be resolved", () => {
+    const home = tempProject(GLOBAL(fakeSecrets().github));
+    const r = spawnSync(process.execPath, ["--permission", `--allow-fs-read=${join(CLI, "..", "..")}`, `--allow-fs-read=${home}`, CLI, "--root", home], { env: { ...process.env, HOME: home, USERPROFILE: home }, encoding: "utf8" });
+    assert.equal(r.status, 2, r.stderr);
+    assert.doesNotMatch(r.stderr, /ERR_ACCESS_DENIED/);
+  });
+
+  it("a project inside the home folder is audited normally", () => {
+    const home = tempProject({ "proj/.mcp.json": { mcpServers: { a: { url: "http://a.example.com" } } } });
+    withHome(home, () => {
+      const r = JSON.parse(run(["--root", join(home, "proj"), "--format", "json", "--fail-on", "never"]).out);
+      assert.deepEqual(r.files, [".mcp.json"]);
+    });
+  });
+
+  it("a config the user names with --config is read, even in the home folder (the agent asks first: rule 6)", () => {
+    const home = tempProject(GLOBAL(fakeSecrets().github));
+    withHome(home, () => {
+      const r = run(["--root", home, "--config", ".claude/settings.json", "--format", "json", "--fail-on", "never"]);
+      assert.equal(r.code, 0, r.err);
+      assert.deepEqual(JSON.parse(r.out).files, [".claude/settings.json"]);
+      // A saved tools/list in the home folder is also explicit; no config is read with it.
+      const t = tempProject({});
+      const r2 = run(["--root", home, "--tools", `x=${join(t, "none.json")}`, "--format", "json", "--fail-on", "never"]);
+      assert.equal(r2.code, 0, r2.err);
+      assert.ok(!JSON.parse(r2.out).files.some((f) => f.includes(".claude") || f.endsWith(".mcp.json")));
+    });
+  });
+
+  it("a default path that leads out of the project through a symlink is skipped and reported, not read", () => {
+    const s = fakeSecrets().github;
+    const home = tempProject(GLOBAL(s));
+    const proj = tempProject({ ".vscode/mcp.json": { servers: { v: { type: "http", url: "https://v.example.com/mcp" } } } });
+    symlinkSync(join(home, ".claude"), join(proj, ".claude")); // folder symlink
+    symlinkSync(join(home, ".mcp.json"), join(proj, ".mcp.json")); // file symlink
+    withHome(home, () => {
+      const r = run(["--root", proj, "--format", "json", "--fail-on", "never"]);
+      const out = JSON.parse(r.out);
+      assert.deepEqual(out.files, [".vscode/mcp.json"]);
+      assert.deepEqual(out.servers.map((x) => x.name), ["v"]);
+      const skipped = out.findings.filter((f) => f.code === "IMPLICIT_PATH_OUTSIDE_PROJECT").map((f) => f.file).sort();
+      assert.deepEqual(skipped, [".claude/settings.json", ".mcp.json"]);
+      assert.ok(!out.findings.some((f) => f.code === "LITERAL_SECRET" || f.code === "ENABLE_ALL_PROJECT_SERVERS"));
+      assert.ok(!r.out.includes(s.slice(4, 12)));
+    });
+  });
+
+  it("a project reached through a symlinked root is still audited (only paths leaving it are skipped)", () => {
+    const real = tempProject({ ".mcp.json": { mcpServers: { a: { url: "https://a.example.com/mcp" } } } });
+    const link = join(tempProject({}), "proj-link");
+    symlinkSync(real, link);
+    const r = JSON.parse(run(["--root", link, "--format", "json", "--fail-on", "never"]).out);
+    assert.deepEqual(r.files, [".mcp.json"]);
+    assert.ok(!r.findings.some((f) => f.code === "IMPLICIT_PATH_OUTSIDE_PROJECT"));
+  });
+});
+

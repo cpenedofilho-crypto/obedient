@@ -59,7 +59,7 @@ node scripts/mcp-guardian.mjs --format json --fail-on critical  # para CI
 
 | Opção | O que faz |
 | --- | --- |
-| `--config ARQUIVO` | Configuração a auditar (pode repetir). Sem ela (e sem `--tools`): `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.claude/settings.json`, `.claude/settings.local.json` em `--root`. Nunca a pasta pessoal. |
+| `--config ARQUIVO` | Configuração a auditar (pode repetir). Sem ela (e sem `--tools`): `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `.claude/settings.json`, `.claude/settings.local.json` em `--root`. Nunca a pasta pessoal: sem `--config`, uma raiz que é a pasta pessoal (escrita de qualquer forma) é recusada, e um caminho padrão que sai do projeto por link simbólico é pulado (`IMPLICIT_PATH_OUTSIDE_PROJECT`). |
 | `--tools [SERVIDOR=]ARQUIVO` | Um resultado de `tools/list` salvo: lista, `{ "tools": [...] }` ou resposta JSON-RPC (pode repetir). |
 | `--pins ARQUIVO` / `--emit-pins` | Compara com a fixação salva / imprime a fixação na saída padrão. |
 | `--critical-pattern TEXTO\|/REGEX/` | Suas ferramentas críticas, por exemplo as que movem dinheiro no seu ambiente (pode repetir). |
@@ -93,8 +93,9 @@ descartável, nunca uma configuração de verdade com credencial de verdade.
 
 O `SKILL.md` manda o agente tratar tudo o que vem de servidor MCP como dado, nunca mostrar credencial,
 trabalhar a partir do relatório em vez de abrir o JSON bruto da configuração ou do `tools/list`,
-auditar só a pasta do projeto a menos que você concorde com uma configuração pessoal ou global, e só
-gravar arquivo de fixação quando você pedir. São instruções ao modelo, não garantias: o próprio script
+auditar só a pasta do projeto a menos que você concorde com uma configuração pessoal ou global, só
+gravar arquivo de fixação quando você pedir, e parar (sem recriar o script) se
+`scripts/mcp-guardian.mjs` não estiver no disco. São instruções ao modelo, não garantias: o próprio script
 garante só leitura e ausência de rede (abaixo); o cumprimento pelo agente depende do modelo.
 
 ## Garantias e como são testadas
@@ -103,9 +104,10 @@ Os testes ficam no [repositório de origem](https://github.com/cpenedofilho-cryp
 
 | Garantia | Teste |
 | --- | --- |
+| Nenhuma configuração pessoal ou global lida implicitamente | Pasta pessoal como raiz (simples, com barra no fim, `..`, link simbólico, pasta atual, `HOME` ou `USERPROFILE`) é recusada; um `.claude/` com link simbólico para fora do projeto é pulado (`tests/cli.test.mjs`). |
 | Só leitura, sem abrir processo | Roda no modelo de permissões do Node só com leitura (`tests/readonly-offline.test.mjs`). |
 | Sem rede | Roda com toda porta de rede (`net`, `tls`, `dns`, `http`, `https`, `fetch`, `WebSocket`) forçada a falhar. |
-| Só importa `fs`, `path`, `crypto`, `url` | Checagem estática de todo arquivo-fonte. |
+| Só importa `fs`, `path`, `crypto`, `url` e `homedir` de `os` | Checagem estática de todo arquivo-fonte. |
 | Nenhuma credencial na saída | Credenciais aleatórias de todos os formatos suportados; nenhuma saída (Markdown, JSON, inglês, português, fixação, erros) contém o valor nem qualquer trecho de 8 caracteres dele (`tests/no-leak.test.mjs`). |
 | Texto não confiável continua sendo dado | Descrição nunca é reproduzida; ANSI, bidi, largura zero e caracteres de Markdown saem dos nomes (`tests/untrusted.test.mjs`). |
 | Mesmos veredictos do classificador original | Casos de regressão trazidos do gateway de integrações do OBEDIENT (`tests/classify.test.mjs`) e um teste de paridade contra o código original no repositório do OBEDIENT. |
