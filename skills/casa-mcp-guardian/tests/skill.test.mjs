@@ -78,6 +78,11 @@ describe("SKILL.md", () => {
     for (const m of md.matchAll(/\]\(([^)#]+)\)/g)) assert.ok(existsSync(join(SKILL_DIR, m[1])), m[1]);
     for (const m of md.matchAll(/\bscripts\/[\w./-]+\.mjs\b/g)) assert.ok(existsSync(join(SKILL_DIR, m[0])), m[0]);
   });
+  it("command examples call the script by the skill path, so they work from the user's project", () => {
+    const commands = [...md.matchAll(/^node (\S+)/gm)].map((m) => m[1]);
+    assert.ok(commands.length >= 4, `${commands.length} examples`);
+    for (const c of commands) assert.equal(c, "<path-to-this-skill>/scripts/mcp-guardian.mjs");
+  });
   it("bilingual documentation exists, and every finding code is documented", () => {
     for (const f of ["README.md", "README.pt-BR.md", "references/checks.md"]) assert.ok(existsSync(join(SKILL_DIR, f)), f);
     const checks = readFileSync(join(SKILL_DIR, "references/checks.md"), "utf8");

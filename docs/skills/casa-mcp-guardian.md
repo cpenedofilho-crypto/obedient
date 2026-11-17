@@ -36,9 +36,14 @@ nem em outro marketplace), nada foi mesclado e nada foi para produção.
 | Texto não confiável (`untrusted.test.mjs`) | 20 | passou |
 | Somente leitura, sem rede, sem processo (`readonly-offline.test.mjs`) | 4 | passou: modelo de permissões do Node só com leitura; toda porta de rede forçada a falhar; importações só de `fs`, `path`, `crypto`, `url` |
 | Linha de comando e fixação (`cli.test.mjs`) | 10 | passou |
-| Pacote da skill (`skill.test.mjs`) | 9 | passou: frontmatter num subconjunto estrito de YAML (`description` e `compatibility` entre aspas duplas, sem escape), `compatibility` com Node.js 18+ e compatibilidade só estrutural com Cursor 2.4+, documentação bilíngue, todo código documentado, nenhum nome de cliente, produto ou pessoa. Teste de mutação: tirar as aspas da `description` reprova |
+| Pacote da skill (`skill.test.mjs`) | 10 | passou: frontmatter num subconjunto estrito de YAML (`description` e `compatibility` entre aspas duplas, sem escape), `compatibility` com Node.js 18+ e compatibilidade só estrutural com Cursor 2.4+, documentação bilíngue, todo código documentado, exemplos de comando chamam o script pelo caminho da skill, nenhum nome de cliente, produto ou pessoa. Teste de mutação: tirar as aspas da `description`, ou voltar um exemplo para `node scripts/…`, reprova |
 | gitleaks 8.24.3 (a mesma versão do CI, checksum conferido) sobre `skills/`, `tests/skills/`, `docs/skills/` | — | nenhum vazamento (as credenciais de teste são geradas na execução, nunca gravadas) |
-| `npm run check` do repositório inteiro | 552 testes; typecheck (inclui o novo `tsconfig.skills.json`, estrito); licenças | 551 passaram, 0 falharam, 1 pulado (anterior, só roda no Postgres do CI) |
+| `npm run check` do repositório inteiro | 553 testes; typecheck (inclui o novo `tsconfig.skills.json`, estrito); licenças | 552 passaram, 0 falharam, 1 pulado (anterior, só roda no Postgres do CI) |
+
+**Defeito achado na revisão do `SKILL.md` (corrigido no commit seguinte ao `9f83896`):** os exemplos de
+"How to run" usavam `node scripts/mcp-guardian.mjs`, que só funciona com a pasta da skill como pasta
+atual; rodado da pasta do projeto, como o próprio texto manda, dava `MODULE_NOT_FOUND`. Os exemplos
+passaram a usar `<path-to-this-skill>/scripts/…`, e um teste confere todos.
 
 **Defeitos que os testes pegaram e foram corrigidos antes do commit:**
 - bandeira e cabeçalho com hífen (`--api-key`, `X-Api-Key`) não eram reconhecidos como sensíveis;

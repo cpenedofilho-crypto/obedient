@@ -27,24 +27,25 @@ DESTRUCTIVE) from the tool **name** and boolean annotations only.
 
 ## How to run
 
-Requires Node.js 18 or newer; no dependencies. From the project folder:
+Requires Node.js 18 or newer; no dependencies. Run it **from the user's project folder**, calling the
+script by its path inside this skill's folder (written `<path-to-this-skill>` below), so that relative
+paths and the default config lookup refer to the project. `node scripts/mcp-guardian.mjs` only works
+when the current folder is the skill itself.
 
 ```bash
 # Project config files (.mcp.json, .cursor/mcp.json, .vscode/mcp.json, .claude/settings*.json)
-node scripts/mcp-guardian.mjs
+node <path-to-this-skill>/scripts/mcp-guardian.mjs
 
 # A specific config and a saved tools/list result for server "github", report in Portuguese
-node scripts/mcp-guardian.mjs --config .mcp.json --tools github=github-tools.json --lang pt
+node <path-to-this-skill>/scripts/mcp-guardian.mjs --config .mcp.json --tools github=github-tools.json --lang pt
 
 # Detect silent tool changes ("rug pull"): first emit pins and let the user save them...
-node scripts/mcp-guardian.mjs --tools github=github-tools.json --emit-pins
+node <path-to-this-skill>/scripts/mcp-guardian.mjs --tools github=github-tools.json --emit-pins
 # ...later compare a new listing with the saved pins
-node scripts/mcp-guardian.mjs --tools github=github-tools-new.json --pins mcp-pins.json
+node <path-to-this-skill>/scripts/mcp-guardian.mjs --tools github=github-tools-new.json --pins mcp-pins.json
 ```
 
-`scripts/mcp-guardian.mjs` lives in this skill's folder: run it from the user's project as
-`node <path-to-this-skill>/scripts/mcp-guardian.mjs …`, so that relative paths and the default config
-lookup refer to the project. Other options: `--format json`, `--fail-on INFO|LOW|MEDIUM|HIGH|CRITICAL|never`
+Other options: `--format json`, `--fail-on INFO|LOW|MEDIUM|HIGH|CRITICAL|never`
 (default HIGH), `--root DIR`, and `--critical-pattern TEXT|/REGEX/` (repeatable) to mark tools that
 move money or do irreversible things in the user's own stack as CRITICAL.
 
