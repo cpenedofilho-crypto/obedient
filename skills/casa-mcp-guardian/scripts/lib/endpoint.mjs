@@ -79,10 +79,11 @@ export function assessUrl(raw) {
   if (secretParams.length) findings.push({ code: "URL_SECRET_PARAM", severity: "HIGH", detail: String(secretParams.length) });
   // On the original path, before it is hidden: the normalized path, the RAW path as written (a "/../"
   // would otherwise drop a token) and the fragment. Only a count goes out, never a segment.
-  const rest = raw.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/?#]*/i, "");
+  // The authority ends at "/", "\\" (the URL parser treats it as "/" in http/https), "?" or "#".
+  const rest = raw.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/\\?#]*/i, "");
   const rawPath = rest.split(/[?#]/)[0] ?? "";
   const fragment = rest.includes("#") ? rest.slice(rest.indexOf("#") + 1) : "";
-  const pieces = new Set([...u.pathname.split("/"), ...rawPath.split("/"), ...fragment.split(/[/?&=#]/)]);
+  const pieces = new Set([...u.pathname.split("/"), ...rawPath.split(/[/\\]/), ...fragment.split(/[/\\?&=#]/)]);
   let tokenSegments = 0;
   for (const seg of pieces) {
     if (!seg || seg === "." || seg === "..") continue;

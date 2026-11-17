@@ -133,6 +133,8 @@ export function run(argv) {
   // Fixed text: the regular-expression error would repeat the pattern, which is input.
   try { critical = parseCriticalPatterns(o.critical); } catch { return { out: "", err: "invalid --critical-pattern (not a valid /regex/, or longer than 200 characters)", code: 2 }; }
   const nm = presenter(o.redact, DEFAULT_CONFIGS);
+  // Pins come from tool listings only: without one, an empty pin file would later accept anything.
+  if (o.emitPins && !o.tools.length) return { out: "", err: "cannot emit pins: no tool listing was given (use --tools [SERVER=]FILE).", code: 2 };
   const root = resolve(o.root);
   /** @param {string} f */
   const label = (f) => nm.file(relative(root, resolve(root, f)) || f);

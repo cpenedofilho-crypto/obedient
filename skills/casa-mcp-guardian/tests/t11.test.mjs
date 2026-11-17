@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { run } from "../scripts/mcp-guardian.mjs";
 import { pinOf } from "../scripts/lib/audit.mjs";
 import { opaqueId } from "../scripts/lib/present.mjs";
+import { assessUrl } from "../scripts/lib/endpoint.mjs";
+import { syntheticTokens } from "./helpers.mjs";
 import { CLI, tempProject } from "./helpers.mjs";
 
 /** @param {string[]} args @param {{ cwd?: string }} [o] */
@@ -105,3 +107,27 @@ describe("N2 + N3: the package is found after '--', in '=' forms and after commo
     assert.ok(!r.all.includes("always"));
   });
 });
+
+describe("N4: --emit-pins with no listing refuses instead of printing an empty pin file", () => {
+  it("no --tools at all, or only configs: exit 2, nothing on stdout", () => {
+    const dir = tempProject({ "empty.json": { mcpServers: {} }, ".mcp.json": { mcpServers: { a: { url: "https://a.example.com/" } } } });
+    for (const args of [["--emit-pins"], ["--config", "empty.json", "--emit-pins"], ["--config", ".mcp.json", "--emit-pins", "--redact-names"]]) {
+      const r = cli(["--root", dir, ...args]);
+      assert.equal(r.code, 2, args.join(" "));
+      assert.equal(r.out, "");
+      assert.match(r.err, /cannot emit pins/);
+    }
+  });
+});
+
+describe("N5: a token after a backslash right after the host is still found", () => {
+  it("https://host\\TOKEN\\.. and similar", () => {
+    const t = syntheticTokens(5, 32).mixed;
+    for (const u of [`https://h.example\\${t}\\..`, `https://h.example\\a\\${t}`, `https://h.example/a\\${t}\\..`]) {
+      const a = assessUrl(u);
+      assert.ok(a.findings.some((f) => f.code === "URL_SECRET_PATH"), u);
+      assert.ok(!a.display.includes(t.slice(0, 8)));
+    }
+  });
+});
+
