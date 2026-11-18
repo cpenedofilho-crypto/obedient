@@ -24,7 +24,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { auditConfig, auditTools, listingEntries, readJsonFile, severityRank, SEVERITIES, toolsFromListing } from "./lib/audit.mjs";
+import { auditConfig, auditTools, listingEntries, listingIncomplete, readJsonFile, severityRank, SEVERITIES, toolsFromListing } from "./lib/audit.mjs";
 import { parseCriticalPatterns } from "./lib/classify.mjs";
 import { renderJson, renderMarkdown } from "./lib/report.mjs";
 import { scrubCredentials } from "./lib/secrets.mjs";
@@ -180,6 +180,8 @@ export function run(argv) {
     const dropped = listingEntries(r.value).length - tools.length;
     // Entries that are not tool objects are not silently dropped: they are a finding, and pins refuse.
     if (dropped > 0) findings.push({ code: "TOOL_ENTRY_INVALID", severity: "MEDIUM", file: label(path), target: "", data: String(dropped) });
+    // A listing that announces another page (nextCursor) is only part of the server's tools.
+    if (listingIncomplete(r.value)) findings.push({ code: "TOOLS_LISTING_INCOMPLETE", severity: "MEDIUM", file: label(path), target: "", data: "" });
     listings.push({ server: t.server || t.file.replace(/^.*[\\/]/, "").replace(/\.json$/i, ""), file: label(path), tools });
   }
   let pins;
@@ -193,6 +195,10 @@ export function run(argv) {
   const t = auditTools(listings, { extraCritical: critical, pins, nm });
   findings.push(...t.findings);
 
+  // A pin file made from one page would treat the server's other tools as new, or miss them: refuse.
+  if (o.emitPins && findings.some((f) => f.code === "TOOLS_LISTING_INCOMPLETE")) {
+    return { out: "", err: "cannot emit pins: a listing is incomplete (it has nextCursor, so the server has more pages). Save every page in one listing, with all the tools and no nextCursor, then emit again.", code: 2 };
+  }
   // Pins must describe every tool: refuse when a listing could not be read, is empty or cannot be pinned.
   if (o.emitPins && findings.some((f) => f.code.startsWith("FILE_") || ["TOOLS_FILE_EMPTY", "TOOL_SCHEMA_TOO_DEEP", "TOOL_ENTRY_INVALID", "IMPLICIT_PATH_OUTSIDE_PROJECT"].includes(f.code))) {
     return { out: "", err: "cannot emit pins: an input file could not be read, a listing is empty or has entries that are not tools, or a tool is nested too deeply to pin. Run without --emit-pins to see which.", code: 2 };

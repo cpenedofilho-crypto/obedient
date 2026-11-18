@@ -265,6 +265,19 @@ export function toolsFromListing(v) {
   return /** @type {Record<string, unknown>[]} */ (listingEntries(v).filter((t) => !!t && typeof t === "object" && !Array.isArray(t)));
 }
 
+/**
+ * True when the listing says there is another page: a `nextCursor` (top level, or in the JSON-RPC
+ * `result`) with any value but null. Opaque per the MCP spec, so "" counts too. The value itself is
+ * never read further and never printed.
+ * @param {unknown} v
+ */
+export function listingIncomplete(v) {
+  const o = /** @type {any} */ (v);
+  if (!o || typeof o !== "object" || Array.isArray(o)) return false;
+  const has = (/** @type {any} */ x) => !!x && typeof x === "object" && Object.hasOwn(x, "nextCursor") && x.nextCursor !== null && x.nextCursor !== undefined;
+  return has(o) || has(o.result);
+}
+
 /** Every entry of a tools/list result, tool objects or not (the ones that are not become a finding).
  * @param {unknown} v @returns {unknown[]} */
 export function listingEntries(v) {
