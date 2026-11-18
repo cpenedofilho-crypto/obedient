@@ -177,8 +177,11 @@ export function run(argv) {
     if (!r.ok) { findings.push({ code: r.code, severity: "HIGH", file: label(path), target: "", data: "" }); continue; }
     // Raw server name: it is presented (masked or replaced) by the audit, and hashed into the pin ids.
     const tools = toolsFromListing(r.value);
-    const dropped = listingEntries(r.value).length - tools.length;
     // Entries that are not tool objects are not silently dropped: they are a finding, and pins refuse.
+    // An object without a non-empty string name is not a tool either (a JSON-RPC batch envelope, for
+    // one, which would hide its tools and its nextCursor): it is still audited, but it counts here.
+    const nameless = tools.filter((x) => typeof x.name !== "string" || x.name === "").length;
+    const dropped = listingEntries(r.value).length - tools.length + nameless;
     if (dropped > 0) findings.push({ code: "TOOL_ENTRY_INVALID", severity: "MEDIUM", file: label(path), target: "", data: String(dropped) });
     // A listing that announces another page (nextCursor) is only part of the server's tools.
     if (listingIncomplete(r.value)) findings.push({ code: "TOOLS_LISTING_INCOMPLETE", severity: "MEDIUM", file: label(path), target: "", data: "" });

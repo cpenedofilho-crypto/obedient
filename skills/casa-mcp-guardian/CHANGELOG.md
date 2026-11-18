@@ -24,7 +24,8 @@ First public version. Read-only, offline audit of MCP configs and saved `tools/l
   too deeply to inspect is a finding (TOOL_SCHEMA_TOO_DEEP); `--emit-pins` refuses unreadable, empty,
   duplicated or too-deep listings, listings with entries that are not tools, and runs with no listing.
 - A listing with `nextCursor` (more pages) is incomplete: it is a finding (TOOLS_LISTING_INCOMPLETE)
-  and `--emit-pins` refuses it, also when the pages are given separately.
+  and `--emit-pins` refuses it, also when the pages are given separately. An entry without a name
+  (such as a JSON-RPC batch envelope) is TOOL_ENTRY_INVALID, so it cannot hide a cursor from pins.
 - Reports in Markdown or JSON, English or Portuguese. Exit codes 0, 1 and 2 (2 = usage error or an
   input that could not be processed; fixed message, never input or a stack trace).
 - Requires Node.js 22 or newer (tested on 22 and 24). No dependencies.
