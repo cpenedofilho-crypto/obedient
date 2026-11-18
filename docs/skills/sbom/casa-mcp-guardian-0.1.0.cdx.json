@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:37ee7fe1-a931-525c-9598-55e50c4d1e44",
+  "serialNumber": "urn:uuid:b00cc5a4-1d61-5c67-9eb8-c3f7f5d65b77",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-17T23:36:40Z",
+    "timestamp": "2026-11-18T01:03:31Z",
     "tools": {
       "components": [
         {
@@ -30,11 +30,11 @@
           }
         }
       ],
-      "purl": "pkg:github/cpenedofilho-crypto/obedient@26ad14f3f22db9abde074eaddd9c490b54935c51#skills/casa-mcp-guardian",
+      "purl": "pkg:github/cpenedofilho-crypto/obedient@d75f09e5d1ab56182acd04d6cf6b5056fc363d28#skills/casa-mcp-guardian",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "8464d96d506d03a2bfde9ae7dac5b2d2bcf41ffbac25349dda4c4b7e3e44be5e"
+          "content": "9cdfba99f8d0c674ff3927916f4d2cac5ec42788b14daf2acfb6f5ab898e0cc4"
         }
       ],
       "description": "Agent Skill: read-only, offline audit of MCP configs and saved tool listings.",
@@ -45,7 +45,7 @@
         },
         {
           "name": "casa:source-commit",
-          "value": "26ad14f3f22db9abde074eaddd9c490b54935c51"
+          "value": "d75f09e5d1ab56182acd04d6cf6b5056fc363d28"
         },
         {
           "name": "casa:package-file",
@@ -64,7 +64,7 @@
     "properties": [
       {
         "name": "casa:comment",
-        "value": "Release candidate. Not released, tagged, signed or published. Describes the package built from commit 26ad14f3f22db9abde074eaddd9c490b54935c51 with the reproducible recipe in docs/skills/casa-mcp-guardian-release.md section 5."
+        "value": "Release candidate. Not released, tagged, signed or published. Describes the package built from commit d75f09e5d1ab56182acd04d6cf6b5056fc363d28 with the reproducible recipe in docs/skills/casa-mcp-guardian-release.md section 5."
       }
     ]
   },
@@ -76,11 +76,11 @@
       "hashes": [
         {
           "alg": "SHA-1",
-          "content": "d6929dc455cd52e5795288d07107c8dc5744e2fb"
+          "content": "c834d387e7c7d4247782c7166b91dddefb5541c3"
         },
         {
           "alg": "SHA-256",
-          "content": "7e924b1aae371e519b9866518d03c04aaf403552afca3662d8e5e06328b62be5"
+          "content": "1a55dcbedec3b1bdc1d56ca0fb0077a37666f462081d44a066fcb9228c34b623"
         }
       ]
     },
@@ -121,11 +121,11 @@
       "hashes": [
         {
           "alg": "SHA-1",
-          "content": "b948c914796cf0ca1a52c72f8a51ffc85538cfb6"
+          "content": "895de7412b3b5c4061b69c15745d6cb69350a77f"
         },
         {
           "alg": "SHA-256",
-          "content": "2901c3fbb98f7d4f7d6b1969b2813d777351618199ecc4905af988e047b60535"
+          "content": "d3f6e3431b3cba24c6938cf34ccc6d451fc55fb25c83c4f4e1875e157df703e1"
         }
       ]
     },
@@ -136,11 +136,11 @@
       "hashes": [
         {
           "alg": "SHA-1",
-          "content": "7d79ebb3978fe758e0c67aafa8f6270a45fb8032"
+          "content": "2eb204598b0c5d3d1f63bb1923ad6b1eefaa7d2c"
         },
         {
           "alg": "SHA-256",
-          "content": "889be03a2b1d3c55f943d88fb94cf67a71cc857eb7f413bab300583dd791abf1"
+          "content": "4b708e289b5dca15a65b6cb8b3d89a90ea933717f92da0965cfbdc945cb9f7cc"
         }
       ]
     },
@@ -166,11 +166,11 @@
       "hashes": [
         {
           "alg": "SHA-1",
-          "content": "8f724fc9fc6d7976126ce301ddec004806f3c5d8"
+          "content": "fa7faf7682ccd7adf3b92873373a784ad262e383"
         },
         {
           "alg": "SHA-256",
-          "content": "82ff4b0a5b0f079322a89b0ba898590985b63b6ea3c74f49a251fa45aafd067b"
+          "content": "0cab8d8465617c85e51dc563b051d73e38d8509d295d7a97581cf46de2032e65"
         }
       ]
     },
@@ -181,11 +181,11 @@
       "hashes": [
         {
           "alg": "SHA-1",
-          "content": "bcc86269f26036c282515957c74079a85d48e633"
+          "content": "4c4de8de8956e5f214a1f3a3a7d631259f928062"
         },
         {
           "alg": "SHA-256",
-          "content": "2aa27ad59bad9b6a105fb0a2ebf3ecdf129f874c388cd9253ef1a478f88fa3f0"
+          "content": "f1a392055835673c2ee9821932e55ab0cfc6768223c60698529bd0c6a77f2d53"
         }
       ],
       "licenses": [
@@ -247,11 +247,11 @@
       "hashes": [
         {
           "alg": "SHA-1",
-          "content": "3f0dcdbbb14d9d81eedffa0b0c2e15f4da8f35d9"
+          "content": "09c7d2b62c883c32f28c7df358125b46dab5c507"
         },
         {
           "alg": "SHA-256",
-          "content": "9fde2ad88f9b1191bd4b37df45b4d14fa5e89fd0e8f30e273506ca1a4c0ce78c"
+          "content": "2dafa88fbb6122b93d2e86799a196525c6461a66aea05941b6213be1c581e8ea"
         }
       ],
       "licenses": [
@@ -357,11 +357,11 @@
       "hashes": [
         {
           "alg": "SHA-1",
-          "content": "9714faf4581152245547cfa53c7235f1ab8ad56e"
+          "content": "f123c72fe250cb097c8c1e6e8b561f1a032d642b"
         },
         {
           "alg": "SHA-256",
-          "content": "755397d2c850da76e81c4664b6548a9ceb8ef48a0a7e4bf30b23ff678c3f4934"
+          "content": "da4b6cc9c7b26a2d710422bd7ef2c3408125450ba3776a4ad399b0ef88c4447e"
         }
       ],
       "licenses": [

@@ -3,13 +3,13 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "casa-mcp-guardian-0.1.0",
-  "documentNamespace": "https://github.com/cpenedofilho-crypto/obedient/spdx/casa-mcp-guardian-0.1.0-26ad14f3f22db9abde074eaddd9c490b54935c51",
+  "documentNamespace": "https://github.com/cpenedofilho-crypto/obedient/spdx/casa-mcp-guardian-0.1.0-d75f09e5d1ab56182acd04d6cf6b5056fc363d28",
   "creationInfo": {
-    "created": "2026-11-17T23:36:40Z",
+    "created": "2026-11-18T01:03:31Z",
     "creators": [
       "Tool: casa-mcp-guardian-sbom-gen (stdlib Python)"
     ],
-    "comment": "Release candidate. Not released, tagged, signed or published. Describes the package built from commit 26ad14f3f22db9abde074eaddd9c490b54935c51 with the reproducible recipe in docs/skills/casa-mcp-guardian-release.md section 5."
+    "comment": "Release candidate. Not released, tagged, signed or published. Describes the package built from commit d75f09e5d1ab56182acd04d6cf6b5056fc363d28 with the reproducible recipe in docs/skills/casa-mcp-guardian-release.md section 5."
   },
   "packages": [
     {
@@ -20,15 +20,15 @@
       "supplier": "Person: Cláudio Penedo",
       "originator": "Person: Cláudio Penedo",
       "downloadLocation": "NOASSERTION",
-      "sourceInfo": "git+https://github.com/cpenedofilho-crypto/obedient@26ad14f3f22db9abde074eaddd9c490b54935c51#skills/casa-mcp-guardian",
+      "sourceInfo": "git+https://github.com/cpenedofilho-crypto/obedient@d75f09e5d1ab56182acd04d6cf6b5056fc363d28#skills/casa-mcp-guardian",
       "filesAnalyzed": true,
       "packageVerificationCode": {
-        "packageVerificationCodeValue": "e8dfd7656fcd7c0256c5482120acd21b8fd34fac"
+        "packageVerificationCodeValue": "9c9efe8de91726cd7365cc88569d42cd18b60b0f"
       },
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "8464d96d506d03a2bfde9ae7dac5b2d2bcf41ffbac25349dda4c4b7e3e44be5e"
+          "checksumValue": "9cdfba99f8d0c674ff3927916f4d2cac5ec42788b14daf2acfb6f5ab898e0cc4"
         }
       ],
       "licenseConcluded": "NOASSERTION",
@@ -42,10 +42,10 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:github/cpenedofilho-crypto/obedient@26ad14f3f22db9abde074eaddd9c490b54935c51#skills/casa-mcp-guardian"
+          "referenceLocator": "pkg:github/cpenedofilho-crypto/obedient@d75f09e5d1ab56182acd04d6cf6b5056fc363d28#skills/casa-mcp-guardian"
         }
       ],
-      "comment": "Release candidate. Not released, tagged, signed or published. Describes the package built from commit 26ad14f3f22db9abde074eaddd9c490b54935c51 with the reproducible recipe in docs/skills/casa-mcp-guardian-release.md section 5. No third-party components: only Node.js built-in modules (Node.js 22+ is a runtime requirement, not bundled). licenseConcluded is NOASSERTION because the legal review is pending."
+      "comment": "Release candidate. Not released, tagged, signed or published. Describes the package built from commit d75f09e5d1ab56182acd04d6cf6b5056fc363d28 with the reproducible recipe in docs/skills/casa-mcp-guardian-release.md section 5. No third-party components: only Node.js built-in modules (Node.js 22+ is a runtime requirement, not bundled). licenseConcluded is NOASSERTION because the legal review is pending."
     }
   ],
   "files": [
@@ -55,11 +55,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "d6929dc455cd52e5795288d07107c8dc5744e2fb"
+          "checksumValue": "c834d387e7c7d4247782c7166b91dddefb5541c3"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "7e924b1aae371e519b9866518d03c04aaf403552afca3662d8e5e06328b62be5"
+          "checksumValue": "1a55dcbedec3b1bdc1d56ca0fb0077a37666f462081d44a066fcb9228c34b623"
         }
       ],
       "licenseConcluded": "NOASSERTION",
@@ -112,11 +112,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "b948c914796cf0ca1a52c72f8a51ffc85538cfb6"
+          "checksumValue": "895de7412b3b5c4061b69c15745d6cb69350a77f"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "2901c3fbb98f7d4f7d6b1969b2813d777351618199ecc4905af988e047b60535"
+          "checksumValue": "d3f6e3431b3cba24c6938cf34ccc6d451fc55fb25c83c4f4e1875e157df703e1"
         }
       ],
       "licenseConcluded": "NOASSERTION",
@@ -131,11 +131,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "7d79ebb3978fe758e0c67aafa8f6270a45fb8032"
+          "checksumValue": "2eb204598b0c5d3d1f63bb1923ad6b1eefaa7d2c"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "889be03a2b1d3c55f943d88fb94cf67a71cc857eb7f413bab300583dd791abf1"
+          "checksumValue": "4b708e289b5dca15a65b6cb8b3d89a90ea933717f92da0965cfbdc945cb9f7cc"
         }
       ],
       "licenseConcluded": "NOASSERTION",
@@ -169,11 +169,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "8f724fc9fc6d7976126ce301ddec004806f3c5d8"
+          "checksumValue": "fa7faf7682ccd7adf3b92873373a784ad262e383"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "82ff4b0a5b0f079322a89b0ba898590985b63b6ea3c74f49a251fa45aafd067b"
+          "checksumValue": "0cab8d8465617c85e51dc563b051d73e38d8509d295d7a97581cf46de2032e65"
         }
       ],
       "licenseConcluded": "NOASSERTION",
@@ -188,11 +188,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "bcc86269f26036c282515957c74079a85d48e633"
+          "checksumValue": "4c4de8de8956e5f214a1f3a3a7d631259f928062"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "2aa27ad59bad9b6a105fb0a2ebf3ecdf129f874c388cd9253ef1a478f88fa3f0"
+          "checksumValue": "f1a392055835673c2ee9821932e55ab0cfc6768223c60698529bd0c6a77f2d53"
         }
       ],
       "licenseConcluded": "NOASSERTION",
@@ -245,11 +245,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "3f0dcdbbb14d9d81eedffa0b0c2e15f4da8f35d9"
+          "checksumValue": "09c7d2b62c883c32f28c7df358125b46dab5c507"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "9fde2ad88f9b1191bd4b37df45b4d14fa5e89fd0e8f30e273506ca1a4c0ce78c"
+          "checksumValue": "2dafa88fbb6122b93d2e86799a196525c6461a66aea05941b6213be1c581e8ea"
         }
       ],
       "licenseConcluded": "NOASSERTION",
@@ -340,11 +340,11 @@
       "checksums": [
         {
           "algorithm": "SHA1",
-          "checksumValue": "9714faf4581152245547cfa53c7235f1ab8ad56e"
+          "checksumValue": "f123c72fe250cb097c8c1e6e8b561f1a032d642b"
         },
         {
           "algorithm": "SHA256",
-          "checksumValue": "755397d2c850da76e81c4664b6548a9ceb8ef48a0a7e4bf30b23ff678c3f4934"
+          "checksumValue": "da4b6cc9c7b26a2d710422bd7ef2c3408125450ba3776a4ad399b0ef88c4447e"
         }
       ],
       "licenseConcluded": "NOASSERTION",

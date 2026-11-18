@@ -116,7 +116,7 @@ Na release: trocar a data fixa pela data da tag, publicar o sha256 na nota e num
 - [ ] Execução do zip extraído: da pasta pessoal sai com código 2; num projeto com credencial falsa
       aponta `LITERAL_SECRET` sem nenhum trecho dela na saída.
 - [ ] Assinatura e SBOM (`GOVERNANCE.md` §5). SBOM SPDX 2.3 e CycloneDX 1.5 do candidato preparadas e
-      validadas em `docs/skills/sbom/` (17/11/2026, commit `26ad14f`); precisam ser geradas de novo no
+      validadas em `docs/skills/sbom/` (18/11/2026, commit `d75f09e`, depois do T12); precisam ser geradas de novo no
       commit da tag se algum arquivo do pacote ou a data do zip mudar. **O método de assinatura (GPG ou
       Sigstore) não foi decidido**, e nada foi assinado.
 
