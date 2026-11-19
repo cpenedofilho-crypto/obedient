@@ -23,7 +23,7 @@ let n = 0;
 const usuario = (nome: string) => `${nome}-md${++n}`;
 const missoes = <T>(u: string, fn: (ms: ReturnType<typeof missoesNaTransacao>) => Promise<T>) =>
   comoUsuario(banco.db, u, (tx) => fn(missoesNaTransacao(tx, motorNaTransacao(tx, { clock }), clock)));
-const MANDATO = { ferramentas: ["google_agenda/*"], prazoFinalEm: new Date(T0.getTime() + 24 * 3_600_000) };
+const MANDATO = { ferramentas: ["google_agenda/*"], prazoFinalEm: new Date(T0.getTime() + 24 * 3_600_000), ambientes: ["homologacao" as const] };
 
 describe("mandato e gasto do mês no banco (D20, M4; D21)", () => {
   it("o mandato fica na missão e o app não o altera depois", async () => {
@@ -32,12 +32,13 @@ describe("mandato e gasto do mês no banco (D20, M4; D21)", () => {
     assert.deepEqual((await missoes(ana, (ms) => ms.get(m.id)))?.mandato, MANDATO);
     await assert.rejects(comoUsuario(banco.db, ana, (tx) => tx.query("update obedient.missions set mandato_ferramentas = null where id = $1", [m.id])), /permission denied/);
     await assert.rejects(comoUsuario(banco.db, ana, (tx) => tx.query("update obedient.missions set prazo_final_em = null where id = $1", [m.id])), /permission denied/);
+    await assert.rejects(comoUsuario(banco.db, ana, (tx) => tx.query("update obedient.missions set mandato_ambientes = null where id = $1", [m.id])), /permission denied/);
   });
 
   it("sem mandato, a missão lê como livre (null, null)", async () => {
     const ana = usuario("ana");
     const m = await missoes(ana, (ms) => ms.criar(ana, "obedient", "x"));
-    assert.deepEqual((await missoes(ana, (ms) => ms.get(m.id)))?.mandato, { ferramentas: null, prazoFinalEm: null });
+    assert.deepEqual((await missoes(ana, (ms) => ms.get(m.id)))?.mandato, { ferramentas: null, prazoFinalEm: null, ambientes: null });
   });
 
   it("o banco recusa mandato que não seja lista, vazio ou com mais de 30", async () => {
@@ -54,6 +55,20 @@ describe("mandato e gasto do mês no banco (D20, M4; D21)", () => {
         /check constraint/,
         lista.slice(0, 20),
       );
+  });
+
+  it("o banco recusa ambiente fora da lista fechada (M5)", async () => {
+    const ana = usuario("ana");
+    await assert.rejects(
+      comoUsuario(banco.db, ana, (tx) =>
+        tx.query(
+          `insert into obedient.missions (id, user_id, agente, objetivo, estado, tentativas, max_tentativas, proxima_tentativa_em, custo_centavos, teto_custo_centavos, criada_em, atualizada_em, versao, mandato_ambientes)
+           values ($1, $2, 'obedient', 'x', 'created', 0, 3, $3, 0, 500, $3, $3, 1, '["prod"]'::jsonb)`,
+          [`md-${++n}`, ana, T0],
+        ),
+      ),
+      /check constraint/,
+    );
   });
 
   it("gasto: soma do mês por pessoa, RLS, só inserção e centavos positivos", async () => {

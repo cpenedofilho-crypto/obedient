@@ -196,8 +196,11 @@ permitem, nunca amplia, e o objetivo escrito nunca vira autorização.
 - **No app:** `criar_missao` aceita `mandato: { ferramentas?, prazoFinalEm? }`; a forma é conferida na
   entrada e o prazo (que depende do relógio) na criação. A tela tem "Pode usar" (tudo o que está
   conectado, ou um sistema só) e "Até quando" (sem prazo, amanhã, 7 ou 29 dias).
-- **Ainda não:** restringir por ambiente (produção, homologação) depende de as ferramentas declararem o
-  ambiente, o que o registro de ferramentas ainda não faz (M5).
+- **Ambientes (M5):** o mandato pode limitar a missão a `producao`, `homologacao` e/ou `teste`. O
+  ambiente de cada servidor MCP vem da configuração dele (`ambiente`); o que não declara, e o Google
+  e o Growth OS, contam como produção. Fixo depois da criação (`missions.mandato_ambientes`, migration
+  `0015_ambientes.sql`). A ação `criar_missao` aceita `mandato.ambientes`; a tela ainda não tem campo
+  para isso, só mostra o limite no cartão da missão.
 
 ## Reservas com dono e cerca (decisão D20, marco M5, 19/11/2026)
 

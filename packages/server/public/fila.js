@@ -17,7 +17,7 @@
  *   | { tipo: "revogar", autorizacaoId: string } | { tipo: "ligar_aprendizado", categoria: string, especifico?: boolean }
  *   | { tipo: "desligar_aprendizado", categoria: string } | { tipo: "esquecer", licaoId: string }
  *   | { tipo: "contestar", seq: number, motivo: string } | { tipo: "apagar_tudo" }
- *   | { tipo: "criar_missao", objetivo: string, tetoCentavos?: number, mandato?: { ferramentas?: string[], prazoFinalEm?: string }, criterios?: { tipo: string, ferramenta: string }[], planejar?: boolean } | { tipo: "cancelar_missao", missaoId: string }
+ *   | { tipo: "criar_missao", objetivo: string, tetoCentavos?: number, mandato?: { ferramentas?: string[], prazoFinalEm?: string, ambientes?: string[] }, criterios?: { tipo: string, ferramenta: string }[], planejar?: boolean } | { tipo: "cancelar_missao", missaoId: string }
  *   | { tipo: "tentar_de_novo", missaoId: string, novoTetoCentavos?: number } | { tipo: "identificacao", texto: string }
  *   | { tipo: "desconectar", integracao: string } | { tipo: "aprovar_plano", missaoId: string, hash: string }
  *   | { tipo: "recusar_plano", missaoId: string }} Acao

@@ -38,6 +38,16 @@ describe("mandato (D20, M4)", () => {
     assert.equal(cabeNoMandato(lerMandato(undefined), "qualquer/coisa"), true);
   });
 
+  it("ambientes (M5): lista sem repetição de produção, homologação e teste; ferramenta sem ambiente é produção", () => {
+    assert.deepEqual(problemasDoMandato({ ambientes: ["homologacao", "teste"] }, T0), []);
+    for (const amb of [[], ["prod"], ["teste", "teste"], "teste"]) assert.match(problemasDoMandato({ ambientes: amb }, T0).join(" | "), /ambientes/, JSON.stringify(amb));
+    const m = lerMandato({ ambientes: ["homologacao"] });
+    assert.equal(cabeNoMandato(m, "recupera_homolog/x.ler", "homologacao"), true);
+    assert.equal(cabeNoMandato(m, "google_agenda/google_agenda.listar_eventos"), false, "sem ambiente declarado = produção");
+    assert.equal(cabeNoMandato(lerMandato({ ambientes: ["homologacao"], ferramentas: ["gmail/*"] }), "recupera/x", "homologacao"), false, "as duas restrições valem juntas");
+    assert.deepEqual(lerMandato(undefined).ambientes, null);
+  });
+
   it("o mês é o do Brasil (UTC−3): 1º de dezembro às 01h UTC ainda é novembro", () => {
     assert.equal(inicioDoMes(new Date("2026-12-01T01:00:00Z")).toISOString(), "2026-11-01T03:00:00.000Z");
     assert.equal(inicioDoMes(new Date("2026-12-01T03:00:00Z")).toISOString(), "2026-12-01T03:00:00.000Z");

@@ -263,6 +263,8 @@ O código está em `packages/server/src/mcp-oauth.ts` e segue o mesmo desenho da
   - houver S256.
 - **A credencial fica cifrada no cofre** (`OBEDIENT_CHAVES_COFRE`, obrigatório nesse caso) e é renovada antes de vencer. Se a renovação for recusada (`invalid_grant`), a conexão cai.
 - **Sem endpoint de revogação:** ao desconectar, parar ou apagar, a credencial é descartada aqui. A fila de revogação do Google passou a levar **só** `google_*`. Antes, ela mandaria qualquer token ao endpoint do Google.
+- **`ambiente` (opcional, M5):** `producao`, `homologacao` ou `teste`. Serve ao mandato da missão, que
+  pode se limitar a alguns ambientes. Sem declarar, o servidor conta como produção.
 - **`cabecalhos` (opcional):** cabeçalhos fixos que não são segredo, como `x-recupera-escola-id`.
   - Só nomes `x-…`; o servidor não sobe com nome que pareça credencial (`auth`, `token`, `key`, `secret`, `cookie`).
   - Nunca substituem o `authorization`.

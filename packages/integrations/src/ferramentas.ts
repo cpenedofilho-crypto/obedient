@@ -14,6 +14,7 @@
 // Mandar e-mail exige `identificacao` (Art. 5º): o motor confere que é a assinatura da pessoa, e
 // aqui ela vai no fim do corpo, sempre.
 
+import { createHash } from "node:crypto";
 import { ObedientError } from "@obedient/core";
 import { INTEGRACOES } from "./catalogo.ts";
 
@@ -41,7 +42,33 @@ export interface DefinicaoDeFerramenta {
   integracao: string;
   /** Para o modelo: o que a ferramenta faz e os argumentos (JSON Schema). */
   esquema: Esquema;
-  executar(args: Record<string, unknown>, token: string, http: Fetch): Promise<unknown>;
+  executar(args: Record<string, unknown>, token: string, http: Fetch, contexto?: ContextoDeChamada): Promise<unknown>;
+}
+
+/**
+ * O que o OBEDIENT sabe da chamada além dos argumentos (M5). `chave`: chave de idempotência estável
+ * para a mesma ação na mesma missão; a ferramenta usa quando o destino aceita uma (hoje, só
+ * criar_evento: vira o id do compromisso).
+ */
+export interface ContextoDeChamada {
+  chave?: string;
+}
+
+/** Erro HTTP do Google, com o status (a ferramenta que entende um status específico o trata). */
+export class ErroGoogle extends Error {
+  override name = "ErroGoogle";
+  constructor(readonly status: number, mensagem: string) {
+    super(mensagem);
+  }
+}
+
+/** Id de compromisso a partir da chave: base32hex minúsculo (0-9, a-v), como o Google exige. */
+export function idDeEvento(chave: string): string {
+  const ALFABETO = "0123456789abcdefghijklmnopqrstuv";
+  const h = createHash("sha256").update(chave).digest();
+  let s = "";
+  for (let i = 0; i < 26; i++) s += ALFABETO[h[i]! % 32];
+  return `obd${s}`;
 }
 
 const erro = (m: string): never => {
@@ -77,7 +104,7 @@ async function chamar(http: Fetch, url: string, token: string, init: RequestInit
   }
   if (r.status === 204) return null;
   const j = (await r.json().catch(() => null)) as { error?: { message?: string } } | null;
-  if (!r.ok) throw new Error(`o Google recusou (${r.status})${j?.error?.message ? `: ${String(j.error.message).slice(0, 200)}` : ""}`);
+  if (!r.ok) throw new ErroGoogle(r.status, `o Google recusou (${r.status})${j?.error?.message ? `: ${String(j.error.message).slice(0, 200)}` : ""}`);
   return j;
 }
 
@@ -135,11 +162,20 @@ export const FERRAMENTAS: readonly DefinicaoDeFerramenta[] = [
       required: ["titulo", "inicio", "fim"],
       additionalProperties: false,
     },
-    async executar(a, token, http) {
+    async executar(a, token, http, contexto) {
       if (Date.parse(a.fim as string) <= Date.parse(a.inicio as string)) erro("o fim precisa ser depois do início");
+      // Idempotência (M5): com a chave, o id do compromisso é derivado dela. Repetir a mesma criação na
+      // mesma missão esbarra no id já usado (409) e não cria um segundo compromisso.
+      const id = contexto?.chave ? idDeEvento(contexto.chave) : null;
       // Sem convidados e sem aviso: criar compromisso não manda nada a ninguém (isso seria COMMUNICATION).
-      const corpo = { summary: a.titulo, start: { dateTime: new Date(a.inicio as string).toISOString() }, end: { dateTime: new Date(a.fim as string).toISOString() }, ...(a.descricao ? { description: a.descricao } : {}), ...(a.local ? { location: a.local } : {}) };
-      const r = (await chamar(http, `${API.agenda}?sendUpdates=none`, token, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) })) as Record<string, unknown>;
+      const corpo = { ...(id ? { id } : {}), summary: a.titulo, start: { dateTime: new Date(a.inicio as string).toISOString() }, end: { dateTime: new Date(a.fim as string).toISOString() }, ...(a.descricao ? { description: a.descricao } : {}), ...(a.local ? { location: a.local } : {}) };
+      let r: Record<string, unknown>;
+      try {
+        r = (await chamar(http, `${API.agenda}?sendUpdates=none`, token, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(corpo) })) as Record<string, unknown>;
+      } catch (e) {
+        if (id && e instanceof ErroGoogle && e.status === 409) return { criado: false, ja_existia: true, id };
+        throw e;
+      }
       return { criado: true, id: r.id, link: r.htmlLink ?? null };
     },
   },
@@ -277,8 +313,8 @@ export function ferramenta(nome: string): DefinicaoDeFerramenta {
  * chamado DEPOIS de a ação ser autorizada (ou aprovada). Argumento fora do esquema é recusado
  * antes da rede.
  */
-export async function executar(nome: string, args: Record<string, unknown>, obterToken: ObterToken, http: Fetch = fetch): Promise<unknown> {
+export async function executar(nome: string, args: Record<string, unknown>, obterToken: ObterToken, http: Fetch = fetch, contexto?: ContextoDeChamada): Promise<unknown> {
   const f = ferramenta(nome);
   const a = validarArgs(f.esquema, args);
-  return f.executar(a, await obterToken(f.integracao), http);
+  return f.executar(a, await obterToken(f.integracao), http, contexto);
 }

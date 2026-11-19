@@ -5,7 +5,7 @@
 
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
 import type { EthicsEngine } from "@obedient/ethics-engine";
-import { type Criterio, type EstadoMissao, type Evidencia, type Missao, type MissionStore, Missoes, type PlanoDaMissao, type TipoDesfecho } from "@obedient/missions";
+import { type Ambiente, type Criterio, type EstadoMissao, type Evidencia, type Missao, type MissionStore, Missoes, type PlanoDaMissao, type TipoDesfecho } from "@obedient/missions";
 import type { Executor } from "./db.ts";
 
 interface LinhaMissao {
@@ -27,6 +27,7 @@ interface LinhaMissao {
   cerca: number | string;
   reservada_por: string | null;
   planejar: boolean;
+  mandato_ambientes: Ambiente[] | null;
   plano_versao: number;
   plano_hash: string | null;
   plano_aprovado_em: unknown;
@@ -49,7 +50,7 @@ const paraMissao = (r: LinhaMissao): Missao => ({
   agente: r.agente,
   objetivo: r.objetivo,
   criterios: Array.isArray(r.criterios) ? r.criterios : [],
-  mandato: { ferramentas: Array.isArray(r.mandato_ferramentas) ? r.mandato_ferramentas : null, prazoFinalEm: data(r.prazo_final_em) },
+  mandato: { ferramentas: Array.isArray(r.mandato_ferramentas) ? r.mandato_ferramentas : null, prazoFinalEm: data(r.prazo_final_em), ambientes: Array.isArray(r.mandato_ambientes) ? r.mandato_ambientes : null },
   planejar: r.planejar === true,
   planoVersao: Number(r.plano_versao ?? 0),
   // As tarefas entram depois (comPlano), numa consulta à parte.
@@ -77,11 +78,11 @@ export class PgMissionStore implements MissionStore {
   async insert(m: Missao): Promise<void> {
     await this.tx.query(
       `insert into obedient.missions (id, user_id, agente, objetivo, estado, impedimento, desfecho_tipo, desfecho_explicacao, tentativas, max_tentativas,
-         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao, reservada_ate, criterios, mandato_ferramentas, prazo_final_em, planejar)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22,$23)`,
+         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao, reservada_ate, criterios, mandato_ferramentas, prazo_final_em, planejar, mandato_ambientes)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22,$23,$24::jsonb)`,
       [m.id, m.userId, m.agente, m.objetivo, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas, m.maxTentativas,
         m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, json(m.rodada), m.criadaEm, m.atualizadaEm, m.versao, m.reservadaAte, JSON.stringify(m.criterios ?? []),
-        m.mandato?.ferramentas ? JSON.stringify(m.mandato.ferramentas) : null, m.mandato?.prazoFinalEm ?? null, m.planejar === true],
+        m.mandato?.ferramentas ? JSON.stringify(m.mandato.ferramentas) : null, m.mandato?.prazoFinalEm ?? null, m.planejar === true, m.mandato?.ambientes ? JSON.stringify(m.mandato.ambientes) : null],
     );
   }
   async get(id: string): Promise<Missao | undefined> {

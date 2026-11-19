@@ -427,7 +427,9 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
 
     // Mandato (M4): a missão só enxerga as ferramentas que ele lista; as outras nem são oferecidas.
     // Só estreita: as internas (concluir, lembrar) ficam, e o resto continua sob os grants.
-    for (const [nome, item] of [...catalogo]) if (categoriaDe(item) && !cabeNoMandato(missao.mandato, item.chave)) catalogo.delete(nome);
+    // O ambiente (M5) vem da configuração do servidor MCP; o resto (Google, Growth OS) é produção.
+    const ambienteDe = (chave: string) => ctx.mcp.find((s) => chave.startsWith(`${s.id}/`))?.ambiente ?? "producao";
+    for (const [nome, item] of [...catalogo]) if (categoriaDe(item) && !cabeNoMandato(missao.mandato, item.chave, ambienteDe(item.chave))) catalogo.delete(nome);
 
     const modelo = d.novoModelo();
     const gastoCentavos = () => Math.ceil(modelo.gastoEmDolares * d.centavosPorDolar);
@@ -468,7 +470,8 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
           return growth(sistema, ferramenta, args, execucao);
         }
         if (!google) throw new Error("integrações desligadas neste servidor");
-        return google(sistema, ferramenta, args);
+        // A execução (missão, aprovação) vai junto: dela sai a chave de idempotência do destino (M5).
+        return google(sistema, ferramenta, args, execucao);
       })
       : null;
     // O início de chamada em aberto nesta tentativa: o próximo passo de ferramenta o fecha.

@@ -135,6 +135,11 @@ recusa marcar feita com dependência pendente ou desfazer uma feita. Transiçõe
 retrying` e `retrying → planning`; evidência nova `plano_completo`. Detalhes em `missoes.md`, seção
 "Plano em DAG e aprovação do plano".
 
+## Ambiente no mandato (0015)
+
+`obedient.missions.mandato_ambientes`: lista de 1 a 3 de `producao`, `homologacao`, `teste`, ou null.
+Fixo depois da criação. Detalhes em `missoes.md`, seção do mandato.
+
 ## O que ainda não existe
 
 - **Políticas do usuário (`policiesFor`) no banco.** Hoje elas chegam por função; a tabela entra

@@ -31,7 +31,7 @@ export type Acao =
   | { opId: string; tipo: "esquecer"; licaoId: string }
   | { opId: string; tipo: "contestar"; seq: number; motivo: string }
   | { opId: string; tipo: "apagar_tudo" }
-  | { opId: string; tipo: "criar_missao"; objetivo: string; tetoCentavos?: number; criterios?: Criterio[]; mandato?: { ferramentas?: string[]; prazoFinalEm?: string }; planejar?: boolean }
+  | { opId: string; tipo: "criar_missao"; objetivo: string; tetoCentavos?: number; criterios?: Criterio[]; mandato?: { ferramentas?: string[]; prazoFinalEm?: string; ambientes?: string[] }; planejar?: boolean }
   | { opId: string; tipo: "aprovar_plano"; missaoId: string; hash: string }
   | { opId: string; tipo: "recusar_plano"; missaoId: string }
   | { opId: string; tipo: "cancelar_missao"; missaoId: string }

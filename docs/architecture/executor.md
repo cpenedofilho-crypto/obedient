@@ -195,8 +195,17 @@ que comparam o que fica gravado.
   seguinte devolvia ao modelo `aprovacao_usada_sem_registro` e o agente concluía "não sei". Agora a
   missão para antes de chamar o modelo, com o mesmo efeito para a ação (não se repete) e o motivo
   escrito para a pessoa.
-- **Ainda não:** a chave de idempotência é gravada, mas não é repassada aos sistemas de destino. Isso
-  depende de cada destino aceitar uma chave e entra com o registro de ferramentas (marcos M4 e M5).
+- **Chave repassada ao destino (M5), onde ele aceita uma:**
+  - **Google Agenda, criar compromisso:** o id do compromisso é derivado da pessoa, da missão, da
+    ferramenta e do hash dos argumentos (base32hex, o formato que o Google exige). Repetir a mesma
+    criação na mesma missão esbarra no id já usado (409) e volta como `ja_existia`, sem um segundo
+    compromisso. Duas criações idênticas de propósito na mesma missão viram uma só.
+  - **Growth OS:** já tinha, desde antes: o `messageId` do A2A deriva da aprovação.
+  - **Apagar compromisso:** apagar de novo não muda nada (o destino já é idempotente).
+  - **Gmail (mandar e-mail):** a API não aceita chave de idempotência. A proteção continua sendo a
+    do M1 (escrita sem resultado confirmado para a missão e não se repete sozinha) e a execução única
+    da aprovação.
+  - **Servidores MCP:** a missão só lê neles (grant LOW), então não há escrita a proteger.
 
 ## Mandato, teto do mês e tempo por chamada (decisão D20, marco M4, 19/11/2026)
 

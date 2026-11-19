@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { ManualClock, payloadHash } from "@obedient/core";
 import { PRAZO_RESERVA_MS } from "@obedient/missions";
 import { ErroModelo, type PedidoModelo, type RespostaModelo, type ResultadoFerramenta } from "@obedient/agent-orchestrator";
-import { Cofre, Conexoes, concederAoConectar, lerChaves } from "@obedient/integrations";
+import { Cofre, Conexoes, concederAoConectar, idDeEvento, lerChaves } from "@obedient/integrations";
 import { comoUsuario, gravarIdentificacao, missoesNaTransacao, motorNaTransacao, passosNaTransacao } from "@obedient/store-postgres";
 import { GoogleFalso } from "../../integrations/src/google-falso.ts";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
@@ -604,6 +604,16 @@ describe("executor das missões: mandato, prazo, teto do mês e tempo por chamad
     assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name).sort(), [CONCLUIR, "google_agenda__listar_eventos"], "criar e apagar ficaram de fora");
   });
 
+  it("mandato com ambientes (M5): só homologação esconde as ferramentas de produção (o Google)", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "O que tenho amanhã?", { mandato: { ambientes: ["homologacao"] } }));
+    const r = roteiro(0, concluir("nao_consegui", "Não tenho como ver a agenda nesta missão."), encerrar);
+    await c.processar(u, r);
+    assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name), [CONCLUIR]);
+  });
+
   it("mandato inválido não cria missão: curinga, prefixo curto, prazo no passado ou longe demais", async () => {
     const c = montar();
     const u = usuario();
@@ -826,5 +836,28 @@ describe("executor das missões: planejar, aprovar o plano e executar tarefa a t
     assert.deepEqual([fim!.estado, fim!.desfecho?.tipo], ["completed", "feito"]);
     const evs = await c.missoes(u, (ms) => ms.evidencias(fim!.id));
     assert.deepEqual(evs.filter((e) => e.tipo === "plano_completo").map((e) => [e.ok, e.referencia]), [[true, "2 de 2 tarefa(s)"]]);
+  });
+});
+
+describe("executor das missões: chave de idempotência até o destino (D20, M5)", () => {
+  it("criar compromisso aprovado leva ao Google um id derivado da pessoa, da missão e dos argumentos", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    const args = { titulo: "Dentista", inicio: "2026-11-05T14:00:00-03:00", fim: "2026-11-05T15:00:00-03:00" };
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "Marque o dentista"));
+    const [esperando] = await c.processar(u, roteiro(0, usar("t1", "google_agenda__criar_evento", args)));
+    assert.equal(esperando!.estado, "waiting_approval");
+    await c.motor(u, async (mt) => mt.approve(esperando!.propostaId!, { id: u, kind: "user", strongAuth: true }, (await mt.approvals.get(esperando!.propostaId!))!.payloadHash));
+    const corpos: string[] = [];
+    const http = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST" && String(url).includes("/calendar/")) corpos.push(String(init.body));
+      return c.google.fetch(url, init);
+    }) as typeof fetch;
+    const r = roteiro(0, concluir("feito", "Marquei."), encerrar);
+    const ex = executorDeMissoes({ db: banco.db, conexoes: c.conexoes, novoModelo: r.novo, centavosPorDolar: 600, clock: c.clock, http });
+    await processarMissoes(banco.db, u, ex, {}, c.clock);
+    assert.equal(corpos.length, 1);
+    assert.equal((JSON.parse(corpos[0]!) as { id: string }).id, idDeEvento(`${u}\n${m.id}\ngoogle_agenda.criar_evento\n${payloadHash(args)}`));
   });
 });

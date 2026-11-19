@@ -98,6 +98,8 @@ export interface MissaoNoPainel {
   /** Mandato (M4): só as ferramentas listadas (null = as conectadas) e o prazo final, se houver. */
   ferramentas: string[] | null;
   prazoFinalEm: string | null;
+  /** Ambientes permitidos (M5); null = todos. */
+  ambientes: string[] | null;
   /** Plano (M5): as tarefas (texto escrito pelo planejador), quais estão feitas, e se espera a pessoa. */
   plano: { hash: string; aprovado: boolean; esperandoVoce: boolean; tarefas: { chave: string; titulo: string; dependeDe: string[]; feita: boolean }[] } | null;
   planejar: boolean;
@@ -261,6 +263,7 @@ function missaoNoPainel(m: Missao, evs: readonly EvidenciaDoPainel[] = [], feita
     verificacao: verificacaoNoPainel(evs),
     ferramentas: m.mandato.ferramentas,
     prazoFinalEm: m.mandato.prazoFinalEm?.toISOString() ?? null,
+    ambientes: m.mandato.ambientes,
     planejar: m.planejar,
     plano: m.plano
       ? {

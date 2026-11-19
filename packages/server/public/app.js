@@ -187,6 +187,7 @@ function renderMissoes(ops) {
     const filhos = [el("p", { texto: m.objetivo }), el("p", { classe: "meta", texto: `${m.situacao} · gastou ${m.custo} de ${m.teto}` })];
     const limites = [];
     if (m.ferramentas) limites.push(`só pode usar: ${m.ferramentas.map((/** @type {string} */ f) => f.replace(/\/\*$/, "")).join(", ")}`);
+    if (m.ambientes) limites.push(`só em: ${m.ambientes.map((/** @type {string} */ a) => ({ producao: "produção", homologacao: "homologação", teste: "teste" })[a] ?? a).join(", ")}`);
     if (m.prazoFinalEm) limites.push(`até ${new Date(m.prazoFinalEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`);
     if (limites.length) filhos.push(el("p", { classe: "meta", texto: limites.join(" · ") }));
     if (m.impedimento) filhos.push(el("p", { classe: "impedimento", texto: m.impedimento }));

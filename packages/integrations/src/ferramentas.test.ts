@@ -5,7 +5,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { API, FERRAMENTAS, LIMITES, executar, validarArgs } from "./ferramentas.ts";
+import { API, FERRAMENTAS, LIMITES, executar, idDeEvento, validarArgs } from "./ferramentas.ts";
 
 interface Pedido {
   metodo: string;
@@ -141,5 +141,33 @@ describe("ferramentas do Google: contrato", () => {
     assert.throws(() => validarArgs(e, { titulo: "x".repeat(201), inicio: "2026-11-05T14:00:00Z", fim: "2026-11-05T15:00:00Z" }), /longo demais/);
     assert.throws(() => validarArgs(e, { inicio: "2026-11-05T14:00:00Z", fim: "2026-11-05T15:00:00Z" }), /falta titulo/);
     for (const f of FERRAMENTAS) assert.equal(f.esquema.additionalProperties, false, f.nome);
+  });
+});
+
+describe("chave de idempotência repassada ao destino (D20, M5)", () => {
+  const args = { titulo: "Dentista", inicio: "2026-11-05T14:00:00-03:00", fim: "2026-11-05T15:00:00-03:00" };
+
+  it("criar_evento com chave: o id do compromisso vem da chave (base32hex, o formato do Google), sempre o mesmo", async () => {
+    const { http, pedidos } = apiFalsa(() => ({ json: { id: "x", htmlLink: "l" } }));
+    await executar("google_agenda.criar_evento", args, token, http, { chave: "ana\nmissao-1\ngoogle_agenda.criar_evento\nabc" });
+    await executar("google_agenda.criar_evento", args, token, http, { chave: "ana\nmissao-1\ngoogle_agenda.criar_evento\nabc" });
+    await executar("google_agenda.criar_evento", args, token, http, { chave: "ana\nmissao-2\ngoogle_agenda.criar_evento\nabc" });
+    const ids = pedidos.map((p) => (JSON.parse(p.corpo) as { id?: string }).id);
+    assert.match(ids[0]!, /^[0-9a-v]{5,1024}$/);
+    assert.equal(ids[0], ids[1]);
+    assert.notEqual(ids[0], ids[2]);
+    assert.equal(ids[0], idDeEvento("ana\nmissao-1\ngoogle_agenda.criar_evento\nabc"));
+  });
+
+  it("o Google diz que o id já existe (409): é a mesma criação de antes, não um erro e não um segundo compromisso", async () => {
+    const { http } = apiFalsa(() => ({ status: 409, json: { error: { message: "The requested identifier already exists." } } }));
+    const r = (await executar("google_agenda.criar_evento", args, token, http, { chave: "k" })) as { criado: boolean; ja_existia?: boolean; id: string };
+    assert.deepEqual(r, { criado: false, ja_existia: true, id: idDeEvento("k") });
+  });
+
+  it("sem chave, o pedido sai como antes (sem id), e 409 sem chave continua erro", async () => {
+    const { http, pedidos } = apiFalsa(() => ({ status: 409, json: {} }));
+    await assert.rejects(executar("google_agenda.criar_evento", args, token, http), /recusou \(409\)/);
+    assert.equal((JSON.parse(pedidos[0]!.corpo) as { id?: string }).id, undefined);
   });
 });

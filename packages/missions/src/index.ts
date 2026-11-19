@@ -256,7 +256,7 @@ export class Missoes {
   }
 
   /** A pessoa pede uma missão. */
-  async criar(userId: string, agente: string, objetivo: string, opts: { tetoCustoCentavos?: number; maxTentativas?: number; criterios?: Criterio[]; mandato?: { ferramentas?: string[] | null; prazoFinalEm?: Date | string | null }; planejar?: boolean } = {}): Promise<Missao> {
+  async criar(userId: string, agente: string, objetivo: string, opts: { tetoCustoCentavos?: number; maxTentativas?: number; criterios?: Criterio[]; mandato?: { ferramentas?: string[] | null; prazoFinalEm?: Date | string | null; ambientes?: string[] | null }; planejar?: boolean } = {}): Promise<Missao> {
     const texto = typeof objetivo === "string" ? objetivo.replace(/\s+/g, " ").trim() : "";
     if (!texto || texto.length > MAX_OBJETIVO) throw new ObedientError("INVALID_PAYLOAD", `o objetivo precisa ter de 1 a ${MAX_OBJETIVO} caracteres`);
     if (agente === userId) throw new ObedientError("INVALID_PAYLOAD", "o agente não pode ser a própria pessoa");
