@@ -42,3 +42,14 @@ test("nega migration mesmo se constar no escopo inicial", () => {
 test("nega identificador de idempotência inválido", () => {
   assert.equal(validarPedido(escopo, { ...pedido, chaveIdempotencia: "x" }, agora).permitido, false);
 });
+
+test("nega até operações delegadas quando o ambiente é produção", () => {
+  const prod = { ...escopo, ambiente: "producao" } as const;
+  assert.deepEqual(validarPedido(prod, { ...pedido, ambiente: "producao" }, agora), {
+    permitido: false, motivo: "producao_nao_habilitada",
+  });
+});
+test("nega promoção de deploy em homologação", () => {
+  const homologacao = { ...escopo, ambiente: "homologacao", operacoes: ["deployment.promote"] } as const;
+  assert.equal(validarPedido(homologacao, { ...pedido, ambiente: "homologacao", operacao: "deployment.promote" }, agora).permitido, false);
+});
