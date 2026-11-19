@@ -271,10 +271,13 @@ a:focus-visible {
   gap: 8px;
   min-height: 48px;
 }
+/* Caixa de marcar com alvo de toque de 48 px, como todo controle do app. */
 .formulario .opcao input {
-  min-height: auto;
-  width: 24px;
-  height: 24px;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+  margin: 0;
   padding: 0;
 }
 #c-codigo {
