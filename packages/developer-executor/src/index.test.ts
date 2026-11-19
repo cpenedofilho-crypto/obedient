@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { validarPedido, type EscopoDesenvolvimento, type PedidoDesenvolvimento } from "./index.ts";
+import { encaminharPedido, validarPedido, type EscopoDesenvolvimento, type PedidoDesenvolvimento } from "./index.ts";
 
 const escopo: EscopoDesenvolvimento = {
   repositorio: "cpenedofilho-crypto/obedient",
@@ -52,4 +52,24 @@ test("nega até operações delegadas quando o ambiente é produção", () => {
 test("nega promoção de deploy em homologação", () => {
   const homologacao = { ...escopo, ambiente: "homologacao", operacoes: ["deployment.promote"] } as const;
   assert.equal(validarPedido(homologacao, { ...pedido, ambiente: "homologacao", operacao: "deployment.promote" }, agora).permitido, false);
+});
+
+test("não invoca porta externa quando o escopo é negado", async () => {
+  let chamadas = 0;
+  const resultado = await encaminharPedido(escopo, { ...pedido, ambiente: "producao" }, agora, async () => {
+    chamadas++;
+    return "executado";
+  });
+  assert.equal(resultado.status, "denied");
+  assert.equal(chamadas, 0);
+});
+test("encaminha apenas pedido válido à porta injetada", async () => {
+  let chamadas = 0;
+  const resultado = await encaminharPedido(escopo, pedido, agora, async (recebido) => {
+    chamadas++;
+    assert.deepEqual(recebido, pedido);
+    return { status: "denied", motivo: "sem_grant" };
+  });
+  assert.deepEqual(resultado, { status: "delegated", resultado: { status: "denied", motivo: "sem_grant" } });
+  assert.equal(chamadas, 1);
 });
