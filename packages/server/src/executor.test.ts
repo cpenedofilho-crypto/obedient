@@ -8,15 +8,15 @@
 
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { ManualClock } from "@obedient/core";
+import { ManualClock, payloadHash } from "@obedient/core";
 import { PRAZO_RESERVA_MS } from "@obedient/missions";
 import { ErroModelo, type PedidoModelo, type RespostaModelo, type ResultadoFerramenta } from "@obedient/agent-orchestrator";
 import { Cofre, Conexoes, concederAoConectar, lerChaves } from "@obedient/integrations";
-import { comoUsuario, gravarIdentificacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
+import { comoUsuario, gravarIdentificacao, missoesNaTransacao, motorNaTransacao, passosNaTransacao } from "@obedient/store-postgres";
 import { GoogleFalso } from "../../integrations/src/google-falso.ts";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { agendarMissoes } from "./agendador.ts";
-import { CONCLUIR, executorDeMissoes, type ModeloComGasto } from "./executor.ts";
+import { CONCLUIR, executorDeMissoes, type ModeloComGasto, textoIncerto } from "./executor.ts";
 import { processarMissoes } from "./processador.ts";
 
 const T0 = new Date("2026-11-03T12:00:00Z");
@@ -310,7 +310,7 @@ describe("executor das missões: reinício do processo e aprovações", () => {
     assert.equal(antes.chamadas(), 1);
   });
 
-  it("o processo cai no meio da ação aprovada: depois do prazo a missão volta, e a ação reivindicada NÃO roda de novo", async () => {
+  it("o processo cai no meio da ação aprovada: depois do prazo a missão para pedindo conferência, e a ação NÃO roda de novo", async () => {
     const c = montar();
     const u = usuario();
     await c.conectar(u, "google_agenda");
@@ -337,25 +337,25 @@ describe("executor das missões: reinício do processo e aprovações", () => {
     const p = await c.motor(u, (mt) => mt.approvals.get(esperando!.propostaId!));
     assert.equal(p!.status, "executing");
 
-    // Processo novo.
-    const novo = roteiro(
-      0,
-      (pd) => {
-        assert.equal(resultados(pd)[0]!.is_error, true);
-        assert.match(resultados(pd)[0]!.content, /aprovacao_usada_sem_registro/, "o modelo sabe que a ação ficou sem registro");
-        return concluir("nao_sei", "Pedi para apagar, mas não sei se foi apagado. Confira na agenda.")();
-      },
-      encerrar,
-    );
+    // Processo novo. Desde o registro de passos (M1), a chamada que ficou sem fim é vista antes de
+    // qualquer chamada ao modelo: apagar tem efeito, então a missão para e pede conferência.
+    const novo = roteiro(0);
     assert.deepEqual(await c.processar(u, novo), [], "dentro do prazo, ninguém retoma por cima");
-    assert.equal(novo.chamadas(), 0);
     c.clock.advance(PRAZO_RESERVA_MS);
     const [fim] = await c.processar(u, novo);
-    assert.deepEqual([fim!.estado, fim!.desfecho?.tipo, fim!.tentativas], ["completed", "nao_sei", 2]);
+    assert.deepEqual([fim!.estado, fim!.tentativas], ["blocked", 2]);
+    const passos = await comoUsuario(banco.db, u, (tx) => passosNaTransacao(tx).daMissao(fim!.id));
+    const incerto = passos.find((x) => x.tipo === "incerto")!;
+    assert.match(incerto.ferramenta ?? "", /apagar_evento$/);
+    assert.equal(fim!.impedimento, textoIncerto([incerto.ferramenta!]));
+    assert.equal(novo.chamadas(), 0, "o modelo nem é chamado");
     assert.equal(deletes(c), 1, "a ação aprovada não foi repetida");
     assert.equal((await c.motor(u, (mt) => mt.approvals.get(p!.id)))?.status, "executing", "fica para reconciliação");
     const trilha = await c.motor(u, (mt) => mt.audit.forUser(u));
     assert.ok(trilha.some((e) => e.event === "mission.attempt_interrupted"));
+    assert.ok(trilha.some((e) => e.event === "mission.blocked"));
+    assert.deepEqual([incerto.tentativa, incerto.decisao, incerto.categoria, incerto.aprovacaoId], [2, "conferir_com_a_pessoa", "DESTRUCTIVE", p!.id]);
+    assert.deepEqual(await comoUsuario(banco.db, u, (tx) => passosNaTransacao(tx).abertos(fim!.id)), [], "o início ficou fechado como incerto");
   });
 
   it("aprovado, mas vencido, com grant revogado ou com consentimento revogado antes da execução: não apaga", async () => {
@@ -410,5 +410,94 @@ describe("executor das missões: reinício do processo e aprovações", () => {
     );
     await c.processar(u, r);
     assert.equal(c.google.api.filter((x) => x.metodo === "POST").length, 0, "nenhum e-mail enviado");
+  });
+});
+
+describe("executor das missões: registro de passos (D20, M1)", () => {
+  const lerAgenda = usar("t1", "google_agenda__listar_eventos", { de: "2026-11-04T00:00:00-03:00", ate: "2026-11-05T00:00:00-03:00" });
+  const passos = (u: string, id: string) => comoUsuario(banco.db, u, (tx) => passosNaTransacao(tx).daMissao(id));
+
+  it("o que fica gravado é a sequência de passos da rodada, com início antes de cada chamada governada e nenhum argumento", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    c.google.responderApi = () => ({ json: { items: [] } });
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "O que tenho amanhã?"));
+    const [fim] = await c.processar(u, roteiro(0, lerAgenda, concluir("feito", "Nada amanhã."), encerrar));
+    assert.equal(fim!.estado, "completed");
+    const ps = await passos(u, m.id);
+    const listar = ps[1]!.ferramenta!;
+    assert.match(listar, /listar_eventos$/);
+    assert.deepEqual(
+      ps.map((p) => [p.tentativa, p.seq, p.tipo, p.status, p.decisao, p.ferramenta, p.categoria, p.fecha, p.tokensEntrada, p.tokensSaida]),
+      [
+        [1, 1, "modelo", "ok", "tool_use", listar, null, null, 100, 20],
+        [1, 2, "inicio", "chamando", null, listar, "READ", null, null, null],
+        [1, 3, "ferramenta", "succeeded", "chamar_ferramenta", listar, null, { tentativa: 1, seq: 2 }, null, null],
+        [1, 4, "modelo", "ok", "tool_use", "obedient/concluir_missao", null, null, 100, 20],
+        [1, 5, "ferramenta", "succeeded", "chamar_ferramenta", "obedient/concluir_missao", null, null, null, null],
+        [1, 6, "modelo", "ok", "end_turn", null, null, null, 100, 20],
+      ],
+    );
+    assert.equal(ps[1]!.chave, `${m.id}:1:2`, "chave de idempotência do passo");
+    const args = { de: "2026-11-04T00:00:00-03:00", ate: "2026-11-05T00:00:00-03:00" };
+    assert.equal(ps[1]!.hashArgumentos, payloadHash({ ferramenta: listar, argumentos: args }));
+    assert.equal(ps[2]!.hashArgumentos, ps[1]!.hashArgumentos, "início e fim falam da mesma chamada");
+    assert.ok(!JSON.stringify(ps).includes("2026-11-04T00"), "os argumentos em si não são gravados");
+    assert.deepEqual(await comoUsuario(banco.db, u, (tx) => passosNaTransacao(tx).abertos(m.id)), []);
+  });
+
+  it("o processo cai no meio de uma LEITURA: a próxima tentativa fecha o início como incerto e segue", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "O que tenho amanhã?", { maxTentativas: 2 }));
+    let gets = 0;
+    let chegou!: () => void;
+    const chegouAoGoogle = new Promise<void>((ok) => (chegou = ok));
+    const travado = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes("/calendar/") && (init?.method ?? "GET") === "GET") {
+        gets++;
+        chegou();
+        return new Promise<Response>(() => {});
+      }
+      return c.google.fetch(url, init);
+    }) as typeof fetch;
+    void processarMissoes(banco.db, u, executorDeMissoes({ db: banco.db, conexoes: c.conexoes, novoModelo: roteiro(0, lerAgenda).novo, centavosPorDolar: 600, clock: c.clock, http: travado }), {}, c.clock);
+    await chegouAoGoogle;
+    assert.equal(gets, 1);
+
+    c.google.responderApi = () => ({ json: { items: [] } });
+    c.clock.advance(PRAZO_RESERVA_MS);
+    const novo = roteiro(0, lerAgenda, concluir("feito", "Nada amanhã."), encerrar);
+    const [fim] = await c.processar(u, novo);
+    assert.deepEqual([fim!.estado, fim!.tentativas], ["completed", 2], "leitura não para a missão");
+    const ps = await passos(u, fim!.id);
+    const incerto = ps.find((p) => p.tipo === "incerto")!;
+    assert.deepEqual([incerto.tentativa, incerto.decisao, incerto.categoria, incerto.fecha], [2, "leitura_segue", "READ", { tentativa: 1, seq: 2 }]);
+    assert.deepEqual(await comoUsuario(banco.db, u, (tx) => passosNaTransacao(tx).abertos(fim!.id)), []);
+  });
+
+  it("pedido de aprovação e retomada na mesma tentativa: cada chamada tem a própria chave, e nada fica aberto", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    c.google.responderApi = () => ({ status: 204 });
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "Apague o compromisso ev1", { maxTentativas: 1 }));
+    const r = roteiro(0, usar("t1", "google_agenda__apagar_evento", { id: "ev1" }), concluir("feito", "Apaguei."), encerrar);
+    const [esperando] = await c.processar(u, r);
+    const p = await c.motor(u, (mt) => mt.approvals.get(esperando!.propostaId!));
+    await c.motor(u, (mt) => mt.approve(p!.id, { id: u, kind: "user", strongAuth: true }, p!.payloadHash));
+    const [fim] = await c.processar(u, r);
+    assert.equal(fim!.estado, "completed");
+    const ps = await passos(u, m.id);
+    const inicios = ps.filter((x) => x.tipo === "inicio");
+    assert.equal(inicios.length, 2, "o pedido e a execução aprovada");
+    assert.deepEqual(inicios.map((x) => x.aprovacaoId), [null, p!.id]);
+    assert.equal(new Set(inicios.map((x) => x.chave)).size, 2);
+    assert.ok(inicios.every((x) => x.tentativa === 1));
+    const fechos = ps.filter((x) => x.fecha).map((x) => [x.tipo, x.status, x.fecha!.seq]);
+    assert.deepEqual(fechos, [["ferramenta", "approval_required", inicios[0]!.seq], ["retomada", "succeeded", inicios[1]!.seq]]);
+    assert.deepEqual(await comoUsuario(banco.db, u, (tx) => passosNaTransacao(tx).abertos(m.id)), []);
   });
 });

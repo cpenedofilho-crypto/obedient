@@ -169,3 +169,31 @@ Até 09/11 o executor só **lia** as lições: nenhuma missão gravava nada, e "
 - **Quando aparece:** só se a pessoa ligou ao menos uma categoria, e só com as categorias ligadas. A recusa por categoria desligada continua no `Memoria.lembrar`, com consentimento e registro na trilha.
 - **O que guarda:** o que a própria pessoa disse no pedido da missão, numa frase curta. A lição aparece no app e pode ser apagada.
 - **A trava:** depois que a conversa recebe resultado de outro sistema (e-mail, documento, resumo do Growth OS), `lembrar` é recusada naquela tentativa, e a conversa guardada carrega isso. Assim, um texto de fora não vira "preferência da pessoa" nem volta nas próximas missões como contexto confiável.
+
+## Registro de passos (decisão D20, marco M1, 19/11/2026)
+
+Até aqui, uma tentativa só deixava rastro no fim: a conversa salva (`missions.rodada`) e a trilha de
+auditoria. Se o processo caísse no meio, a tentativa inteira se perdia, e uma ferramenta chamada
+nesse trecho podia rodar de novo na tentativa seguinte. A D20 reabre a D16 só para isto, pela
+condição que ela própria pôs: o gancho por passo do `agent-orchestrator` (`aoPasso`) ligado, e testes
+que comparam o que fica gravado.
+
+- **Uma linha por passo** em `obedient.mission_steps` (migration `0008_passos.sql`): chamada ao
+  modelo, chamada de ferramenta, ferramenta recusada e retomada depois de aprovação, com status,
+  decisão, ferramenta, hash dos argumentos e tokens. Nunca os argumentos nem o resultado.
+- **Início antes da chamada.** Antes de chamar uma ferramenta governada, o executor grava um `inicio`
+  com a categoria da ferramenta e a chave de idempotência do passo (`missão:tentativa:passo`, gerada
+  pelo banco). Se o início não for gravado, a chamada não sai. O fim do passo aponta para o início.
+- **Início sem fim = incerto.** Na tentativa seguinte, antes de chamar o modelo, cada início sem fim é
+  fechado por uma linha `incerto`. Se a ferramenta é de leitura (`READ`), a missão segue. Se é de
+  qualquer outra categoria, a missão para (`blocked`) com o motivo, pedindo à pessoa que confira se a
+  ação aconteceu. Nada é repetido sozinho. Uma ação aprovada continua protegida também pela execução
+  única do Ethics Engine.
+- **Só inserção e só da pessoa.** RLS por pessoa; o app só lê e insere; "apagar o que o OBEDIENT
+  sabe" apaga os passos.
+- **Mudança de comportamento:** antes, quando o processo caía no meio de uma ação aprovada, a tentativa
+  seguinte devolvia ao modelo `aprovacao_usada_sem_registro` e o agente concluía "não sei". Agora a
+  missão para antes de chamar o modelo, com o mesmo efeito para a ação (não se repete) e o motivo
+  escrito para a pessoa.
+- **Ainda não:** a chave de idempotência é gravada, mas não é repassada aos sistemas de destino. Isso
+  depende de cada destino aceitar uma chave e entra com o registro de ferramentas (marcos M4 e M5).

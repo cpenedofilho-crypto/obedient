@@ -99,6 +99,12 @@ O teste com quatro execuções simultâneas roda no PGlite e, no CI, num Postgre
 Sem `OBEDIENT_TEST_DATABASE_URL`, roda no PGlite (Postgres em WebAssembly, com papéis e RLS de
 verdade). Com ela, roda no Postgres indicado, que precisa ser local.
 
+## Registro de passos (0008)
+
+`obedient.mission_steps` guarda cada passo das tentativas (decisão D20, marco M1): só inserção, RLS
+por pessoa, chave primária `(mission_id, tentativa, seq)`, e CHECKs que exigem categoria e chave num
+início e o passo fechado numa linha `incerto`. Detalhes em `executor.md`, seção "Registro de passos".
+
 ## O que ainda não existe
 
 - **Políticas do usuário (`policiesFor`) no banco.** Hoje elas chegam por função; a tabela entra

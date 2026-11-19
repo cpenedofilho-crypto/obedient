@@ -18,17 +18,24 @@
 //     (e se a reserva venceu e outro processo retomou, esta tentativa para também);
 //   • o que as ferramentas devolvem é dado de terceiros, nunca instrução, e vai marcado como tal.
 //
+// Registro de passos (decisão D20, marco M1): cada passo da rodada vira uma linha em
+// obedient.mission_steps (pelo gancho aoPasso). Antes de chamar uma ferramenta governada, grava-se o
+// INÍCIO, com a chave de idempotência do passo; o fim aponta para ele. Na tentativa seguinte, um início
+// sem fim (o processo caiu no meio da chamada) é fechado como incerto: leitura segue, qualquer outra
+// categoria para a missão até a pessoa conferir. Nada é repetido sozinho.
+//
 // O resultado das ferramentas volta ao modelo sem a limpeza de dado pessoal do Growth OS: o
 // consentimento que a pessoa dá ao conectar a integração (finalidade "integracao:<id>") cobre
 // justamente isso, e o Ethics Engine o confere a cada chamada (Art. 4º). A conversa guardada fica
 // na missão, só para a pessoa (RLS), e some ao terminar, cancelar, impedir e apagar.
 
-import type { Clock } from "@obedient/core";
+import { type Clock, payloadHash, type ToolCategory } from "@obedient/core";
 import {
   type AbrirMotor,
   type EstadoRodada,
   type ItemCatalogo,
   type ModeloAgente,
+  type Passo,
   type Pendente,
   type ResultadoChamada,
   type ResultadoRodada,
@@ -43,7 +50,7 @@ import type { ClienteA2A } from "@obedient/a2a-client";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCompras, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
 import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, motivoMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
-import { type Database, type OpcoesMotor, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
+import { type Database, type NovoPasso, type OpcoesMotor, type TipoPasso, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao, passosNaTransacao } from "@obedient/store-postgres";
 
 export const CONCLUIR = "concluir_missao";
 const CHAVE_CONCLUIR = `obedient/${CONCLUIR}`;
@@ -183,6 +190,23 @@ function lerRodada(v: unknown): RodadaGuardada | null {
   return { estado: r.estado, pendente: r.pendente && Array.isArray(r.pendente.aguardando) ? r.pendente : null };
 }
 
+const TIPO_DO_PASSO: Record<Passo["kind"], TipoPasso> = { model: "modelo", tool_call: "ferramenta", tool_rejected: "recusada", approval_resume: "retomada" };
+
+/** Hash dos argumentos de um passo (nunca os argumentos em si). */
+const hashDoPasso = (ferramenta: string, argumentos: Record<string, unknown>) => payloadHash({ ferramenta, argumentos });
+
+/** Categoria que o registro de risco deu à ferramenta (só as governadas têm). */
+function categoriaDe(item: ItemCatalogo): ToolCategory | null {
+  const c = (item as { categoria?: unknown }).categoria;
+  return typeof c === "string" ? (c as ToolCategory) : null;
+}
+
+/** Texto do impedimento quando uma ação com efeito ficou sem resultado confirmado. */
+export function textoIncerto(ferramentas: readonly string[]): string {
+  const nomes = [...new Set(ferramentas)].join(", ");
+  return `Uma ação estava em andamento quando o servidor parou e o resultado não foi confirmado (${nomes}). Ela não é repetida sozinha: confira se aconteceu antes de mandar tentar de novo ou cancelar.`;
+}
+
 function lerDesfecho(args: Record<string, unknown>): { tipo: TipoDesfecho; explicacao: string } | string {
   const tipo = args.tipo;
   const explicacao = typeof args.explicacao === "string" ? args.explicacao.trim() : "";
@@ -200,6 +224,16 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
   return async (missao: Missao): Promise<ResultadoTentativa> => {
     const u = missao.userId;
     const abrir: AbrirMotor = (fn) => comoUsuario(d.db, u, (tx) => fn(motorNaTransacao(tx, opcoes)));
+    const gravar = (p: Omit<NovoPasso, "missionId" | "userId" | "tentativa" | "criadoEm">) =>
+      comoUsuario(d.db, u, (tx) => passosNaTransacao(tx).registrar({ ...p, missionId: missao.id, userId: u, tentativa: missao.tentativas, criadoEm: d.clock.now() }));
+
+    // Chamadas que ficaram sem fim numa tentativa anterior (o processo caiu no meio delas).
+    const abertos = await comoUsuario(d.db, u, (tx) => passosNaTransacao(tx).abertos(missao.id));
+    for (const a of abertos) {
+      await gravar({ tipo: "incerto", status: "sem_resultado", decisao: a.categoria === "READ" ? "leitura_segue" : "conferir_com_a_pessoa", ferramenta: a.ferramenta, categoria: a.categoria, chave: a.chave, aprovacaoId: a.aprovacaoId, fecha: { tentativa: a.tentativa, seq: a.seq } });
+    }
+    const comEfeito = abertos.filter((a) => a.categoria !== "READ");
+    if (comEfeito.length) return { tipo: "impedida", motivo: textoIncerto(comEfeito.map((a) => a.ferramenta ?? "ferramenta")), custoCentavos: 0 };
 
     // O que o agente sabe ao começar, numa transação curta.
     const ctx = await comoUsuario(d.db, u, async (tx) => {
@@ -283,7 +317,23 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
         return google(sistema, ferramenta, args);
       })
       : null;
-    const chamar = async (item: ItemCatalogo, args: Record<string, unknown>, approvalId?: string): Promise<ResultadoChamada> => {
+    // O início de chamada em aberto nesta tentativa: o próximo passo de ferramenta o fecha.
+    let inicioAberto: { tentativa: number; seq: number } | null = null;
+    const aoPasso = async (p: Passo) => {
+      const fecha = (p.kind === "tool_call" || p.kind === "approval_resume") && inicioAberto ? inicioAberto : null;
+      if (fecha) inicioAberto = null;
+      await gravar({
+        tipo: TIPO_DO_PASSO[p.kind],
+        status: p.status,
+        decisao: p.decision,
+        ferramenta: p.tool ?? null,
+        hashArgumentos: p.input ? hashDoPasso(p.tool ?? "", p.input) : null,
+        fecha,
+        tokensEntrada: p.tokensIn ?? null,
+        tokensSaida: p.tokensOut ?? null,
+      });
+    };
+    const chamarGovernada = async (item: ItemCatalogo, args: Record<string, unknown>, approvalId?: string): Promise<ResultadoChamada> => {
       if (item.chave === CHAVE_CONCLUIR) {
         const v = lerDesfecho(args);
         if (typeof v === "string") return { status: "tool_error", motivo: v, approvalId: null, resultado: null };
@@ -305,6 +355,15 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       if (res.status === "succeeded") externo = true;
       return res;
     };
+    // Ferramenta governada: o INÍCIO é gravado antes da chamada; sem ele gravado, a chamada não sai.
+    const chamar = async (item: ItemCatalogo, args: Record<string, unknown>, approvalId?: string): Promise<ResultadoChamada> => {
+      const categoria = categoriaDe(item);
+      if (categoria) {
+        const { seq } = await gravar({ tipo: "inicio", status: "chamando", ferramenta: item.chave, categoria, hashArgumentos: hashDoPasso(item.chave, args), aprovacaoId: approvalId ?? null });
+        inicioAberto = { tentativa: missao.tentativas, seq };
+      }
+      return chamarGovernada(item, args, approvalId);
+    };
 
     const r: ResultadoRodada = await executarRodada({
       modelo,
@@ -316,6 +375,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       ...(salva?.pendente ? { pendente: salva.pendente } : {}),
       situacaoAprovacao: situacaoPeloEthicsEmEtapas(abrir),
       limites,
+      aoPasso,
       cancelado: async () => {
         if (gastoCentavos() >= resta) return Boolean((parouPor = "teto"));
         const atual = await comoUsuario(d.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, opcoes), d.clock).get(missao.id));

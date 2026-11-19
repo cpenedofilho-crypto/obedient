@@ -295,3 +295,17 @@ describe("missões: durabilidade da tentativa (processo que cai no meio)", () =>
     assert.equal((await a.get(m.id))?.versao, m.versao + 1);
   });
 });
+
+describe("missões: impedida pelo executor (D20, M1)", () => {
+  it("o executor diz que não pode seguir sem a pessoa: a missão para com o motivo, sem gastar outra tentativa nem guardar conversa", async () => {
+    const { missoes, sink } = setup();
+    const m = await missoes.criar("ana", "obedient", "Apague o compromisso", { maxTentativas: 3 });
+    const motivo = "Uma ação estava em andamento quando o servidor parou. Confira antes de mandar tentar de novo.";
+    const fim = await missoes.avancar(m.id, roteiro({ tipo: "impedida", motivo, custoCentavos: 0 }));
+    assert.deepEqual([fim.estado, fim.impedimento, fim.tentativas, fim.rodada, fim.proximaTentativaEm], ["blocked", motivo, 1, null, null]);
+    assert.ok((await sink.entries("ana")).some((e) => e.event === "mission.blocked" && e.correlationId === m.id));
+    // A pessoa libera: volta a andar.
+    const liberada = await missoes.tentarDeNovo("ana", m.id);
+    assert.equal(liberada.estado, "running");
+  });
+});

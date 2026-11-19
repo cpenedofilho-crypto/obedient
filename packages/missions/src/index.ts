@@ -87,6 +87,9 @@ export type ResultadoTentativa = { custoCentavos: number } & (
   | { tipo: TipoDesfecho; explicacao: string }
   | { tipo: "falha_temporaria"; erro: string; rodada?: unknown }
   | { tipo: "aguardando_aprovacao"; propostaId: string; rodada?: unknown }
+  // A tentativa não pode seguir sem a pessoa (por exemplo, uma ação ficou sem resultado confirmado):
+  // a missão para com o motivo, sem gastar outra tentativa nem repetir nada sozinha.
+  | { tipo: "impedida"; motivo: string }
 );
 
 export type Executor = (m: Missao) => Promise<ResultadoTentativa>;
@@ -304,6 +307,14 @@ export class Missoes {
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
         await this.registrar(m, "mission.waiting_approval", "approval_required", sobre);
         return m;
+      case "impedida": {
+        m.estado = "blocked";
+        m.impedimento = curto(String(r.motivo ?? "").trim() || "A missão precisa de você para continuar.", 500);
+        m.rodada = null;
+        if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
+        await this.registrar(m, "mission.blocked", "info", [...sobre, curto(m.impedimento, 200)]);
+        return m;
+      }
       case "falha_temporaria": {
         m.rodada = r.rodada ?? null;
         if (m.tentativas >= m.maxTentativas) {
