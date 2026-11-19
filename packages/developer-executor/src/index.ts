@@ -42,6 +42,9 @@ export function validarPedido(
     return { permitido: false, motivo: "repositorio_fora_do_escopo" };
   if (escopo.ambiente !== pedido.ambiente)
     return { permitido: false, motivo: "ambiente_fora_do_escopo" };
+  // Fase 1: nenhum efeito, nem mesmo pré-autorização, em produção.
+  if (pedido.ambiente === "producao")
+    return { permitido: false, motivo: "producao_nao_habilitada" };
   if (!OPERACOES_DESENVOLVIMENTO.includes(pedido.operacao))
     return { permitido: false, motivo: "operacao_desconhecida" };
   if (!escopo.operacoes.includes(pedido.operacao))
