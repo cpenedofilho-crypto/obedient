@@ -29,6 +29,9 @@
 import { type Clock, type IdFactory, ObedientError, systemClock, uuid } from "@obedient/core";
 import { CONSTITUTION_VERSION, type EthicsEngine } from "@obedient/ethics-engine";
 import { LIMITES_EQUIPE } from "@obedient/mission-engine";
+import { type Criterio, type Evidencia, problemasDosCriterios, textoNaoVerificada, verificar } from "./verificacao.ts";
+
+export * from "./verificacao.ts";
 
 /**
  * Estados da missão (decisão D20, marco M2). `planning` e `verifying` já estão na tabela, mas só entram
@@ -46,13 +49,13 @@ export const ABERTAS: readonly EstadoMissao[] = ESTADOS_MISSAO.filter((e) => !TE
 /**
  * A ÚNICA tabela de transições da missão. Todo `estado` muda por `podeMudar`/`Missoes.mudar`, e o banco
  * confere a mesma tabela num gatilho (0009). Duas arestas são provisórias e saem quando a peça que as
- * substitui chegar: created → running (até o planejador, M5) e running → completed (até o verificador,
- * M3). Terminal não sai para lugar nenhum.
+ * substitui chegar: created → running (até o planejador, M5). Desde o M3, nada termina sem passar por
+ * verifying. Terminal não sai para lugar nenhum.
  */
 export const TRANSICOES: Readonly<Record<EstadoMissao, readonly EstadoMissao[]>> = {
   created: ["planning", "running", "failed", "cancelled"],
   planning: ["running", "waiting_approval", "blocked", "failed", "cancelled"],
-  running: ["verifying", "waiting_approval", "retrying", "blocked", "completed", "failed", "cancelled"],
+  running: ["verifying", "waiting_approval", "retrying", "blocked", "failed", "cancelled"],
   verifying: ["completed", "running", "blocked", "failed", "cancelled"],
   retrying: ["running", "blocked", "failed", "cancelled"],
   waiting_approval: ["running", "blocked", "failed", "cancelled"],
@@ -89,6 +92,8 @@ export interface Missao {
   userId: string;
   agente: string;
   objetivo: string;
+  /** Critérios de conclusão (M3), fixados na criação. Vazio = a evidência diz que não havia critério. */
+  criterios: Criterio[];
   estado: EstadoMissao;
   /** Por que parou e o que a pessoa pode fazer (só quando blocked). */
   impedimento: string | null;
@@ -119,7 +124,9 @@ export interface Missao {
 
 /** O que uma tentativa devolve. `custoCentavos` é o gasto da tentativa (modelo, ferramentas). */
 export type ResultadoTentativa = { custoCentavos: number } & (
-  | { tipo: TipoDesfecho; explicacao: string }
+  // "feito" traz as evidências que o executor conferiu; sem elas, a missão confere o que puder (só os
+  // critérios que não dependem do registro de passos) e nunca dá por verificado o que não viu.
+  | { tipo: TipoDesfecho; explicacao: string; evidencias?: Evidencia[] }
   | { tipo: "falha_temporaria"; erro: string; rodada?: unknown }
   | { tipo: "aguardando_aprovacao"; propostaId: string; rodada?: unknown }
   // A tentativa não pode seguir sem a pessoa (por exemplo, uma ação ficou sem resultado confirmado):
@@ -135,6 +142,9 @@ export interface MissionStore {
   listByUser(userId: string): Promise<Missao[]>;
   /** Grava só se a versão guardada ainda for `versaoLida` (compare-and-set). */
   update(m: Missao, versaoLida: number): Promise<boolean>;
+  /** Guarda as evidências da verificação (só inserção). */
+  gravarEvidencias(m: Missao, evidencias: readonly Evidencia[]): Promise<void>;
+  evidencias(missionId: string): Promise<(Evidencia & { tentativa: number })[]>;
 }
 
 export class InMemoryMissionStore implements MissionStore {
@@ -154,6 +164,15 @@ export class InMemoryMissionStore implements MissionStore {
     if (!atual || atual.versao !== versaoLida) return false;
     this.rows.set(m.id, structuredClone(m));
     return true;
+  }
+  private readonly provas = new Map<string, (Evidencia & { tentativa: number })[]>();
+  async gravarEvidencias(m: Missao, evidencias: readonly Evidencia[]) {
+    const l = this.provas.get(m.id) ?? [];
+    l.push(...evidencias.map((e) => ({ ...structuredClone(e), tentativa: m.tentativas })));
+    this.provas.set(m.id, l);
+  }
+  async evidencias(missionId: string) {
+    return structuredClone(this.provas.get(missionId) ?? []);
   }
 }
 
@@ -179,7 +198,7 @@ export class Missoes {
   }
 
   /** A pessoa pede uma missão. */
-  async criar(userId: string, agente: string, objetivo: string, opts: { tetoCustoCentavos?: number; maxTentativas?: number } = {}): Promise<Missao> {
+  async criar(userId: string, agente: string, objetivo: string, opts: { tetoCustoCentavos?: number; maxTentativas?: number; criterios?: Criterio[] } = {}): Promise<Missao> {
     const texto = typeof objetivo === "string" ? objetivo.replace(/\s+/g, " ").trim() : "";
     if (!texto || texto.length > MAX_OBJETIVO) throw new ObedientError("INVALID_PAYLOAD", `o objetivo precisa ter de 1 a ${MAX_OBJETIVO} caracteres`);
     if (agente === userId) throw new ObedientError("INVALID_PAYLOAD", "o agente não pode ser a própria pessoa");
@@ -187,12 +206,15 @@ export class Missoes {
     if (!Number.isInteger(teto) || teto < 1 || teto > TETO_CUSTO_MAXIMO) throw new ObedientError("INVALID_PAYLOAD", `teto de custo entre 1 e ${TETO_CUSTO_MAXIMO} centavos`);
     const max = opts.maxTentativas ?? 3;
     if (!Number.isInteger(max) || max < 1 || max > LIMITES_EQUIPE.maxTentativas) throw new ObedientError("INVALID_PAYLOAD", `de 1 a ${LIMITES_EQUIPE.maxTentativas} tentativas`);
+    const problemas = problemasDosCriterios(opts.criterios);
+    if (problemas.length) throw new ObedientError("INVALID_PAYLOAD", `critérios inválidos: ${problemas.slice(0, 3).join("; ")}`);
     const agora = this.clock.now();
     const m: Missao = {
       id: this.newId(),
       userId,
       agente,
       objetivo: texto,
+      criterios: structuredClone(opts.criterios ?? []),
       estado: "created",
       impedimento: null,
       desfecho: null,
@@ -215,6 +237,11 @@ export class Missoes {
 
   get(id: string) {
     return this.store.get(id);
+  }
+
+  /** Evidências da verificação da missão, em ordem (M3). */
+  evidencias(id: string) {
+    return this.store.evidencias(id);
   }
 
   listar(userId: string) {
@@ -327,14 +354,37 @@ export class Missoes {
     const sobre = [`tentativa ${m.tentativas} de ${m.maxTentativas}`, `custo ${reais(custo)} (total ${reais(m.custoCentavos)})`];
 
     switch (r.tipo) {
-      case "feito":
-      case "nao_sei":
       case "nao_consegui": {
-        this.mudar(m, r.tipo === "nao_consegui" ? "failed" : "completed");
+        this.mudar(m, "failed");
         m.rodada = null;
         m.desfecho = { tipo: r.tipo, explicacao: curto(String(r.explicacao ?? "").trim() || "(sem explicação)", MAX_EXPLICACAO) };
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
-        await this.registrar(m, `mission.${r.tipo}`, r.tipo === "feito" ? "executed" : r.tipo === "nao_sei" ? "info" : "failed", sobre);
+        await this.registrar(m, "mission.nao_consegui", "failed", sobre);
+        return m;
+      }
+      // Terminar passa por verifying (M3): as evidências ficam gravadas antes de a missão terminar.
+      case "feito":
+      case "nao_sei": {
+        const evidencias: Evidencia[] =
+          r.tipo === "nao_sei"
+            ? [{ criterio: null, tipo: "nao_sei", ok: true, referencia: null, detalhe: "O agente respondeu que não sabe: nenhum critério se aplica." }]
+            : (r.evidencias ?? verificar(m.criterios, [], undefined).evidencias);
+        this.mudar(m, "verifying");
+        m.rodada = null;
+        if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
+        await this.store.gravarEvidencias(m, evidencias);
+        await this.registrar(m, "mission.verifying", "info", [...sobre, `${evidencias.filter((e) => e.ok).length} de ${evidencias.length} evidência(s) conferida(s)`]);
+        if (!evidencias.every((e) => e.ok)) {
+          this.mudar(m, "blocked");
+          m.impedimento = textoNaoVerificada(evidencias);
+          if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
+          await this.registrar(m, "mission.blocked", "info", [curto(m.impedimento, 200)]);
+          return m;
+        }
+        this.mudar(m, "completed");
+        m.desfecho = { tipo: r.tipo, explicacao: curto(String(r.explicacao ?? "").trim() || "(sem explicação)", MAX_EXPLICACAO) };
+        if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
+        await this.registrar(m, `mission.${r.tipo}`, r.tipo === "feito" ? "executed" : "info", sobre);
         return m;
       }
       case "aguardando_aprovacao":

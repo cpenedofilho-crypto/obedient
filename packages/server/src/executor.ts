@@ -45,7 +45,7 @@ import {
 } from "@obedient/agent-orchestrator";
 import { type Conexoes, executorGoogle, itensGovernados } from "@obedient/integrations";
 import type { Licao } from "@obedient/memory";
-import type { Executor as ExecutorDeMissao, Missao, ResultadoTentativa, TipoDesfecho } from "@obedient/missions";
+import { type Evidencia, type Executor as ExecutorDeMissao, MAX_VOLTAS_VERIFICACAO, type Missao, type ResultadoTentativa, type TipoDesfecho, verificar } from "@obedient/missions";
 import type { ClienteA2A } from "@obedient/a2a-client";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCompras, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
@@ -95,12 +95,13 @@ const ferramentaConcluir: ItemCatalogo = {
   definicao: {
     name: CONCLUIR,
     description:
-      "Encerra a missão com o desfecho real. Chame uma vez, no fim: 'feito' quando o pedido foi cumprido; 'nao_sei' quando não há como saber ou responder; 'nao_consegui' quando tentou e não deu. A explicação é para a pessoa ler: diga o que fez (ou por que não fez), em português simples.",
+      "Encerra a missão com o desfecho real. Chame uma vez, no fim: 'feito' quando o pedido foi cumprido; 'nao_sei' quando não há como saber ou responder; 'nao_consegui' quando tentou e não deu. A explicação é para a pessoa ler: diga o que fez (ou por que não fez), em português simples. 'feito' é conferido contra os critérios da missão antes de valer; se a missão pede um resultado estruturado, entregue-o em resultado.",
     input_schema: {
       type: "object",
       properties: {
         tipo: { type: "string", enum: ["feito", "nao_sei", "nao_consegui"] },
         explicacao: { type: "string", maxLength: 2000 },
+        resultado: { type: "object", description: "Resultado estruturado, quando os critérios da missão pedirem." },
       },
       required: ["tipo", "explicacao"],
       additionalProperties: false,
@@ -207,13 +208,14 @@ export function textoIncerto(ferramentas: readonly string[]): string {
   return `Uma ação estava em andamento quando o servidor parou e o resultado não foi confirmado (${nomes}). Ela não é repetida sozinha: confira se aconteceu antes de mandar tentar de novo ou cancelar.`;
 }
 
-function lerDesfecho(args: Record<string, unknown>): { tipo: TipoDesfecho; explicacao: string } | string {
+function lerDesfecho(args: Record<string, unknown>): { tipo: TipoDesfecho; explicacao: string; resultado?: unknown } | string {
   const tipo = args.tipo;
   const explicacao = typeof args.explicacao === "string" ? args.explicacao.trim() : "";
   if (tipo !== "feito" && tipo !== "nao_sei" && tipo !== "nao_consegui") return "tipo precisa ser feito, nao_sei ou nao_consegui";
   if (!explicacao) return "falta a explicação para a pessoa";
-  if (Object.keys(args).some((k) => k !== "tipo" && k !== "explicacao")) return "argumento não previsto";
-  return { tipo, explicacao: explicacao.slice(0, 2000) };
+  if (Object.keys(args).some((k) => k !== "tipo" && k !== "explicacao" && k !== "resultado")) return "argumento não previsto";
+  if (args.resultado !== undefined && (!args.resultado || typeof args.resultado !== "object" || Array.isArray(args.resultado))) return "resultado precisa ser um objeto";
+  return { tipo, explicacao: explicacao.slice(0, 2000), ...(args.resultado !== undefined ? { resultado: args.resultado } : {}) };
 }
 
 export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
@@ -284,7 +286,10 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     const gastoCentavos = () => Math.ceil(modelo.gastoEmDolares * d.centavosPorDolar);
     const resta = missao.tetoCustoCentavos - missao.custoCentavos;
     let parouPor: "teto" | "missao" | null = null;
-    let desfecho: { tipo: TipoDesfecho; explicacao: string } | null = null;
+    let desfecho: { tipo: TipoDesfecho; explicacao: string; evidencias?: Evidencia[] } | null = null;
+    // Verificação (M3): "feito" só vale com os critérios conferidos. Até MAX_VOLTAS_VERIFICACAO voltas de
+    // correção; na seguinte, o "feito" vai com as evidências que não conferem e a missão para.
+    let voltasVerificacao = 0;
     let externo = leuConteudoExterno(salva?.estado);
 
     // Um executor por sistema; o Ethics Engine autoriza antes de qualquer um rodar.
@@ -337,8 +342,30 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       if (item.chave === CHAVE_CONCLUIR) {
         const v = lerDesfecho(args);
         if (typeof v === "string") return { status: "tool_error", motivo: v, approvalId: null, resultado: null };
-        desfecho = v;
-        return { status: "succeeded", motivo: null, approvalId: null, resultado: { registrado: true, proximo_passo: "encerre a resposta" } };
+        if (v.tipo !== "feito") {
+          desfecho = { tipo: v.tipo, explicacao: v.explicacao };
+          return { status: "succeeded", motivo: null, approvalId: null, resultado: { registrado: true, proximo_passo: "encerre a resposta" } };
+        }
+        const passos = await comoUsuario(d.db, u, (tx) => passosNaTransacao(tx).daMissao(missao.id));
+        const conf = verificar(missao.criterios, passos, v.resultado);
+        if (conf.ok || voltasVerificacao >= MAX_VOLTAS_VERIFICACAO) {
+          desfecho = { tipo: "feito", explicacao: v.explicacao, evidencias: conf.evidencias };
+          return conf.ok
+            ? { status: "succeeded", motivo: null, approvalId: null, resultado: { registrado: true, verificado: true, proximo_passo: "encerre a resposta" } }
+            : { status: "tool_error", motivo: "verificação não conferiu", approvalId: null, resultado: { registrado: true, verificado: false, proximo_passo: "encerre a resposta: a pessoa vai conferir" } };
+        }
+        voltasVerificacao++;
+        // O que não conferiu volta ao modelo (frases do verificador, sem dado de terceiros).
+        return {
+          status: "tool_error",
+          motivo: "verificação não conferiu",
+          approvalId: null,
+          resultado: {
+            verificado: false,
+            nao_conferiu: conf.evidencias.filter((e) => !e.ok).map((e) => e.detalhe),
+            proximo_passo: "corrija o que falta e chame concluir_missao de novo, ou conclua nao_consegui explicando",
+          },
+        };
       }
       if (item.chave === CHAVE_LEMBRAR) {
         if (externo) return { status: "denied", motivo: "esta missão já leu conteúdo de outro sistema: nada mais é guardado nela (Art. 10)", approvalId: null, resultado: null };
@@ -395,7 +422,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
 
     switch (r.status) {
       case "completed": {
-        const fim = desfecho as { tipo: TipoDesfecho; explicacao: string } | null;
+        const fim = desfecho as { tipo: TipoDesfecho; explicacao: string; evidencias?: Evidencia[] } | null;
         if (fim) return { ...fim, custoCentavos };
         // Terminou sem dizer o desfecho: não é "feito". A próxima tentativa continua a conversa e pede o desfecho.
         r.estado.messages.push({ role: "user", content: `Você terminou sem chamar ${CONCLUIR}. Chame agora, com o desfecho real.` });

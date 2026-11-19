@@ -11,6 +11,7 @@
 // temporária, para o aparelho reenviar depois.
 
 import { ObedientError } from "@obedient/core";
+import { type Criterio, problemasDosCriterios } from "@obedient/missions";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { type Sessao, apagarMeusDados, contestar, gravarIdentificacao } from "@obedient/store-postgres";
 import { INTEGRACOES, retirarAutoridade, tirarConexoes } from "@obedient/integrations";
@@ -30,7 +31,7 @@ export type Acao =
   | { opId: string; tipo: "esquecer"; licaoId: string }
   | { opId: string; tipo: "contestar"; seq: number; motivo: string }
   | { opId: string; tipo: "apagar_tudo" }
-  | { opId: string; tipo: "criar_missao"; objetivo: string; tetoCentavos?: number }
+  | { opId: string; tipo: "criar_missao"; objetivo: string; tetoCentavos?: number; criterios?: Criterio[] }
   | { opId: string; tipo: "cancelar_missao"; missaoId: string }
   | { opId: string; tipo: "tentar_de_novo"; missaoId: string; novoTetoCentavos?: number }
   | { opId: string; tipo: "identificacao"; texto: string }
@@ -77,6 +78,8 @@ export function lerAcao(corpo: unknown, outras: readonly string[] = []): Acao | 
     case "criar_missao":
       if (typeof o.objetivo !== "string" || !o.objetivo.trim() || o.objetivo.length > 2000) erros.push("objetivo inválido");
       if (o.tetoCentavos !== undefined && !Number.isInteger(o.tetoCentavos)) erros.push("teto inválido");
+      // Critérios de conclusão (M3): a lista fechada do pacote missions; a missão confere de novo ao criar.
+      if (problemasDosCriterios(o.criterios).length) erros.push("critérios inválidos");
       break;
     case "cancelar_missao":
       id("missaoId");
@@ -182,7 +185,10 @@ async function executar(ctx: Contexto, s: Sessao, a: Acao): Promise<void> {
       return;
     }
     case "criar_missao":
-      await missoes.criar(s.userId, AGENTE_PADRAO, a.objetivo, a.tetoCentavos !== undefined ? { tetoCustoCentavos: a.tetoCentavos } : {});
+      await missoes.criar(s.userId, AGENTE_PADRAO, a.objetivo, {
+        ...(a.tetoCentavos !== undefined ? { tetoCustoCentavos: a.tetoCentavos } : {}),
+        ...(a.criterios !== undefined ? { criterios: a.criterios } : {}),
+      });
       return;
     case "cancelar_missao":
       await missoes.cancelarPelaPessoa(s.userId, a.missaoId);

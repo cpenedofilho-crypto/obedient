@@ -93,6 +93,8 @@ export interface MissaoNoPainel {
   teto: string;
   tetoCentavos: number;
   criadaEm: string;
+  /** O que o verificador conferiu (M3), em frases curtas; null enquanto não houve verificação. */
+  verificacao: { resumo: string; itens: { ok: boolean; detalhe: string }[] } | null;
 }
 
 export interface Painel {
@@ -218,7 +220,20 @@ const SITUACAO: Record<string, string> = {
 };
 const reais = (centavos: number) => (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-function missaoNoPainel(m: Missao): MissaoNoPainel {
+type EvidenciaDoPainel = Awaited<ReturnType<Missoes["evidencias"]>>[number];
+
+/** Só as evidências da tentativa mais recente que foi verificada. */
+function verificacaoNoPainel(evs: readonly EvidenciaDoPainel[]): MissaoNoPainel["verificacao"] {
+  if (!evs.length) return null;
+  const ultima = Math.max(...evs.map((e) => e.tentativa));
+  const daUltima = evs.filter((e) => e.tentativa === ultima);
+  const semCriterio = daUltima.every((e) => e.tipo === "sem_criterio" || e.tipo === "nao_sei");
+  const ok = daUltima.filter((e) => e.ok).length;
+  const resumo = semCriterio ? "Sem critério de conclusão: conferido só o registro de passos" : `Conferido: ${ok} de ${daUltima.length} critério(s)`;
+  return { resumo, itens: daUltima.map((e) => ({ ok: e.ok, detalhe: e.detalhe })) };
+}
+
+function missaoNoPainel(m: Missao, evs: readonly EvidenciaDoPainel[] = []): MissaoNoPainel {
   return {
     id: m.id,
     objetivo: m.objetivo,
@@ -234,6 +249,7 @@ function missaoNoPainel(m: Missao): MissaoNoPainel {
     teto: reais(m.tetoCustoCentavos),
     tetoCentavos: m.tetoCustoCentavos,
     criadaEm: m.criadaEm.toISOString(),
+    verificacao: verificacaoNoPainel(evs),
   };
 }
 
@@ -330,7 +346,9 @@ export async function montarPainel(
   const vigentes = (await m.grants.list(userId)).filter((g) => !g.revokedAt && g.expiresAt > agora);
   const trilha = await m.audit.forUser(userId);
   const todas = (await missoes.listar(userId)).sort((a, b) => b.criadaEm.getTime() - a.criadaEm.getTime());
-  const listaDeMissoes = [...todas.filter((x) => ABERTAS.includes(x.estado)), ...todas.filter((x) => !ABERTAS.includes(x.estado)).slice(0, 10)].map(missaoNoPainel);
+  const escolhidas = [...todas.filter((x) => ABERTAS.includes(x.estado)), ...todas.filter((x) => !ABERTAS.includes(x.estado)).slice(0, 10)];
+  const listaDeMissoes: MissaoNoPainel[] = [];
+  for (const x of escolhidas) listaDeMissoes.push(missaoNoPainel(x, await missoes.evidencias(x.id)));
   return {
     usuario: userId,
     reautenticado,

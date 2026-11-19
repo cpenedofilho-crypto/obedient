@@ -105,6 +105,12 @@ verdade). Com ela, roda no Postgres indicado, que precisa ser local.
 por pessoa, chave primária `(mission_id, tentativa, seq)`, e CHECKs que exigem categoria e chave num
 início e o passo fechado numa linha `incerto`. Detalhes em `executor.md`, seção "Registro de passos".
 
+## Critérios e evidências (0010)
+
+`obedient.missions.criterios` guarda os critérios de conclusão (lista de até 10, fixa depois da criação)
+e `obedient.mission_evidence` o que o verificador conferiu: só inserção, RLS por pessoa, chave primária
+`(mission_id, seq)`. Detalhes em `missoes.md`, seção "Critérios de conclusão e verificação".
+
 ## O que ainda não existe
 
 - **Políticas do usuário (`policiesFor`) no banco.** Hoje elas chegam por função; a tabela entra

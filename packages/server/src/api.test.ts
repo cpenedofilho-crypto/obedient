@@ -448,6 +448,24 @@ describe("missões e identificação pelo app (Arts. 5º, 7º e 9º)", () => {
     assert.match(p.atividade.map((a) => a.texto).join("\n"), /disse que não sabe responder/);
   });
 
+  it("critérios de conclusão (M3): inválidos são recusados na entrada; o painel mostra o que o verificador conferiu", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    const ruim = await api(post("/api/acoes", { opId: opId(), tipo: "criar_missao", objetivo: "x", criterios: [{ tipo: "o_agente_disse" }] }, token));
+    assert.equal(ruim.status, 400);
+    assert.match(JSON.stringify(corpo(ruim)), /critérios inválidos/);
+    assert.equal((await acao(token, { tipo: "criar_missao", objetivo: "Mandar o resumo", criterios: [{ tipo: "ferramenta_ok", ferramenta: "gmail/*" }] })).ok, true);
+    type V = { verificacao: { resumo: string; itens: { ok: boolean; detalhe: string }[] } | null; estado: string };
+    let [m] = corpo<{ missoes: V[] }>(await api(get("/api/painel", token))).missoes;
+    assert.equal(m!.verificacao, null, "nada verificado ainda");
+    // O executor diz "feito" sem prova: a missão confere (sem passos, não há gmail) e para.
+    await processar(u, async () => ({ tipo: "feito", explicacao: "Mandei.", custoCentavos: 1 }));
+    [m] = corpo<{ missoes: V[] }>(await api(get("/api/painel", token))).missoes;
+    assert.equal(m!.estado, "blocked");
+    assert.equal(m!.verificacao?.resumo, "Conferido: 0 de 1 critério(s)");
+    assert.deepEqual(m!.verificacao?.itens.map((i) => i.ok), [false]);
+  });
+
   it("falhou até o teto: impedimento explicado; a pessoa manda tentar de novo ou cancela", async () => {
     const u = usuario("ana");
     const { token } = await cadastrar(u);

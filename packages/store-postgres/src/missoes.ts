@@ -5,7 +5,7 @@
 
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
 import type { EthicsEngine } from "@obedient/ethics-engine";
-import { type EstadoMissao, type Missao, type MissionStore, Missoes, type TipoDesfecho } from "@obedient/missions";
+import { type Criterio, type EstadoMissao, type Evidencia, type Missao, type MissionStore, Missoes, type TipoDesfecho } from "@obedient/missions";
 import type { Executor } from "./db.ts";
 
 interface LinhaMissao {
@@ -13,6 +13,7 @@ interface LinhaMissao {
   user_id: string;
   agente: string;
   objetivo: string;
+  criterios: Criterio[] | null;
   estado: EstadoMissao;
   impedimento: string | null;
   desfecho_tipo: TipoDesfecho | null;
@@ -39,6 +40,7 @@ const paraMissao = (r: LinhaMissao): Missao => ({
   userId: r.user_id,
   agente: r.agente,
   objetivo: r.objetivo,
+  criterios: Array.isArray(r.criterios) ? r.criterios : [],
   estado: r.estado,
   impedimento: r.impedimento,
   desfecho: r.desfecho_tipo ? { tipo: r.desfecho_tipo, explicacao: r.desfecho_explicacao ?? "" } : null,
@@ -60,10 +62,10 @@ export class PgMissionStore implements MissionStore {
   async insert(m: Missao): Promise<void> {
     await this.tx.query(
       `insert into obedient.missions (id, user_id, agente, objetivo, estado, impedimento, desfecho_tipo, desfecho_explicacao, tentativas, max_tentativas,
-         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao, reservada_ate)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19)`,
+         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao, reservada_ate, criterios)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20::jsonb)`,
       [m.id, m.userId, m.agente, m.objetivo, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas, m.maxTentativas,
-        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, json(m.rodada), m.criadaEm, m.atualizadaEm, m.versao, m.reservadaAte],
+        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, json(m.rodada), m.criadaEm, m.atualizadaEm, m.versao, m.reservadaAte, JSON.stringify(m.criterios ?? [])],
     );
   }
   async get(id: string): Promise<Missao | undefined> {
@@ -85,6 +87,23 @@ export class PgMissionStore implements MissionStore {
         m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao, json(m.rodada), m.reservadaAte],
     );
     return rows.length > 0;
+  }
+  /** Só inserção; numeradas por missão, na ordem em que o verificador as produziu. */
+  async gravarEvidencias(m: Missao, evidencias: readonly Evidencia[]): Promise<void> {
+    for (const ev of evidencias) {
+      await this.tx.query(
+        `insert into obedient.mission_evidence (mission_id, user_id, tentativa, seq, criterio, tipo, ok, referencia, detalhe, criado_em)
+         select $1, $2, $3, coalesce(max(seq), 0) + 1, $4, $5, $6, $7, $8, $9 from obedient.mission_evidence where mission_id = $1`,
+        [m.id, m.userId, m.tentativas, ev.criterio, ev.tipo, ev.ok, ev.referencia?.slice(0, 400) ?? null, ev.detalhe.slice(0, 500), m.atualizadaEm],
+      );
+    }
+  }
+  async evidencias(missionId: string): Promise<(Evidencia & { tentativa: number })[]> {
+    const { rows } = await this.tx.query<{ tentativa: number; criterio: number | null; tipo: Evidencia["tipo"]; ok: boolean; referencia: string | null; detalhe: string }>(
+      "select tentativa, criterio, tipo, ok, referencia, detalhe from obedient.mission_evidence where mission_id = $1 order by seq",
+      [missionId],
+    );
+    return rows.map((r) => ({ tentativa: r.tentativa, criterio: r.criterio, tipo: r.tipo, ok: r.ok, referencia: r.referencia, detalhe: r.detalhe }));
   }
 }
 

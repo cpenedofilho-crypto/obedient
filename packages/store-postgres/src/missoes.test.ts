@@ -99,9 +99,11 @@ describe("missões no banco (Art. 7º)", () => {
       "update obedient.missions set tentativas = 9 where id = $1",
       "update obedient.missions set teto_custo_centavos = 999999 where id = $1",
       "update obedient.missions set estado = 'blocked', impedimento = null where id = $1",
-      "update obedient.missions set estado = 'completed' where id = $1",
     ])
       await assert.rejects(missoes(ana, (_ms, _m, tx) => tx.query(sql, [m.id])), /check constraint/, sql);
+    // Terminar passa por verifying (M3); de lá, completed sem desfecho é o CHECK que recusa.
+    await missoes(ana, (_ms, _m, tx) => tx.query("update obedient.missions set estado = 'verifying' where id = $1", [m.id]));
+    await assert.rejects(missoes(ana, (_ms, _m, tx) => tx.query("update obedient.missions set estado = 'completed' where id = $1", [m.id])), /check constraint/);
     await assert.rejects(missoes(ana, (_ms, _m, tx) => tx.query("update obedient.missions set objetivo = 'outro' where id = $1", [m.id])), /permission denied/);
   });
 

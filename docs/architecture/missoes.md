@@ -28,15 +28,15 @@ erre. Um teste exige que a tabela do banco seja igual à do código.
 |---|---|---|
 | `created` | criada, esperando a primeira tentativa | planning, running*, failed, cancelled |
 | `planning` | o plano está sendo feito (entra em uso no M5) | running, waiting_approval, blocked, failed, cancelled |
-| `running` | uma tentativa está reservada e rodando | verifying, waiting_approval, retrying, blocked, completed*, failed, cancelled |
-| `verifying` | os critérios estão sendo conferidos (entra em uso no M3) | completed, running, blocked, failed, cancelled |
+| `running` | uma tentativa está reservada e rodando | verifying, waiting_approval, retrying, blocked, failed, cancelled |
+| `verifying` | as evidências estão sendo gravadas e conferidas (M3) | completed, running, blocked, failed, cancelled |
 | `retrying` | falhou de passagem e espera a hora da próxima tentativa | running, blocked, failed, cancelled |
 | `waiting_approval` | espera a pessoa decidir um pedido | running, blocked, failed, cancelled |
 | `blocked` | parou e precisa da pessoa | retrying, planning, running, failed, cancelled |
 | `completed`, `failed`, `cancelled` | fim | nada |
 
-\* Provisórias: `created → running` sai com o planejador (M5), e `running → completed` sai com o
-verificador (M3).
+\* Provisória: `created → running` sai com o planejador (M5). A outra aresta provisória,
+`running → completed`, saiu no M3: terminar passa sempre por `verifying`.
 
 - Missão nasce `created` (o banco recusa outro estado na inserção).
 - "Tentar de novo" leva `blocked → retrying`, com a próxima tentativa na hora.
@@ -139,3 +139,30 @@ camada vieram com ele:
   O teste das 4 reservas simultâneas **não** pegava essa mutação: as transações são rápidas, a
   segunda já lê a missão reservada e desiste pela regra de estado, sem chegar à troca atômica. Por
   isso a corrida forçada existe.
+
+## Critérios de conclusão e verificação (decisão D20, marco M3, 19/11/2026)
+
+Uma missão só termina "feito" quando cada critério tem evidência conferida por **código**, nunca porque
+o agente disse que terminou.
+
+- **Critérios**, numa lista fechada, fixados na criação (até 10; o app não altera depois):
+  - `ferramenta_ok`: uma ferramenta (nome exato ou prefixo com `*`) rodou com sucesso nesta missão,
+    pelo menos `minimo` vezes. Conferido no registro de passos (M1): conta só o fim com sucesso, nunca
+    o início nem o erro;
+  - `resultado_conforme`: o `resultado` que o agente entrega em `concluir_missao` segue um esquema (o
+    subconjunto de JSON Schema do `mission-engine`). A evidência guarda o hash do resultado, nunca o
+    resultado.
+- **Quando confere:** no momento em que o agente chama `concluir_missao` com "feito". Se não confere, o
+  agente recebe o que faltou (frases do verificador) e pode corrigir, até 2 voltas por tentativa. Na
+  terceira, o "feito" vai com as evidências que não conferem e a missão vai de `verifying` para
+  `blocked`, com o motivo escrito para a pessoa.
+- **Sem critério:** a missão termina, e a evidência diz isso ("Nenhum critério definido: conferido só o
+  registro de passos"). Nada é apresentado como verificado sem ter sido.
+- **"Não sei"** também passa por `verifying` e deixa evidência; **"não consegui"** vai direto a `failed`.
+- **Evidências** em `obedient.mission_evidence` (migration `0010_verificacao.sql`): só inserção, RLS por
+  pessoa; "apagar o que o OBEDIENT sabe" apaga as evidências e esvazia os critérios.
+- **No app:** a ação `criar_missao` aceita `criterios`; o painel mostra "Conferido: N de M critério(s)" ou
+  "Sem critério de conclusão: conferido só o registro de passos". A tela de criação ainda não tem campo
+  para critérios (entra com o mandato, M4).
+- **Ainda não:** o verificador é só determinístico. Uma revisão por outro modelo, só com ferramentas de
+  leitura, dobraria o custo de cada missão e depende de decisão.

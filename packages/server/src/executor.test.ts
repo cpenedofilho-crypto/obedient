@@ -501,3 +501,82 @@ describe("executor das missões: registro de passos (D20, M1)", () => {
     assert.deepEqual(await comoUsuario(banco.db, u, (tx) => passosNaTransacao(tx).abertos(m.id)), []);
   });
 });
+
+describe("executor das missões: verificação ao concluir (D20, M3)", () => {
+  const lerAgenda = usar("t1", "google_agenda__listar_eventos", { de: "2026-11-04T00:00:00-03:00", ate: "2026-11-05T00:00:00-03:00" });
+  const evidencias = (u: string, id: string) => c0.missoes(u, (ms) => ms.evidencias(id));
+  let c0: ReturnType<typeof montar>;
+
+  it("'feito' sem a prova pedida volta ao agente com o que falta; ele corrige e a missão termina verificada", async () => {
+    const c = (c0 = montar());
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    c.google.responderApi = () => ({ json: { items: [] } });
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "Confira minha agenda de amanhã", { criterios: [{ tipo: "ferramenta_ok", ferramenta: "google_agenda/*" }] }));
+    const r = roteiro(
+      0,
+      concluir("feito", "Conferi.", "f1"),
+      (p) => {
+        const res = resultados(p)[0]!;
+        assert.equal(res.is_error, true);
+        assert.match(res.content, /"verificado":false/);
+        assert.match(res.content, /google_agenda\/\* rodou com sucesso 0 vez/);
+        return lerAgenda();
+      },
+      concluir("feito", "Conferi: nada amanhã.", "f2"),
+      encerrar,
+    );
+    const [fim] = await c.processar(u, r);
+    assert.deepEqual([fim!.estado, fim!.desfecho?.tipo], ["completed", "feito"]);
+    const ev = await evidencias(u, m.id);
+    assert.deepEqual(ev.map((e) => [e.tipo, e.ok]), [["ferramenta_ok", true]]);
+    assert.match(ev[0]!.referencia ?? "", /^1:\d+$/, "aponta o passo do registro");
+    const trilha = await c.motor(u, (mt) => mt.audit.forUser(u));
+    assert.ok(trilha.some((e) => e.event === "mission.verifying" && e.correlationId === m.id));
+  });
+
+  it("insistir em 'feito' sem prova: depois de 2 voltas de correção, a missão para (verifying → blocked) com as evidências gravadas", async () => {
+    const c = (c0 = montar());
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "Confira minha agenda", { criterios: [{ tipo: "ferramenta_ok", ferramenta: "google_agenda/*" }] }));
+    const r = roteiro(
+      0,
+      concluir("feito", "Conferi.", "f1"),
+      concluir("feito", "Conferi mesmo.", "f2"),
+      concluir("feito", "Já conferi.", "f3"),
+      (p) => {
+        assert.match(resultados(p)[0]!.content, /a pessoa vai conferir/);
+        return encerrar();
+      },
+    );
+    const [fim] = await c.processar(u, r);
+    assert.deepEqual([fim!.estado, fim!.desfecho, fim!.tentativas], ["blocked", null, 1]);
+    assert.match(fim!.impedimento ?? "", /^O agente disse que terminou, mas a verificação não confere/);
+    assert.deepEqual((await evidencias(u, m.id)).map((e) => [e.tipo, e.ok]), [["ferramenta_ok", false]]);
+    assert.equal(c.google.api.length, 0);
+  });
+
+  it("resultado_conforme: o resultado entregue segue o esquema; a evidência guarda o hash, nunca o conteúdo", async () => {
+    const c = (c0 = montar());
+    const u = usuario();
+    const esquema = { type: "object", required: ["horario"], properties: { horario: { type: "string", maxLength: 5 } }, additionalProperties: false };
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "Que horas é o dentista?", { criterios: [{ tipo: "resultado_conforme", esquema }] }));
+    const r = roteiro(0, usar("f1", CONCLUIR, { tipo: "feito", explicacao: "Às 10h.", resultado: { horario: "10:00" } }), encerrar);
+    const [fim] = await c.processar(u, r);
+    assert.equal(fim!.estado, "completed");
+    const ev = await evidencias(u, m.id);
+    assert.deepEqual(ev.map((e) => [e.tipo, e.ok, e.referencia]), [["resultado_conforme", true, `sha256:${payloadHash({ horario: "10:00" })}`]]);
+    const linhas = await comoUsuario(banco.db, u, (tx) => tx.query("select * from obedient.mission_evidence where mission_id = $1", [m.id]));
+    assert.ok(!JSON.stringify(linhas.rows).includes("10:00"));
+  });
+
+  it("sem critério: termina, e a evidência diz que só o registro de passos foi conferido", async () => {
+    const c = (c0 = montar());
+    const u = usuario();
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "Diga oi"));
+    const [fim] = await c.processar(u, roteiro(0, concluir("feito", "Oi!"), encerrar));
+    assert.equal(fim!.estado, "completed");
+    assert.deepEqual((await evidencias(u, m.id)).map((e) => [e.tipo, e.ok, e.detalhe]), [["sem_criterio", true, "Nenhum critério definido: conferido só o registro de passos (0 chamada(s) com sucesso)."]]);
+  });
+});

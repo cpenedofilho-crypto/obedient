@@ -186,6 +186,7 @@ function renderMissoes(ops) {
     /** @type {Node[]} */
     const filhos = [el("p", { texto: m.objetivo }), el("p", { classe: "meta", texto: `${m.situacao} · gastou ${m.custo} de ${m.teto}` })];
     if (m.impedimento) filhos.push(el("p", { classe: "impedimento", texto: m.impedimento }));
+    if (m.verificacao) filhos.push(el("p", { classe: "meta", texto: m.verificacao.resumo }));
     if (m.desfecho) filhos.push(el("p", { classe: m.desfecho.tipo === "feito" ? "estado bom" : "estado", texto: m.desfecho.explicacao }));
     if (mexendo.has(m.id)) filhos.push(el("p", { classe: "estado", texto: "Enviando…" }));
     else if (!["completed", "failed", "cancelled"].includes(m.estado)) {

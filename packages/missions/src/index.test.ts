@@ -315,7 +315,7 @@ describe("missões: tabela única de transições (D20, M2)", () => {
     assert.deepEqual(TRANSICOES, {
       created: ["planning", "running", "failed", "cancelled"],
       planning: ["running", "waiting_approval", "blocked", "failed", "cancelled"],
-      running: ["verifying", "waiting_approval", "retrying", "blocked", "completed", "failed", "cancelled"],
+      running: ["verifying", "waiting_approval", "retrying", "blocked", "failed", "cancelled"],
       verifying: ["completed", "running", "blocked", "failed", "cancelled"],
       retrying: ["running", "blocked", "failed", "cancelled"],
       waiting_approval: ["running", "blocked", "failed", "cancelled"],
@@ -330,8 +330,8 @@ describe("missões: tabela única de transições (D20, M2)", () => {
     assert.deepEqual([...ABERTAS], ["created", "planning", "running", "verifying", "retrying", "waiting_approval", "blocked"]);
   });
 
-  it("ciclo: created → running → retrying → running → completed; cada estado gravado é um que a tabela permite", async () => {
-    const { missoes, clock } = setup();
+  it("ciclo: created → running → retrying → running → verifying → completed; cada passo é uma transição da tabela", async () => {
+    const { missoes, clock, sink } = setup();
     const visto: string[] = [];
     const m = await missoes.criar("ana", "obedient", "x");
     visto.push(m.estado);
@@ -343,8 +343,11 @@ describe("missões: tabela única de transições (D20, M2)", () => {
     clock.advance(intervaloDepois(1));
     const r2 = await missoes.reservar(m.id);
     visto.push(r2.missao.estado);
-    visto.push((await missoes.concluir(r2.missao, await exec(r2.missao))).estado);
-    assert.deepEqual(visto, ["created", "running", "retrying", "running", "completed"]);
+    const fim = await missoes.concluir(r2.missao, await exec(r2.missao));
+    // concluir passa por verifying (M3) antes de terminar: a trilha registra a passagem.
+    assert.ok((await sink.entries("ana")).some((e) => e.event === "mission.verifying" && e.correlationId === m.id));
+    visto.push("verifying", fim.estado);
+    assert.deepEqual(visto, ["created", "running", "retrying", "running", "verifying", "completed"]);
     for (let i = 1; i < visto.length; i++) assert.ok(podeMudar(visto[i - 1] as never, visto[i] as never));
   });
 
