@@ -213,3 +213,24 @@ que comparam o que fica gravado.
   novo, além do grant vigente: o risco da ferramenta contra o risco máximo do grant, o valor contra o
   valor máximo, e as políticas atuais (só uma regra `deny` barra; `require_approval` já foi atendida
   pela aprovação). Um grant estreitado entre a aprovação e a execução barra a execução.
+
+## Saúde, prontidão e métricas (decisão D20, marco M5, 19/11/2026)
+
+O servidor real (`server/src/saude.ts`) responde três rotas sem sessão:
+
+- **`GET /health`:** o processo responde (`{"vivo":true}`). Não toca o banco.
+- **`GET /ready`:** o banco responde e todas as migrations do código estão aplicadas com o mesmo
+  conteúdo. Senão, 503 com o motivo curto (`banco`, ou `migrations` com os nomes pendentes ou
+  divergentes); nunca a mensagem de erro do banco.
+- **`GET /metrics`:** texto do Prometheus. **Fecha por padrão:** sem `OBEDIENT_METRICAS_TOKEN`, 404; com
+  ele, exige `Authorization: Bearer <token>`, comparado em tempo constante.
+  - **Só números somados sobre todas as pessoas:** missões por estado, reservas vencidas, pedidos de
+    aprovação pendentes, passos das últimas 24 h por tipo (`recusada` é negação, `incerto` é
+    retomada), gasto do mês e pessoas no teto do mês. Nenhum id, objetivo, ferramenta ou texto.
+  - Saem de funções do banco (`0013_metricas.sql`) donas de um papel próprio, `obedient_metrics`, que
+    enxerga só as colunas das contas. O operador executa as funções e continua sem ler tabela nenhuma.
+  - **Alertas** são medidores 0/1 com limiares fixos: parada geral, reserva vencida, 10 ou mais missões
+    paradas esperando a pessoa, alguém no teto do mês. Quem avisa uma pessoa é a infraestrutura que lê
+    as métricas, que ainda não existe (decisão A4, marco M7).
+- **Ainda não:** tempo até concluir e custo por missão como histograma; ficam para quando houver onde
+  guardar série (M7).

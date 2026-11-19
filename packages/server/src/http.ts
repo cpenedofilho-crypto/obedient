@@ -67,6 +67,8 @@ async function lerCorpo(req: IncomingMessage): Promise<string | null> {
   return Buffer.concat(partes).toString("utf8");
 }
 
+const ROTAS_DE_SAUDE = new Set(["/health", "/ready", "/metrics"]);
+
 export function servidorHttp(api: (p: Pedido) => Promise<Resposta>, raiz = PUBLICO): Server {
   return createServer(async (req, res) => {
     const enviar = (r: Resposta) => {
@@ -75,7 +77,8 @@ export function servidorHttp(api: (p: Pedido) => Promise<Resposta>, raiz = PUBLI
     };
     try {
       const path = req.url ?? "/";
-      if (path.startsWith("/api/")) {
+      // A API, e as rotas de saúde, prontidão e métricas (M5), que não são arquivos do app.
+      if (path.startsWith("/api/") || ROTAS_DE_SAUDE.has(path.split("?")[0] ?? "")) {
         const body = await lerCorpo(req);
         if (body === null) return enviar({ status: 413, headers: { "content-type": "application/json" }, body: '{"erro":"tamanho"}' });
         const headers: Record<string, string | undefined> = {};

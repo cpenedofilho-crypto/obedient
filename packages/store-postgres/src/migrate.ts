@@ -19,7 +19,7 @@ const PASTA = fileURLToPath(new URL("../sql/", import.meta.url));
 // CREATE é dado aqui, só durante cada migration e na mesma transação, e tirado antes do commit: os
 // papéis nunca ficam com CREATE. Criados antes (se não existem) para o grant ter a quem se dirigir;
 // as migrations que os criam usam `if not exists`.
-const DONOS_DE_FUNCAO = ["obedient_eraser", "obedient_scheduler"] as const;
+const DONOS_DE_FUNCAO = ["obedient_eraser", "obedient_scheduler", "obedient_metrics"] as const;
 
 const ANTES = `do $$
 begin

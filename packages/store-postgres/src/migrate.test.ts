@@ -25,7 +25,7 @@ after(async () => {
   await lite.close();
 });
 
-const DONOS_DE_FUNCAO = ["obedient_eraser", "obedient_scheduler"];
+const DONOS_DE_FUNCAO = ["obedient_eraser", "obedient_scheduler", "obedient_metrics"];
 
 describe("migrate: papel dono sem superusuário", () => {
   it("o papel que roda não é superusuário", async () => {
@@ -41,11 +41,13 @@ describe("migrate: papel dono sem superusuário", () => {
   it("as funções ficam com o dono certo", async () => {
     const r = await lite.query<{ nome: string; dono: string }>(
       `select p.proname as nome, pg_get_userbyid(p.proowner) as dono from pg_proc p
-       where p.pronamespace = 'obedient'::regnamespace and p.proname in ('apagar_meus_dados', 'pessoas_com_missao_devida')
+       where p.pronamespace = 'obedient'::regnamespace and p.proname in ('apagar_meus_dados', 'metricas', 'migracoes_aplicadas', 'pessoas_com_missao_devida')
        order by 1`,
     );
     assert.deepEqual(r.rows, [
       { nome: "apagar_meus_dados", dono: "obedient_eraser" },
+      { nome: "metricas", dono: "obedient_metrics" },
+      { nome: "migracoes_aplicadas", dono: "obedient_metrics" },
       { nome: "pessoas_com_missao_devida", dono: "obedient_scheduler" },
     ]);
   });

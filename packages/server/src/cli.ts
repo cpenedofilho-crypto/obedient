@@ -190,7 +190,9 @@ async function main(argv: string[]) {
     if (comOAuthDaPessoa.length && !env("OBEDIENT_CHAVES_COFRE")) throw new Error("servidor MCP com oauth exige OBEDIENT_CHAVES_COFRE (a credencial da pessoa é guardada cifrada)");
     const conexoesMcp = comOAuthDaPessoa.length ? new ConexoesMcp(db, google?.cofre ?? new Cofre(lerChaves(env("OBEDIENT_CHAVES_COFRE"))), servidoresMcp, origin) : null;
     agente(db, google ? new Conexoes(db, google.cofre, google.cliente, fetch, systemClock) : null, servidoresMcp, conexoesMcp);
-    servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(google ? { google } : {}), ...(conexoesMcp ? { mcp: { conexoes: conexoesMcp, servidores: servidoresMcp } } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
+    const tokenMetricas = env("OBEDIENT_METRICAS_TOKEN");
+    if (!tokenMetricas) console.log("métricas desligadas (sem OBEDIENT_METRICAS_TOKEN): /metrics responde 404");
+    servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(tokenMetricas ? { tokenMetricas } : {}), ...(google ? { google } : {}), ...(conexoesMcp ? { mcp: { conexoes: conexoesMcp, servidores: servidoresMcp } } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
     return;
   }
   throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | mcp conceder|retirar <servidor> <usuario> | servir");

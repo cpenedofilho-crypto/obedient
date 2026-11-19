@@ -6,3 +6,4 @@ export * from "./sessao.ts";
 export * from "./direitos.ts";
 export * from "./missoes.ts";
 export * from "./passos.ts";
+export * from "./metricas.ts";
