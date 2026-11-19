@@ -87,6 +87,8 @@ export interface ResultadoApagar {
   passos: number;
   /** Evidências da verificação das missões (0010). */
   evidencias: number;
+  /** Tarefas dos planos das missões (0014). */
+  tarefas: number;
 }
 
 /** "Apague o que você sabe sobre mim" (Art. 13), num passo. Ver obedient.apagar_meus_dados(). */

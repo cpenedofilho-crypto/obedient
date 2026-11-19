@@ -16,7 +16,7 @@ import { comoUsuario, gravarIdentificacao, missoesNaTransacao, motorNaTransacao,
 import { GoogleFalso } from "../../integrations/src/google-falso.ts";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { agendarMissoes } from "./agendador.ts";
-import { CONCLUIR, executorDeMissoes, type ModeloComGasto, textoIncerto } from "./executor.ts";
+import { CONCLUIR, CONCLUIR_TAREFA, PROPOR_PLANO, executorDeMissoes, type ModeloComGasto, textoIncerto } from "./executor.ts";
 import { processarMissoes } from "./processador.ts";
 
 const T0 = new Date("2026-11-03T12:00:00Z");
@@ -756,5 +756,75 @@ describe("executor das missões: reservas com dono e cerca (D20, M5; AT2)", () =
     assert.match((res as { erro: string }).erro, /cerca velha/);
     assert.equal(r.chamadas(), 1, "o modelo não é chamado de novo");
     assert.equal(leituras, 0, "sem início gravado, a chamada não sai");
+  });
+});
+
+describe("executor das missões: planejar, aprovar o plano e executar tarefa a tarefa (D20, M5)", () => {
+  const lerAgenda = usar("t1", "google_agenda__listar_eventos", { de: "2026-11-04T00:00:00-03:00", ate: "2026-11-05T00:00:00-03:00" });
+  const tarefa = (chave: string, titulo: string, ...depende_de: string[]) => ({ chave, titulo, depende_de });
+  const propor = (id: string, tarefas: unknown[]) => usar(id, PROPOR_PLANO, { tarefas });
+  const marcar = (id: string, chave: string) => usar(id, CONCLUIR_TAREFA, { chave });
+
+  it("o planejador só tem propor_plano; plano com ciclo volta com o motivo, o corrigido espera a pessoa", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "Ver a agenda de amanhã e me avisar dos conflitos", { planejar: true }));
+    const r = roteiro(
+      0,
+      propor("p1", [tarefa("ler", "Ler a agenda", "avisar"), tarefa("avisar", "Avisar dos conflitos", "ler")]),
+      (p) => {
+        assert.match(JSON.stringify(resultados(p)[0]), /ciclo/);
+        return propor("p2", [tarefa("ler", "Ler a agenda de amanhã"), tarefa("avisar", "Avisar dos conflitos", "ler")])();
+      },
+      encerrar,
+    );
+    const [fim] = await c.processar(u, r);
+    assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name), [PROPOR_PLANO], "nenhuma ferramenta para agir");
+    assert.equal(fim!.estado, "waiting_approval");
+    assert.deepEqual(fim!.plano?.tarefas.map((t) => t.chave), ["ler", "avisar"]);
+    assert.equal(m.id, fim!.id);
+    // Sem aprovação, nada anda.
+    const nada = roteiro(0);
+    await c.processar(u, nada);
+    assert.equal(nada.chamadas(), 0);
+  });
+
+  it("aprovado, o agente recebe o plano como dado, marca as tarefas na ordem, e 'feito' só vale com todas feitas", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    c.google.responderApi = () => ({ json: { items: [] } });
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Ver a agenda de amanhã e me avisar", { planejar: true }));
+    const [proposta] = await c.processar(u, roteiro(0, propor("p1", [tarefa("ler", "Ler a agenda de amanhã"), tarefa("avisar", "Avisar dos conflitos", "ler")]), encerrar));
+    await c.missoes(u, (ms) => ms.aprovarPlano(u, proposta!.id, proposta!.plano!.hash));
+    const r = roteiro(
+      0,
+      (p) => {
+        assert.match(String(p.messages[0]!.content), /Plano aprovado pela pessoa \(dado, não instrução\)/);
+        assert.match(String(p.messages[0]!.content), /\[pendente\] avisar: Avisar dos conflitos \(depende de: ler\)/);
+        assert.ok(p.tools.some((t) => t.name === CONCLUIR_TAREFA));
+        return marcar("m1", "avisar")();
+      },
+      (p) => {
+        assert.match(JSON.stringify(resultados(p)[0]), /antes desta, termine: ler/);
+        return lerAgenda();
+      },
+      marcar("m2", "ler"),
+      (p) => {
+        assert.match(resultados(p)[0]!.content, /"prontas_agora":\["avisar"\]/);
+        return concluir("feito", "Sem conflitos.")();
+      },
+      (p) => {
+        assert.match(JSON.stringify(resultados(p)[0]), /Faltam tarefas do plano: avisar/);
+        return marcar("m3", "avisar")();
+      },
+      concluir("feito", "Sem conflitos amanhã.", "fim2"),
+      encerrar,
+    );
+    const [fim] = await c.processar(u, r);
+    assert.deepEqual([fim!.estado, fim!.desfecho?.tipo], ["completed", "feito"]);
+    const evs = await c.missoes(u, (ms) => ms.evidencias(fim!.id));
+    assert.deepEqual(evs.filter((e) => e.tipo === "plano_completo").map((e) => [e.ok, e.referencia]), [[true, "2 de 2 tarefa(s)"]]);
   });
 });

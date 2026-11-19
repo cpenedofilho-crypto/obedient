@@ -179,7 +179,7 @@ function lerVoltaDoGoogle() {
 function renderMissoes(ops) {
   const pendentes = ops.filter((o) => o.estado === "pendente");
   const novas = pendentes.filter((o) => o.acao.tipo === "criar_missao").map((o) => /** @type {any} */ (o.acao));
-  const mexendo = new Set(pendentes.filter((o) => o.acao.tipo === "cancelar_missao" || o.acao.tipo === "tentar_de_novo").map((o) => /** @type {any} */ (o.acao).missaoId));
+  const mexendo = new Set(pendentes.filter((o) => ["cancelar_missao", "tentar_de_novo", "aprovar_plano", "recusar_plano"].includes(o.acao.tipo)).map((o) => /** @type {any} */ (o.acao).missaoId));
   /** @type {Node[]} */
   const itens = novas.map((a) => el("li", { classe: "autorizacao" }, [el("p", { texto: a.objetivo }), el("p", { classe: "estado", texto: "Pedido. Enviando…" })]));
   for (const m of painel.missoes) {
@@ -190,12 +190,28 @@ function renderMissoes(ops) {
     if (m.prazoFinalEm) limites.push(`até ${new Date(m.prazoFinalEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`);
     if (limites.length) filhos.push(el("p", { classe: "meta", texto: limites.join(" · ") }));
     if (m.impedimento) filhos.push(el("p", { classe: "impedimento", texto: m.impedimento }));
+    // Plano (M5): o texto das tarefas é do planejador; vai como texto, nunca como HTML.
+    if (m.plano) {
+      const feitas = m.plano.tarefas.filter((/** @type {any} */ t) => t.feita).length;
+      filhos.push(el("p", { classe: "meta", texto: m.plano.aprovado ? `Plano: ${feitas} de ${m.plano.tarefas.length} tarefa(s) feita(s)` : "O plano que o agente propôs:" }));
+      filhos.push(
+        el(
+          "ol",
+          { classe: "plano" },
+          m.plano.tarefas.map((/** @type {any} */ t) => el("li", { classe: t.feita ? "feita" : "", texto: `${t.feita ? "✓ " : ""}${t.titulo}${t.dependeDe.length ? ` (depois de: ${t.dependeDe.join(", ")})` : ""}` })),
+        ),
+      );
+    }
     if (m.verificacao) filhos.push(el("p", { classe: "meta", texto: m.verificacao.resumo }));
     if (m.desfecho) filhos.push(el("p", { classe: m.desfecho.tipo === "feito" ? "estado bom" : "estado", texto: m.desfecho.explicacao }));
     if (mexendo.has(m.id)) filhos.push(el("p", { classe: "estado", texto: "Enviando…" }));
     else if (!["completed", "failed", "cancelled"].includes(m.estado)) {
       /** @type {Node[]} */
       const acoes = [];
+      if (m.plano?.esperandoVoce) {
+        acoes.push(botao("Aprovar o plano", () => agir({ tipo: "aprovar_plano", missaoId: m.id, hash: m.plano.hash }), "botao principal", `Aprovar o plano: ${m.objetivo}`));
+        acoes.push(botao("Recusar o plano", () => agir({ tipo: "recusar_plano", missaoId: m.id }), "botao", `Recusar o plano: ${m.objetivo}`));
+      }
       if (m.estado === "blocked") {
         const teto = /teto de custo/.test(m.impedimento ?? "");
         const novo = Math.min(m.tetoCentavos * 2, 10000);
@@ -550,6 +566,7 @@ $("f-missao").addEventListener("submit", (ev) => {
   if (dias) mandato.prazoFinalEm = new Date(Date.now() + dias * 24 * 3_600_000).toISOString();
   // Critério de conclusão (M3): conferido pelo registro de passos, não pelo que o agente disser.
   const conferir = usar && /** @type {HTMLInputElement} */ ($("m-conferir")).checked;
+  const planejar = /** @type {HTMLInputElement} */ ($("m-planejar")).checked;
   campo.value = "";
   void agir({
     tipo: "criar_missao",
@@ -557,6 +574,7 @@ $("f-missao").addEventListener("submit", (ev) => {
     tetoCentavos: teto,
     ...(usar || dias ? { mandato } : {}),
     ...(conferir ? { criterios: [{ tipo: "ferramenta_ok", ferramenta: `${usar}/*` }] } : {}),
+    ...(planejar ? { planejar: true } : {}),
   });
 });
 $("m-usar").addEventListener("change", () => {

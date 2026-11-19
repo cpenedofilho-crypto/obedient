@@ -466,6 +466,28 @@ describe("missões e identificação pelo app (Arts. 5º, 7º e 9º)", () => {
     assert.deepEqual(m!.verificacao?.itens.map((i) => i.ok), [false]);
   });
 
+  it("plano (M5): pedir com 'planejar', ver o plano, aprovar pelo hash (o errado é recusado) e ver as tarefas", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    const ruim = await api(post("/api/acoes", { opId: opId(), tipo: "criar_missao", objetivo: "x", planejar: "sim" }, token));
+    assert.equal(ruim.status, 400);
+    assert.equal((await acao(token, { tipo: "criar_missao", objetivo: "Resumir os e-mails", planejar: true })).ok, true);
+    const tarefas = [{ chave: "ler", titulo: "Ler os e-mails de hoje", dependeDe: [] }, { chave: "resumir", titulo: "Resumir para você", dependeDe: ["ler"] }];
+    await processar(u, async () => ({ tipo: "plano", tarefas, custoCentavos: 1 }));
+    type P = { id: string; situacao: string; plano: { hash: string; aprovado: boolean; esperandoVoce: boolean; tarefas: { chave: string; titulo: string; feita: boolean }[] } | null };
+    const ver = async () => corpo<{ missoes: P[] }>(await api(get("/api/painel", token))).missoes[0]!;
+    let m = await ver();
+    assert.equal(m.situacao, "Esperando você aprovar o plano");
+    assert.deepEqual([m.plano?.esperandoVoce, m.plano?.aprovado, m.plano?.tarefas.map((t) => t.titulo)], [true, false, ["Ler os e-mails de hoje", "Resumir para você"]]);
+    const errado = await acao(token, { tipo: "aprovar_plano", missaoId: m.id, hash: "f".repeat(64) });
+    assert.deepEqual([errado.ok, errado.mensagem], [false, "O plano mudou desde que você o viu. Confira de novo."]);
+    assert.equal((await acao(token, { tipo: "aprovar_plano", missaoId: m.id, hash: m.plano!.hash })).ok, true);
+    m = await ver();
+    assert.deepEqual([m.plano?.esperandoVoce, m.plano?.aprovado], [false, true]);
+    const outra = await acao(token, { tipo: "recusar_plano", missaoId: m.id });
+    assert.deepEqual([outra.ok, outra.mensagem], [false, "Esse plano não está mais esperando você."]);
+  });
+
   it("mandato (M4): forma inválida é recusada na entrada, prazo no passado vira recusa da missão, e o painel mostra mandato e gasto do mês", async () => {
     const u = usuario("ana");
     const { token } = await cadastrar(u);

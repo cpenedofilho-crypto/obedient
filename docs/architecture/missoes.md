@@ -26,17 +26,19 @@ erre. Um teste exige que a tabela do banco seja igual à do código.
 
 | Estado | Significado | Pode ir para |
 |---|---|---|
-| `created` | criada, esperando a primeira tentativa | planning, running*, failed, cancelled |
-| `planning` | o plano está sendo feito (entra em uso no M5) | running, waiting_approval, blocked, failed, cancelled |
+| `created` | criada, esperando a primeira tentativa | planning, running*, blocked, failed, cancelled |
+| `planning` | o planejador está fazendo o plano (M5, só com "planejar antes") | running, waiting_approval, retrying, blocked, failed, cancelled |
 | `running` | uma tentativa está reservada e rodando | verifying, waiting_approval, retrying, blocked, failed, cancelled |
 | `verifying` | as evidências estão sendo gravadas e conferidas (M3) | completed, running, blocked, failed, cancelled |
-| `retrying` | falhou de passagem e espera a hora da próxima tentativa | running, blocked, failed, cancelled |
-| `waiting_approval` | espera a pessoa decidir um pedido | running, blocked, failed, cancelled |
+| `retrying` | falhou de passagem e espera a hora da próxima tentativa | planning, running, blocked, failed, cancelled |
+| `waiting_approval` | espera a pessoa decidir um pedido, ou aprovar o plano (M5) | running, blocked, failed, cancelled |
 | `blocked` | parou e precisa da pessoa | retrying, planning, running, failed, cancelled |
 | `completed`, `failed`, `cancelled` | fim | nada |
 
-\* Provisória: `created → running` sai com o planejador (M5). A outra aresta provisória,
-`running → completed`, saiu no M3: terminar passa sempre por `verifying`.
+\* `created → running` era provisória até o planejador. No M5 ela ficou: planejar é uma opção da pessoa
+("planejar antes"), e a missão sem plano continua indo direto para a execução. A outra aresta
+provisória, `running → completed`, saiu no M3: terminar passa sempre por `verifying`.
+`created → blocked` entrou no M4 (teto do mês); `planning → retrying` e `retrying → planning`, no M5.
 
 - Missão nasce `created` (o banco recusa outro estado na inserção).
 - "Tentar de novo" leva `blocked → retrying`, com a próxima tentativa na hora.
@@ -214,3 +216,34 @@ por outro, ainda podia gravar passos e chamar ferramentas.
   reprova nenhum teste; o que os testes conferem é que o processo A não chama nada).
 - **Vários processos:** com a cerca, dois processos podem rodar o agendador ao mesmo tempo sem que um
   escreva por cima do outro. A consulta de quem tem missão devida continua uma por volta.
+
+## Plano em DAG e aprovação do plano (decisão D20, marco M5, 19/11/2026)
+
+Opcional: só a missão criada com **"Planejar antes e me mostrar o plano"** passa por ele. Sem isso, nada
+muda.
+
+- **`planning`:** a primeira tentativa é do planejador, um modelo que só tem a ferramenta `propor_plano`.
+  Ele não age; propõe de 1 a 30 tarefas, cada uma com chave, título e dependências. O plano é conferido
+  por `validarPlano` (mission-engine): sem ciclo, sem dependência desconhecida ou de si mesma, até 10
+  dependências por tarefa. Plano que não confere volta ao planejador com o motivo, até 2 correções.
+  Sem plano, falha passageira (`retrying` e de novo `planning`).
+- **Aprovação:** com o plano, a missão vai para `waiting_approval` e a pessoa vê as tarefas no cartão
+  da missão. Ela aprova **pelo hash** do plano (aprova exatamente o que viu; hash diferente é recusado)
+  ou recusa. **Aprovar o plano não autoriza ação nenhuma:** cada escrita continua pedindo a aprovação
+  dela na hora (D18, D22). Sem decisão, o agendador não pega a missão.
+- **Recusar** para a missão (`blocked`). "Tentar de novo" planeja outra vez, com outra versão do plano;
+  as tarefas da versão recusada não são reaproveitadas.
+- **Execução:** aprovado, a tentativa seguinte executa. O plano entra na conversa como **dado** (é texto
+  de um modelo), com o estado de cada tarefa, e o agente ganha `concluir_tarefa`. Marcar uma tarefa
+  feita exige as dependências feitas; o banco confere de novo e não deixa uma tarefa feita voltar a
+  pendente.
+- **"Feito" só com todas as tarefas feitas.** O executor devolve ao agente o que falta (conta como volta
+  de verificação), e a missão confere de novo ao concluir, pelo que está gravado: a evidência
+  `plano_completo` do agente é descartada e refeita.
+- **Tentativas:** o planejamento conta como uma tentativa (com o padrão de 3: planejar, executar e mais
+  uma). "Tentar de novo" zera a contagem, e o plano aprovado continua valendo.
+- **Banco:** migration `0014_plano.sql` (`mission_tasks` e `mission_task_deps`, só inserção, RLS por
+  pessoa; o app só muda o estado da tarefa). "Apagar o que o OBEDIENT sabe" apaga as tarefas e tira o
+  plano. "Baixar meus dados" leva o plano junto com a missão.
+- **Ainda não:** tarefas da mesma camada rodando em paralelo, e um modelo diferente para o planejador
+  (hoje é o mesmo do executor; trocar é decisão A5).

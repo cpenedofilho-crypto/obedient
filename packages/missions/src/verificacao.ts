@@ -28,11 +28,12 @@ export type Criterio =
   | { tipo: "ferramenta_ok"; ferramenta: string; minimo?: number }
   | { tipo: "resultado_conforme"; esquema: Record<string, unknown> };
 
-export const TIPOS_EVIDENCIA = ["ferramenta_ok", "resultado_conforme", "sem_criterio", "nao_sei"] as const;
+// plano_completo (M5): todas as tarefas do plano aprovado foram feitas, conferido pelo que está gravado.
+export const TIPOS_EVIDENCIA = ["ferramenta_ok", "resultado_conforme", "sem_criterio", "nao_sei", "plano_completo"] as const;
 export type TipoEvidencia = (typeof TIPOS_EVIDENCIA)[number];
 
 export interface Evidencia {
-  /** Índice do critério (null para sem_criterio e nao_sei). */
+  /** Índice do critério (null para sem_criterio, nao_sei e plano_completo). */
   criterio: number | null;
   tipo: TipoEvidencia;
   ok: boolean;

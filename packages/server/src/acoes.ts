@@ -31,7 +31,9 @@ export type Acao =
   | { opId: string; tipo: "esquecer"; licaoId: string }
   | { opId: string; tipo: "contestar"; seq: number; motivo: string }
   | { opId: string; tipo: "apagar_tudo" }
-  | { opId: string; tipo: "criar_missao"; objetivo: string; tetoCentavos?: number; criterios?: Criterio[]; mandato?: { ferramentas?: string[]; prazoFinalEm?: string } }
+  | { opId: string; tipo: "criar_missao"; objetivo: string; tetoCentavos?: number; criterios?: Criterio[]; mandato?: { ferramentas?: string[]; prazoFinalEm?: string }; planejar?: boolean }
+  | { opId: string; tipo: "aprovar_plano"; missaoId: string; hash: string }
+  | { opId: string; tipo: "recusar_plano"; missaoId: string }
   | { opId: string; tipo: "cancelar_missao"; missaoId: string }
   | { opId: string; tipo: "tentar_de_novo"; missaoId: string; novoTetoCentavos?: number }
   | { opId: string; tipo: "identificacao"; texto: string }
@@ -87,6 +89,14 @@ export function lerAcao(corpo: unknown, outras: readonly string[] = []): Acao | 
         if (problemasDoMandato(semPrazo, new Date(0)).length) erros.push("mandato inválido");
         else if (md && md.prazoFinalEm !== undefined && (typeof md.prazoFinalEm !== "string" || Number.isNaN(Date.parse(md.prazoFinalEm)))) erros.push("mandato inválido");
       }
+      if (o.planejar !== undefined && typeof o.planejar !== "boolean") erros.push("planejar inválido");
+      break;
+    case "aprovar_plano":
+      id("missaoId");
+      if (typeof o.hash !== "string" || !HASH.test(o.hash)) erros.push("hash inválido");
+      break;
+    case "recusar_plano":
+      id("missaoId");
       break;
     case "cancelar_missao":
       id("missaoId");
@@ -132,6 +142,8 @@ const MENSAGEM_POR_TIPO: Partial<Record<Acao["tipo"], Partial<Record<string, str
   cancelar_missao: { PROPOSAL_NOT_FOUND: "Essa missão não existe mais.", PROPOSAL_NOT_PENDING: "Essa missão já tinha terminado." },
   desconectar: { GRANT_NOT_FOUND: "Essa conexão já tinha sido desfeita." },
   tentar_de_novo: { PROPOSAL_NOT_FOUND: "Essa missão não existe mais.", PROPOSAL_NOT_PENDING: "Essa missão não está parada esperando você." },
+  aprovar_plano: { PROPOSAL_NOT_FOUND: "Essa missão não existe mais.", PROPOSAL_NOT_PENDING: "Esse plano não está mais esperando você.", PAYLOAD_MISMATCH: "O plano mudou desde que você o viu. Confira de novo." },
+  recusar_plano: { PROPOSAL_NOT_FOUND: "Essa missão não existe mais.", PROPOSAL_NOT_PENDING: "Esse plano não está mais esperando você." },
 };
 
 async function executar(ctx: Contexto, s: Sessao, a: Acao): Promise<void> {
@@ -196,7 +208,14 @@ async function executar(ctx: Contexto, s: Sessao, a: Acao): Promise<void> {
         ...(a.tetoCentavos !== undefined ? { tetoCustoCentavos: a.tetoCentavos } : {}),
         ...(a.criterios !== undefined ? { criterios: a.criterios } : {}),
         ...(a.mandato !== undefined ? { mandato: a.mandato } : {}),
+        ...(a.planejar ? { planejar: true } : {}),
       });
+      return;
+    case "aprovar_plano":
+      await missoes.aprovarPlano(s.userId, a.missaoId, a.hash);
+      return;
+    case "recusar_plano":
+      await missoes.recusarPlano(s.userId, a.missaoId);
       return;
     case "cancelar_missao":
       await missoes.cancelarPelaPessoa(s.userId, a.missaoId);

@@ -29,12 +29,14 @@
 import { type Clock, type IdFactory, ObedientError, systemClock, uuid } from "@obedient/core";
 import { CONSTITUTION_VERSION, type EthicsEngine } from "@obedient/ethics-engine";
 import { LIMITES_EQUIPE } from "@obedient/mission-engine";
+import { type PlanoDaMissao, type TarefaDoPlano, hashDoPlano, lerTarefas } from "./plano.ts";
 import { type Criterio, type Evidencia, problemasDosCriterios, textoNaoVerificada, verificar } from "./verificacao.ts";
 
 import { type Mandato, TETO_MENSAL_CENTAVOS, inicioDoMes, lerMandato, problemasDoMandato } from "./mandato.ts";
 
 export * from "./verificacao.ts";
 export * from "./mandato.ts";
+export * from "./plano.ts";
 
 /**
  * Estados da missão (decisão D20, marco M2). `planning` e `verifying` já estão na tabela, mas só entram
@@ -58,10 +60,11 @@ export const ABERTAS: readonly EstadoMissao[] = ESTADOS_MISSAO.filter((e) => !TE
 export const TRANSICOES: Readonly<Record<EstadoMissao, readonly EstadoMissao[]>> = {
   // created → blocked desde o M4: o teto do mês pode parar a missão antes da primeira tentativa.
   created: ["planning", "running", "blocked", "failed", "cancelled"],
-  planning: ["running", "waiting_approval", "blocked", "failed", "cancelled"],
+  // planning → retrying e retrying → planning desde o M5: o planejador também tem falha passageira.
+  planning: ["running", "waiting_approval", "retrying", "blocked", "failed", "cancelled"],
   running: ["verifying", "waiting_approval", "retrying", "blocked", "failed", "cancelled"],
   verifying: ["completed", "running", "blocked", "failed", "cancelled"],
-  retrying: ["running", "blocked", "failed", "cancelled"],
+  retrying: ["planning", "running", "blocked", "failed", "cancelled"],
   waiting_approval: ["running", "blocked", "failed", "cancelled"],
   blocked: ["retrying", "planning", "running", "failed", "cancelled"],
   completed: [],
@@ -74,7 +77,7 @@ export function podeMudar(de: EstadoMissao, para: EstadoMissao): boolean {
 }
 
 /** Estados em que a missão espera uma tentativa (o agendador a pega quando a hora chega). */
-export const DEVIDAS: readonly EstadoMissao[] = ["created", "retrying", "running"];
+export const DEVIDAS: readonly EstadoMissao[] = ["created", "retrying", "running", "planning"];
 
 export const INTERVALO_BASE_MS = 30_000;
 export const INTERVALO_MAXIMO_MS = 60 * 60_000;
@@ -102,6 +105,12 @@ export interface Missao {
   criterios: Criterio[];
   /** Mandato (M4), fixado na criação: só estreita o que os grants permitem. */
   mandato: Mandato;
+  /** Planejar antes (M5): a missão passa por planning e espera a pessoa aprovar o plano. */
+  planejar: boolean;
+  /** Último número de plano usado (sobe a cada plano novo). */
+  planoVersao: number;
+  /** O plano em vigor (null: sem plano, ou o último foi recusado). */
+  plano: PlanoDaMissao | null;
   estado: EstadoMissao;
   /** Por que parou e o que a pessoa pode fazer (só quando blocked). */
   impedimento: string | null;
@@ -148,6 +157,8 @@ export type ResultadoTentativa = { custoCentavos: number } & (
   // A tentativa não pode seguir sem a pessoa (por exemplo, uma ação ficou sem resultado confirmado):
   // a missão para com o motivo, sem gastar outra tentativa nem repetir nada sozinha.
   | { tipo: "impedida"; motivo: string }
+  // O planejador (M5) entregou as tarefas; a missão espera a pessoa aprovar o plano.
+  | { tipo: "plano"; tarefas: TarefaDoPlano[] }
 );
 
 export type Executor = (m: Missao) => Promise<ResultadoTentativa>;
@@ -165,6 +176,12 @@ export interface MissionStore {
   registrarGasto(m: Missao, centavos: number, em: Date): Promise<void>;
   /** Soma do que a pessoa gastou desde `desde`, em todas as missões. */
   gastoDesde(userId: string, desde: Date): Promise<number>;
+  /** Grava as tarefas do plano `plano.versao` (só inserção). Chamado antes de salvar a missão. */
+  gravarPlano(m: Missao, plano: PlanoDaMissao): Promise<void>;
+  /** Chaves das tarefas feitas do plano `versao`. */
+  tarefasFeitas(missionId: string, versao: number): Promise<string[]>;
+  /** Marca a tarefa feita; false se já estava feita. */
+  marcarTarefaFeita(m: Missao, versao: number, chave: string, em: Date): Promise<boolean>;
 }
 
 export class InMemoryMissionStore implements MissionStore {
@@ -201,6 +218,20 @@ export class InMemoryMissionStore implements MissionStore {
   async gastoDesde(userId: string, desde: Date) {
     return this.gastos.filter((g) => g.userId === userId && g.em.getTime() >= desde.getTime()).reduce((a, g) => a + g.centavos, 0);
   }
+  private readonly feitas = new Map<string, Set<string>>();
+  async gravarPlano(m: Missao, plano: PlanoDaMissao) {
+    this.feitas.set(`${m.id}:${plano.versao}`, new Set());
+  }
+  async tarefasFeitas(missionId: string, versao: number) {
+    return [...(this.feitas.get(`${missionId}:${versao}`) ?? [])];
+  }
+  async marcarTarefaFeita(m: Missao, versao: number, chave: string) {
+    const f = this.feitas.get(`${m.id}:${versao}`) ?? new Set<string>();
+    if (f.has(chave)) return false;
+    f.add(chave);
+    this.feitas.set(`${m.id}:${versao}`, f);
+    return true;
+  }
 }
 
 /** Intervalo antes da tentativa n+1, depois de n falhas: 30 s, 1 min, 2 min, … até 1 h. */
@@ -225,7 +256,7 @@ export class Missoes {
   }
 
   /** A pessoa pede uma missão. */
-  async criar(userId: string, agente: string, objetivo: string, opts: { tetoCustoCentavos?: number; maxTentativas?: number; criterios?: Criterio[]; mandato?: { ferramentas?: string[] | null; prazoFinalEm?: Date | string | null } } = {}): Promise<Missao> {
+  async criar(userId: string, agente: string, objetivo: string, opts: { tetoCustoCentavos?: number; maxTentativas?: number; criterios?: Criterio[]; mandato?: { ferramentas?: string[] | null; prazoFinalEm?: Date | string | null }; planejar?: boolean } = {}): Promise<Missao> {
     const texto = typeof objetivo === "string" ? objetivo.replace(/\s+/g, " ").trim() : "";
     if (!texto || texto.length > MAX_OBJETIVO) throw new ObedientError("INVALID_PAYLOAD", `o objetivo precisa ter de 1 a ${MAX_OBJETIVO} caracteres`);
     if (agente === userId) throw new ObedientError("INVALID_PAYLOAD", "o agente não pode ser a própria pessoa");
@@ -245,6 +276,9 @@ export class Missoes {
       objetivo: texto,
       criterios: structuredClone(opts.criterios ?? []),
       mandato: lerMandato(opts.mandato),
+      planejar: opts.planejar === true,
+      planoVersao: 0,
+      plano: null,
       estado: "created",
       impedimento: null,
       desfecho: null,
@@ -323,6 +357,18 @@ export class Missoes {
     // Teto do mês (D21): nenhuma tentativa começa depois de atingido.
     if ((await this.gastoDoMes(m.userId)) >= TETO_MENSAL_CENTAVOS) return nao(await this.bloquear(m, this.textoTetoMensal()));
 
+    // Plano esperando a pessoa (M5): sem aprovação, espera; aprovado, começa uma tentativa nova de
+    // execução, já pelo plano.
+    if (m.estado === "waiting_approval" && !m.propostaId && m.plano) {
+      if (!m.plano.aprovadoEm) return nao(m);
+      if (m.custoCentavos >= m.tetoCustoCentavos) return nao(await this.bloquear(m, this.textoTeto(m)));
+      m.tentativas += 1;
+      this.mudar(m, "running");
+      this.reservarAte(m, dono);
+      m.atualizadaEm = this.clock.now();
+      if (!(await this.salvar(m))) return nao((await this.store.get(id))!);
+      return { reservada: true, missao: m };
+    }
     if (m.estado === "waiting_approval") {
       const p = m.propostaId ? await this.motor.approvals.get(m.propostaId) : undefined;
       if (!p || p.status === "pending") return nao(m); // a pessoa ainda não decidiu
@@ -363,7 +409,8 @@ export class Missoes {
     }
 
     m.tentativas += 1;
-    if (m.estado !== "running") this.mudar(m, "running");
+    // Planejar antes (M5): sem plano, a tentativa é do planejador.
+    this.mudar(m, m.planejar && !m.plano ? "planning" : "running");
     this.reservarAte(m, dono);
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) return nao((await this.store.get(id))!);
@@ -383,7 +430,8 @@ export class Missoes {
    * apertou parar, ou a reserva venceu e outro processo tentou de novo), o resultado é descartado e a
    * missão fica como está.
    */
-  async concluir(reservada: Missao, r: ResultadoTentativa): Promise<Missao> {
+  async concluir(reservada: Missao, resultado: ResultadoTentativa): Promise<Missao> {
+    let r = resultado;
     const m = structuredClone(reservada);
     m.reservadaAte = null;
     m.reservadaPor = null;
@@ -396,7 +444,34 @@ export class Missoes {
     // O gasto aconteceu, mesmo que o resultado seja descartado depois: conta para o teto do mês.
     if (custo > 0) await this.store.registrarGasto(m, custo, this.clock.now());
 
+    // O planejador só entrega plano; a execução nunca entrega plano (M5). O resto vira falha passageira.
+    if (m.estado === "planning" && (r.tipo === "feito" || r.tipo === "nao_sei" || r.tipo === "aguardando_aprovacao"))
+      r = { tipo: "falha_temporaria", erro: "o planejador não entregou um plano", custoCentavos: r.custoCentavos };
+    if (m.estado !== "planning" && r.tipo === "plano") r = { tipo: "falha_temporaria", erro: "plano fora da hora de planejar", custoCentavos: r.custoCentavos };
+
     switch (r.tipo) {
+      case "plano": {
+        const lido = lerTarefas(r.tarefas);
+        if ("problemas" in lido) {
+          this.mudar(m, "blocked");
+          m.impedimento = curto(`O planejador entregou um plano que não confere (${lido.problemas.slice(0, 2).join("; ")}). Mande tentar de novo ou cancele.`, 500);
+          m.rodada = null;
+          if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
+          await this.registrar(m, "mission.blocked", "info", [...sobre, "plano inválido"]);
+          return m;
+        }
+        m.planoVersao += 1;
+        m.plano = { versao: m.planoVersao, hash: hashDoPlano(lido.tarefas), aprovadoEm: null, tarefas: lido.tarefas };
+        this.mudar(m, "waiting_approval");
+        m.propostaId = null;
+        m.rodada = null;
+        // As tarefas entram antes da missão: se a troca pela versão falhar, ficam órfãs de um plano
+        // que ninguém vê (a versão do plano não foi gravada na missão).
+        await this.store.gravarPlano(m, m.plano);
+        if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
+        await this.registrar(m, "mission.plan_proposed", "approval_required", [...sobre, `${m.plano.tarefas.length} tarefa(s)`, `plano ${m.plano.hash.slice(0, 12)}`]);
+        return m;
+      }
       case "nao_consegui": {
         this.mudar(m, "failed");
         m.rodada = null;
@@ -412,6 +487,20 @@ export class Missoes {
           r.tipo === "nao_sei"
             ? [{ criterio: null, tipo: "nao_sei", ok: true, referencia: null, detalhe: "O agente respondeu que não sabe: nenhum critério se aplica." }]
             : (r.evidencias ?? verificar(m.criterios, [], undefined).evidencias);
+        // Plano (M5): "feito" só com todas as tarefas feitas, conferido aqui pelo que está gravado.
+        if (r.tipo === "feito" && m.plano) {
+          const feitas = new Set(await this.store.tarefasFeitas(m.id, m.plano.versao));
+          const faltam = m.plano.tarefas.filter((t) => !feitas.has(t.chave));
+          const i = evidencias.findIndex((e) => e.tipo === "plano_completo");
+          if (i >= 0) evidencias.splice(i, 1);
+          evidencias.push({
+            criterio: null,
+            tipo: "plano_completo",
+            ok: faltam.length === 0,
+            referencia: `${m.plano.tarefas.length - faltam.length} de ${m.plano.tarefas.length} tarefa(s)`,
+            detalhe: faltam.length ? `Faltam ${faltam.length} tarefa(s) do plano: ${curto(faltam.map((t) => t.titulo).join("; "), 300)}.` : "Todas as tarefas do plano foram feitas.",
+          });
+        }
         this.mudar(m, "verifying");
         m.rodada = null;
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
@@ -535,6 +624,57 @@ export class Missoes {
     if (!(await this.salvar(m))) throw new ObedientError("PROPOSAL_NOT_PENDING", "a missão mudou enquanto isso");
     await this.registrar(m, "mission.retry", "info", [`teto ${reais(m.tetoCustoCentavos)}`]);
     return m;
+  }
+
+  /** A pessoa aprova o plano que viu (M5): pelo hash, para aprovar exatamente aquele plano. */
+  async aprovarPlano(userId: string, id: string, hash: string): Promise<Missao> {
+    const m = await this.planoEsperando(userId, id);
+    if (hash !== m.plano!.hash) throw new ObedientError("PAYLOAD_MISMATCH", "o plano mudou desde que você o viu");
+    m.plano!.aprovadoEm = this.clock.now();
+    m.proximaTentativaEm = this.clock.now();
+    m.atualizadaEm = this.clock.now();
+    if (!(await this.salvar(m))) throw new ObedientError("PROPOSAL_NOT_PENDING", "a missão mudou enquanto isso");
+    await this.registrar(m, "mission.plan_approved", "info", [`plano ${m.plano!.hash.slice(0, 12)}`, `${m.plano!.tarefas.length} tarefa(s)`]);
+    return m;
+  }
+
+  /** A pessoa recusa o plano: a missão para; "tentar de novo" planeja outra vez. */
+  async recusarPlano(userId: string, id: string): Promise<Missao> {
+    const m = await this.planoEsperando(userId, id);
+    m.plano = null;
+    const fim = await this.bloquear(m, "Você recusou o plano. Mande tentar de novo para o agente planejar outra vez, ou cancele.");
+    await this.registrar(fim, "mission.plan_rejected", "info", []);
+    return fim;
+  }
+
+  private async planoEsperando(userId: string, id: string): Promise<Missao> {
+    const m = await this.store.get(id);
+    if (!m || m.userId !== userId) throw new ObedientError("PROPOSAL_NOT_FOUND", "missão inexistente");
+    if (m.estado !== "waiting_approval" || !m.plano || m.plano.aprovadoEm || m.propostaId) throw new ObedientError("PROPOSAL_NOT_PENDING", "não há plano esperando você nesta missão");
+    return m;
+  }
+
+  /**
+   * O agente marca uma tarefa feita (M5). Só da missão em execução pelo plano aprovado, e só com
+   * todas as dependências feitas (o banco confere de novo). Devolve as feitas depois da marcação.
+   */
+  async marcarTarefaFeita(reservada: Missao, chave: string): Promise<{ ok: true; feitas: string[] } | { ok: false; motivo: string }> {
+    const plano = reservada.plano;
+    if (!plano?.aprovadoEm || reservada.estado !== "running") return { ok: false, motivo: "esta missão não está executando um plano aprovado" };
+    const t = plano.tarefas.find((x) => x.chave === chave);
+    if (!t) return { ok: false, motivo: `não há tarefa "${curto(chave, 40)}" no plano` };
+    const feitas = new Set(await this.store.tarefasFeitas(reservada.id, plano.versao));
+    if (feitas.has(chave)) return { ok: true, feitas: [...feitas] };
+    const faltam = t.dependeDe.filter((d) => !feitas.has(d));
+    if (faltam.length) return { ok: false, motivo: `antes desta, termine: ${faltam.join(", ")}` };
+    await this.store.marcarTarefaFeita(reservada, plano.versao, chave, this.clock.now());
+    feitas.add(chave);
+    return { ok: true, feitas: [...feitas] };
+  }
+
+  /** Chaves das tarefas feitas do plano em vigor (vazio sem plano). */
+  async tarefasFeitas(m: Missao): Promise<string[]> {
+    return m.plano ? this.store.tarefasFeitas(m.id, m.plano.versao) : [];
   }
 
   async cancelarPelaPessoa(userId: string, id: string): Promise<Missao> {

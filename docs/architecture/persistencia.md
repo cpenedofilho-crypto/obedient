@@ -126,6 +126,15 @@ mandato e não apaga o gasto. Transição nova: `created → blocked`. Detalhes 
 gatilho recusa passo cuja cerca não seja a atual da missão. Detalhes em `missoes.md`, seção
 "Reservas com dono e cerca".
 
+## Plano da missão (0014)
+
+`obedient.missions.planejar` (fixo na criação), `plano_versao`, `plano_hash` e `plano_aprovado_em`.
+`obedient.mission_tasks` e `obedient.mission_task_deps` guardam as tarefas e dependências de cada versão
+do plano: só inserção, RLS por pessoa, o app só muda o estado de pendente para feita, e um gatilho
+recusa marcar feita com dependência pendente ou desfazer uma feita. Transições novas `planning →
+retrying` e `retrying → planning`; evidência nova `plano_completo`. Detalhes em `missoes.md`, seção
+"Plano em DAG e aprovação do plano".
+
 ## O que ainda não existe
 
 - **Políticas do usuário (`policiesFor`) no banco.** Hoje elas chegam por função; a tabela entra

@@ -5,7 +5,7 @@
 
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
 import type { EthicsEngine } from "@obedient/ethics-engine";
-import { type Criterio, type EstadoMissao, type Evidencia, type Missao, type MissionStore, Missoes, type TipoDesfecho } from "@obedient/missions";
+import { type Criterio, type EstadoMissao, type Evidencia, type Missao, type MissionStore, Missoes, type PlanoDaMissao, type TipoDesfecho } from "@obedient/missions";
 import type { Executor } from "./db.ts";
 
 interface LinhaMissao {
@@ -26,6 +26,10 @@ interface LinhaMissao {
   reservada_ate: unknown;
   cerca: number | string;
   reservada_por: string | null;
+  planejar: boolean;
+  plano_versao: number;
+  plano_hash: string | null;
+  plano_aprovado_em: unknown;
   custo_centavos: number;
   teto_custo_centavos: number;
   proposta_id: string | null;
@@ -46,6 +50,10 @@ const paraMissao = (r: LinhaMissao): Missao => ({
   objetivo: r.objetivo,
   criterios: Array.isArray(r.criterios) ? r.criterios : [],
   mandato: { ferramentas: Array.isArray(r.mandato_ferramentas) ? r.mandato_ferramentas : null, prazoFinalEm: data(r.prazo_final_em) },
+  planejar: r.planejar === true,
+  planoVersao: Number(r.plano_versao ?? 0),
+  // As tarefas entram depois (comPlano), numa consulta à parte.
+  plano: r.plano_hash ? { versao: Number(r.plano_versao), hash: r.plano_hash, aprovadoEm: data(r.plano_aprovado_em), tarefas: [] } : null,
   estado: r.estado,
   impedimento: r.impedimento,
   desfecho: r.desfecho_tipo ? { tipo: r.desfecho_tipo, explicacao: r.desfecho_explicacao ?? "" } : null,
@@ -69,30 +77,60 @@ export class PgMissionStore implements MissionStore {
   async insert(m: Missao): Promise<void> {
     await this.tx.query(
       `insert into obedient.missions (id, user_id, agente, objetivo, estado, impedimento, desfecho_tipo, desfecho_explicacao, tentativas, max_tentativas,
-         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao, reservada_ate, criterios, mandato_ferramentas, prazo_final_em)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22)`,
+         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao, reservada_ate, criterios, mandato_ferramentas, prazo_final_em, planejar)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22,$23)`,
       [m.id, m.userId, m.agente, m.objetivo, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas, m.maxTentativas,
         m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, json(m.rodada), m.criadaEm, m.atualizadaEm, m.versao, m.reservadaAte, JSON.stringify(m.criterios ?? []),
-        m.mandato?.ferramentas ? JSON.stringify(m.mandato.ferramentas) : null, m.mandato?.prazoFinalEm ?? null],
+        m.mandato?.ferramentas ? JSON.stringify(m.mandato.ferramentas) : null, m.mandato?.prazoFinalEm ?? null, m.planejar === true],
     );
   }
   async get(id: string): Promise<Missao | undefined> {
     const { rows } = await this.tx.query<LinhaMissao>("select * from obedient.missions where id = $1", [id]);
-    return rows[0] ? paraMissao(rows[0]) : undefined;
+    return rows[0] ? this.comPlano(paraMissao(rows[0])) : undefined;
   }
   async listByUser(userId: string): Promise<Missao[]> {
     const { rows } = await this.tx.query<LinhaMissao>("select * from obedient.missions where user_id = $1 order by criada_em, id", [userId]);
-    return rows.map(paraMissao);
+    const out: Missao[] = [];
+    for (const r of rows) out.push(await this.comPlano(paraMissao(r)));
+    return out;
+  }
+  /** Carrega as tarefas e dependências do plano em vigor, na ordem do plano. */
+  private async comPlano(m: Missao): Promise<Missao> {
+    if (!m.plano) return m;
+    const t = await this.tx.query<{ chave: string; titulo: string }>("select chave, titulo from obedient.mission_tasks where mission_id = $1 and versao = $2 order by ordem", [m.id, m.plano.versao]);
+    const d = await this.tx.query<{ chave: string; depende_de: string }>("select chave, depende_de from obedient.mission_task_deps where mission_id = $1 and versao = $2 order by chave, depende_de", [m.id, m.plano.versao]);
+    m.plano.tarefas = t.rows.map((x) => ({ chave: x.chave, titulo: x.titulo, dependeDe: d.rows.filter((y) => y.chave === x.chave).map((y) => y.depende_de) }));
+    return m;
+  }
+  async gravarPlano(m: Missao, plano: PlanoDaMissao): Promise<void> {
+    for (const [i, t] of plano.tarefas.entries())
+      await this.tx.query("insert into obedient.mission_tasks (mission_id, user_id, versao, chave, ordem, titulo, criado_em) values ($1, $2, $3, $4, $5, $6, $7)", [m.id, m.userId, plano.versao, t.chave, i, t.titulo, m.atualizadaEm]);
+    for (const t of plano.tarefas)
+      for (const dep of new Set(t.dependeDe))
+        await this.tx.query("insert into obedient.mission_task_deps (mission_id, user_id, versao, chave, depende_de) values ($1, $2, $3, $4, $5)", [m.id, m.userId, plano.versao, t.chave, dep]);
+  }
+  async tarefasFeitas(missionId: string, versao: number): Promise<string[]> {
+    const { rows } = await this.tx.query<{ chave: string }>("select chave from obedient.mission_tasks where mission_id = $1 and versao = $2 and estado = 'feita' order by ordem", [missionId, versao]);
+    return rows.map((r) => r.chave);
+  }
+  async marcarTarefaFeita(m: Missao, versao: number, chave: string, em: Date): Promise<boolean> {
+    const { rows } = await this.tx.query(
+      "update obedient.mission_tasks set estado = 'feita', feita_em = $4, feita_tentativa = $5 where mission_id = $1 and versao = $2 and chave = $3 and estado = 'pendente' returning chave",
+      [m.id, versao, chave, em, m.tentativas],
+    );
+    return rows.length > 0;
   }
   /** Um único UPDATE com a versão lida: com duas transações ao mesmo tempo, só uma acha a versão. */
   async update(m: Missao, versaoLida: number): Promise<boolean> {
     const { rows } = await this.tx.query(
       `update obedient.missions set estado = $3, impedimento = $4, desfecho_tipo = $5, desfecho_explicacao = $6, tentativas = $7,
          proxima_tentativa_em = $8, custo_centavos = $9, teto_custo_centavos = $10, proposta_id = $11, atualizada_em = $12, versao = $13,
-         rodada = $14::jsonb, reservada_ate = $15, cerca = $16, reservada_por = $17
+         rodada = $14::jsonb, reservada_ate = $15, cerca = $16, reservada_por = $17,
+         plano_versao = $18, plano_hash = $19, plano_aprovado_em = $20
        where id = $1 and versao = $2 returning id`,
       [m.id, versaoLida, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas,
-        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao, json(m.rodada), m.reservadaAte, m.cerca, m.reservadaPor],
+        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao, json(m.rodada), m.reservadaAte, m.cerca, m.reservadaPor,
+        m.planoVersao, m.plano?.hash ?? null, m.plano?.aprovadoEm ?? null],
     );
     return rows.length > 0;
   }

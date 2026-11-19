@@ -280,6 +280,16 @@ a:focus-visible {
   margin: 0;
   padding: 0;
 }
+.plano {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+.plano li {
+  margin: 2px 0;
+}
+.plano li.feita {
+  color: var(--suave);
+}
 #c-codigo {
   letter-spacing: 0.1em;
   text-transform: uppercase;

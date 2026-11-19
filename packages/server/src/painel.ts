@@ -98,6 +98,9 @@ export interface MissaoNoPainel {
   /** Mandato (M4): só as ferramentas listadas (null = as conectadas) e o prazo final, se houver. */
   ferramentas: string[] | null;
   prazoFinalEm: string | null;
+  /** Plano (M5): as tarefas (texto escrito pelo planejador), quais estão feitas, e se espera a pessoa. */
+  plano: { hash: string; aprovado: boolean; esperandoVoce: boolean; tarefas: { chave: string; titulo: string; dependeDe: string[]; feita: boolean }[] } | null;
+  planejar: boolean;
 }
 
 export interface Painel {
@@ -238,13 +241,14 @@ function verificacaoNoPainel(evs: readonly EvidenciaDoPainel[]): MissaoNoPainel[
   return { resumo, itens: daUltima.map((e) => ({ ok: e.ok, detalhe: e.detalhe })) };
 }
 
-function missaoNoPainel(m: Missao, evs: readonly EvidenciaDoPainel[] = []): MissaoNoPainel {
+function missaoNoPainel(m: Missao, evs: readonly EvidenciaDoPainel[] = [], feitas: readonly string[] = []): MissaoNoPainel {
+  const esperaPlano = m.estado === "waiting_approval" && !!m.plano && !m.plano.aprovadoEm && !m.propostaId;
   return {
     id: m.id,
     objetivo: m.objetivo,
     agente: m.agente,
     estado: m.estado,
-    situacao: m.desfecho?.tipo === "nao_sei" ? "Não soube responder" : (SITUACAO[m.estado] ?? m.estado),
+    situacao: m.desfecho?.tipo === "nao_sei" ? "Não soube responder" : esperaPlano ? "Esperando você aprovar o plano" : (SITUACAO[m.estado] ?? m.estado),
     impedimento: m.impedimento,
     desfecho: m.desfecho,
     tentativas: m.tentativas,
@@ -257,6 +261,15 @@ function missaoNoPainel(m: Missao, evs: readonly EvidenciaDoPainel[] = []): Miss
     verificacao: verificacaoNoPainel(evs),
     ferramentas: m.mandato.ferramentas,
     prazoFinalEm: m.mandato.prazoFinalEm?.toISOString() ?? null,
+    planejar: m.planejar,
+    plano: m.plano
+      ? {
+        hash: m.plano.hash,
+        aprovado: !!m.plano.aprovadoEm,
+        esperandoVoce: esperaPlano,
+        tarefas: m.plano.tarefas.map((t) => ({ chave: t.chave, titulo: t.titulo, dependeDe: [...t.dependeDe], feita: feitas.includes(t.chave) })),
+      }
+      : null,
   };
 }
 
@@ -355,7 +368,7 @@ export async function montarPainel(
   const todas = (await missoes.listar(userId)).sort((a, b) => b.criadaEm.getTime() - a.criadaEm.getTime());
   const escolhidas = [...todas.filter((x) => ABERTAS.includes(x.estado)), ...todas.filter((x) => !ABERTAS.includes(x.estado)).slice(0, 10)];
   const listaDeMissoes: MissaoNoPainel[] = [];
-  for (const x of escolhidas) listaDeMissoes.push(missaoNoPainel(x, await missoes.evidencias(x.id)));
+  for (const x of escolhidas) listaDeMissoes.push(missaoNoPainel(x, await missoes.evidencias(x.id), await missoes.tarefasFeitas(x)));
   const gasto = await missoes.gastoDoMes(userId);
   return {
     usuario: userId,

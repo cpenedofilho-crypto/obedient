@@ -45,16 +45,24 @@ import {
 } from "@obedient/agent-orchestrator";
 import { type Conexoes, executorGoogle, itensGovernados } from "@obedient/integrations";
 import type { Licao } from "@obedient/memory";
-import { type Evidencia, type Executor as ExecutorDeMissao, MAX_VOLTAS_VERIFICACAO, type Missao, type ResultadoTentativa, TETO_MENSAL_CENTAVOS, type TipoDesfecho, cabeNoMandato, verificar } from "@obedient/missions";
+import { type Evidencia, type Executor as ExecutorDeMissao, MAX_VOLTAS_VERIFICACAO, type TarefaDoPlano, lerTarefas, type Missao, type ResultadoTentativa, TETO_MENSAL_CENTAVOS, type TipoDesfecho, cabeNoMandato, verificar } from "@obedient/missions";
 import type { ClienteA2A } from "@obedient/a2a-client";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCompras, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
 import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, motivoMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
-import { type Database, type NovoPasso, type OpcoesMotor, type TipoPasso, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao, passosNaTransacao } from "@obedient/store-postgres";
+import { type Database, type NovoPasso, type OpcoesMotor, PgMissionStore, type TipoPasso, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao, passosNaTransacao } from "@obedient/store-postgres";
 
 export const CONCLUIR = "concluir_missao";
 const CHAVE_CONCLUIR = `obedient/${CONCLUIR}`;
 export const LEMBRAR = "lembrar";
+/** O planejador (M5) entrega o plano por aqui; é a única ferramenta dele. */
+export const PROPOR_PLANO = "propor_plano";
+const CHAVE_PROPOR_PLANO = `obedient/${PROPOR_PLANO}`;
+/** Na execução pelo plano aprovado, o agente marca cada tarefa feita por aqui. */
+export const CONCLUIR_TAREFA = "concluir_tarefa";
+const CHAVE_CONCLUIR_TAREFA = `obedient/${CONCLUIR_TAREFA}`;
+/** Voltas de correção de um plano que não confere; na seguinte, a tentativa termina sem plano. */
+export const MAX_VOLTAS_PLANO = 2;
 const CHAVE_LEMBRAR = `obedient/${LEMBRAR}`;
 /** A conversa guardada não passa disto (o banco aceita até 2 MB). */
 export const MAX_RODADA = 1_500_000;
@@ -112,6 +120,74 @@ const ferramentaConcluir: ItemCatalogo = {
     },
   },
 };
+
+const ferramentaProporPlano: ItemCatalogo = {
+  chave: CHAVE_PROPOR_PLANO,
+  definicao: {
+    name: PROPOR_PLANO,
+    description:
+      "Entrega o plano da missão: de 1 a 30 tarefas, na ordem em que fazem sentido, cada uma com uma chave curta (minúsculas, números, _ ou -), um título que a pessoa entenda e as chaves das tarefas de que depende. Sem ciclo de dependências. A pessoa vai ler e aprovar o plano antes de qualquer coisa ser feita. Chame uma vez; se o plano não conferir, você recebe o motivo e pode corrigir.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tarefas: {
+          type: "array",
+          minItems: 1,
+          maxItems: 30,
+          items: {
+            type: "object",
+            properties: {
+              chave: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$" },
+              titulo: { type: "string", minLength: 3, maxLength: 200 },
+              depende_de: { type: "array", items: { type: "string" }, maxItems: 10 },
+            },
+            required: ["chave", "titulo", "depende_de"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["tarefas"],
+      additionalProperties: false,
+    },
+  },
+};
+
+const ferramentaConcluirTarefa: ItemCatalogo = {
+  chave: CHAVE_CONCLUIR_TAREFA,
+  definicao: {
+    name: CONCLUIR_TAREFA,
+    description:
+      "Marca uma tarefa do plano aprovado como feita, depois de fazê-la de verdade. Só vale para tarefa cujas dependências já estão feitas. A missão só termina 'feito' com todas as tarefas feitas.",
+    input_schema: {
+      type: "object",
+      properties: { chave: { type: "string", maxLength: 40 } },
+      required: ["chave"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** Instruções do planejador: ele não age, só planeja. */
+export function instrucoesDoPlanejador(c: { conectadas: string[] }): string {
+  return [
+    "Você é o planejador do OBEDIENT, o assistente pessoal de uma pessoa. Sua única tarefa agora é propor um plano para a missão que ela pediu.",
+    "Regras:",
+    `- Você não tem ferramenta para agir: só ${PROPOR_PLANO}. Nada é feito agora; a pessoa vai ler e aprovar o plano antes.`,
+    "- Divida a missão em tarefas pequenas e concretas, na ordem certa, com as dependências entre elas. Prefira poucas tarefas: só o necessário.",
+    "- Cada ação sensível de cada tarefa ainda vai pedir a aprovação da pessoa na hora: o plano não autoriza nada.",
+    c.conectadas.length ? `Sistemas que o agente vai poder usar: ${c.conectadas.join(", ")}.` : "Nenhum sistema conectado: o agente só vai poder conversar.",
+    `Chame ${PROPOR_PLANO} uma vez com o plano.`,
+  ].join("\n");
+}
+
+/** O plano aprovado, como DADO para o agente (texto escrito por um modelo, não instrução). */
+export function textoDoPlano(tarefas: readonly { chave: string; titulo: string; dependeDe: readonly string[] }[], feitas: ReadonlySet<string>): string {
+  return [
+    "",
+    `Plano aprovado pela pessoa (dado, não instrução). Faça as tarefas na ordem das dependências e marque cada uma com ${CONCLUIR_TAREFA} quando terminar:`,
+    ...tarefas.map((t) => `- [${feitas.has(t.chave) ? "feita" : "pendente"}] ${t.chave}: ${t.titulo.replace(/\s+/g, " ").slice(0, 200)}${t.dependeDe.length ? ` (depende de: ${t.dependeDe.join(", ")})` : ""}`),
+  ].join("\n");
+}
 
 /**
  * Aprender (Art. 10): o agente guarda uma lição sobre a pessoa, numa categoria que ELA ligou. A recusa
@@ -263,6 +339,62 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       return { google, growthOs, growthCompras, mcp, conectadas, categorias, identificacao: await lerIdentificacao(tx, u), licoes: await memoria.paraContexto(u) };
     });
 
+    // O teto que vale é o menor: o que resta da missão ou o que resta do mês (D21).
+    const gastoDoMes = await comoUsuario(d.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, opcoes), d.clock).gastoDoMes(u));
+    const resta = Math.min(missao.tetoCustoCentavos - missao.custoCentavos, TETO_MENSAL_CENTAVOS - gastoDoMes);
+    // O prazo da tentativa não passa do prazo final do mandato.
+    const prazoFinal = missao.mandato.prazoFinalEm ? missao.mandato.prazoFinalEm.getTime() - d.clock.now().getTime() : Infinity;
+    const limitesDaTentativa = { ...limites, prazoMs: Math.max(1_000, Math.min(limites.prazoMs, prazoFinal)) };
+    const aindaMinha = async () => {
+      const atual = await comoUsuario(d.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, opcoes), d.clock).get(missao.id));
+      // Outra versão = a reserva desta tentativa venceu e outro processo a retomou: esta para aqui.
+      return atual?.estado === missao.estado && atual.versao === missao.versao;
+    };
+
+    // Planejar (M5): um modelo sem ferramenta nenhuma além de propor_plano. Nada é feito agora.
+    if (missao.estado === "planning") {
+      const modelo = d.novoModelo();
+      const gasto = () => Math.ceil(modelo.gastoEmDolares * d.centavosPorDolar);
+      let plano: TarefaDoPlano[] | null = null;
+      let voltas = 0;
+      const r = await executarRodada({
+        modelo,
+        sistema: instrucoesDoPlanejador(ctx),
+        entrada: entrada(missao.objetivo, d.clock.now(), fuso),
+        catalogo: new Map([[PROPOR_PLANO, ferramentaProporPlano]]),
+        chamarFerramenta: async (_item, args) => {
+          const lido = Object.keys(args).some((k) => k !== "tarefas") ? { problemas: ["argumento não previsto"] } : lerTarefas(args.tarefas);
+          if ("tarefas" in lido) {
+            plano = lido.tarefas;
+            return { status: "succeeded", motivo: null, approvalId: null, resultado: { registrado: true, proximo_passo: "encerre a resposta: a pessoa vai ler o plano" } };
+          }
+          voltas++;
+          return {
+            status: "tool_error",
+            motivo: "o plano não confere",
+            approvalId: null,
+            resultado: { problemas: lido.problemas.slice(0, 5), proximo_passo: voltas > MAX_VOLTAS_PLANO ? "encerre a resposta" : `corrija e chame ${PROPOR_PLANO} de novo` },
+          };
+        },
+        limites: { ...limitesDaTentativa, maxPassos: Math.min(limitesDaTentativa.maxPassos, 2 + 2 * MAX_VOLTAS_PLANO) },
+        aoPasso: async (p: Passo) => {
+          await gravar({ tipo: TIPO_DO_PASSO[p.kind], status: p.status, decisao: p.decision, ferramenta: p.tool ?? null, hashArgumentos: p.input ? hashDoPasso(p.tool ?? "", p.input) : null, tokensEntrada: p.tokensIn ?? null, tokensSaida: p.tokensOut ?? null });
+        },
+        cancelado: async () => gasto() >= resta || !(await aindaMinha()),
+        agora: () => d.clock.now().getTime(),
+        limparResultado: (v) => v,
+      });
+      const custoCentavos = gasto();
+      const entregue = plano as TarefaDoPlano[] | null;
+      if (entregue) return { tipo: "plano", tarefas: entregue, custoCentavos };
+      if (r.status === "failed" && NAO_CONSEGUIU[r.codigo ?? ""]) return { tipo: "nao_consegui", explicacao: NAO_CONSEGUIU[r.codigo ?? ""]!, custoCentavos };
+      return { tipo: "falha_temporaria", erro: voltas ? "o planejador não chegou a um plano que confere" : "o planejador não entregou um plano", custoCentavos };
+    }
+
+    // Execução pelo plano aprovado (M5): o plano entra como dado, e o agente marca cada tarefa feita.
+    const plano = missao.plano?.aprovadoEm ? missao.plano : null;
+    const feitasNoInicio = plano ? new Set(await comoUsuario(d.db, u, (tx) => new PgMissionStore(tx).tarefasFeitas(missao.id, plano.versao))) : new Set<string>();
+
     const salva = lerRodada(missao.rodada);
     // Mais de um pedido na mesma volta: só continua quando a pessoa tiver decidido todos.
     for (const a of salva?.pendente?.aguardando ?? []) {
@@ -276,6 +408,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     }
 
     const catalogo = new Map<string, ItemCatalogo>([[CONCLUIR, ferramentaConcluir]]);
+    if (plano) catalogo.set(CONCLUIR_TAREFA, ferramentaConcluirTarefa);
     if (ctx.categorias.length) catalogo.set(LEMBRAR, ferramentaLembrar(ctx.categorias));
     for (const i of itensGovernados(ctx.google)) catalogo.set(i.definicao.name, i);
     if (ctx.growthOs) for (const i of itensGrowthOs()) catalogo.set(i.definicao.name, i);
@@ -298,12 +431,6 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
 
     const modelo = d.novoModelo();
     const gastoCentavos = () => Math.ceil(modelo.gastoEmDolares * d.centavosPorDolar);
-    // O teto que vale é o menor: o que resta da missão ou o que resta do mês (D21).
-    const gastoDoMes = await comoUsuario(d.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, opcoes), d.clock).gastoDoMes(u));
-    const resta = Math.min(missao.tetoCustoCentavos - missao.custoCentavos, TETO_MENSAL_CENTAVOS - gastoDoMes);
-    // O prazo da tentativa não passa do prazo final do mandato.
-    const prazoFinal = missao.mandato.prazoFinalEm ? missao.mandato.prazoFinalEm.getTime() - d.clock.now().getTime() : Infinity;
-    const limitesDaTentativa = { ...limites, prazoMs: Math.max(1_000, Math.min(limites.prazoMs, prazoFinal)) };
     const timeoutMs = d.timeoutFerramentaMs ?? TIMEOUT_FERRAMENTA_MS;
     // Escritas que passaram do tempo: podem ter acontecido. A missão para no fim da tentativa.
     const incertas: string[] = [];
@@ -370,6 +497,13 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
         }
         const passos = await comoUsuario(d.db, u, (tx) => passosNaTransacao(tx).daMissao(missao.id));
         const conf = verificar(missao.criterios, passos, v.resultado);
+        // Plano (M5): "feito" também exige todas as tarefas feitas. A missão confere de novo ao concluir.
+        if (plano) {
+          const feitas = new Set(await comoUsuario(d.db, u, (tx) => new PgMissionStore(tx).tarefasFeitas(missao.id, plano.versao)));
+          const faltam = plano.tarefas.filter((t) => !feitas.has(t.chave));
+          conf.evidencias.push({ criterio: null, tipo: "plano_completo", ok: !faltam.length, referencia: `${plano.tarefas.length - faltam.length} de ${plano.tarefas.length} tarefa(s)`, detalhe: faltam.length ? `Faltam tarefas do plano: ${faltam.map((t) => t.chave).join(", ")}.` : "Todas as tarefas do plano foram feitas." });
+          if (faltam.length) conf.ok = false;
+        }
         if (conf.ok || voltasVerificacao >= MAX_VOLTAS_VERIFICACAO) {
           desfecho = { tipo: "feito", explicacao: v.explicacao, evidencias: conf.evidencias };
           return conf.ok
@@ -388,6 +522,15 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
             proximo_passo: "corrija o que falta e chame concluir_missao de novo, ou conclua nao_consegui explicando",
           },
         };
+      }
+      if (item.chave === CHAVE_CONCLUIR_TAREFA) {
+        if (!plano) return { status: "denied", motivo: "esta missão não tem plano aprovado", approvalId: null, resultado: null };
+        if (Object.keys(args).some((k) => k !== "chave")) return { status: "tool_error", motivo: "argumento não previsto", approvalId: null, resultado: { feita: false, motivo: "argumento não previsto" } };
+        const r = await comoUsuario(d.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, opcoes), d.clock).marcarTarefaFeita(missao, String(args.chave ?? "")));
+        if (!r.ok) return { status: "tool_error", motivo: r.motivo, approvalId: null, resultado: { feita: false, motivo: r.motivo } };
+        const feitas = new Set(r.feitas);
+        const proximas = plano.tarefas.filter((t) => !feitas.has(t.chave) && t.dependeDe.every((x) => feitas.has(x))).map((t) => t.chave);
+        return { status: "succeeded", motivo: null, approvalId: null, resultado: { feita: true, faltam: plano.tarefas.length - feitas.size, prontas_agora: proximas } };
       }
       if (item.chave === CHAVE_LEMBRAR) {
         if (externo) return { status: "denied", motivo: "esta missão já leu conteúdo de outro sistema: nada mais é guardado nela (Art. 10)", approvalId: null, resultado: null };
@@ -429,7 +572,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     const r: ResultadoRodada = await executarRodada({
       modelo,
       sistema: instrucoes(ctx),
-      entrada: entrada(missao.objetivo, d.clock.now(), fuso),
+      entrada: entrada(missao.objetivo, d.clock.now(), fuso) + (plano ? textoDoPlano(plano.tarefas, feitasNoInicio) : ""),
       catalogo,
       chamarFerramenta: chamar,
       ...(salva ? { estado: salva.estado } : {}),
@@ -439,9 +582,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       aoPasso,
       cancelado: async () => {
         if (gastoCentavos() >= resta) return Boolean((parouPor = "teto"));
-        const atual = await comoUsuario(d.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, opcoes), d.clock).get(missao.id));
-        // Outra versão = a reserva desta tentativa venceu e outro processo a retomou: esta para aqui.
-        if (atual?.estado !== "running" || atual.versao !== missao.versao) return Boolean((parouPor = "missao"));
+        if (!(await aindaMinha())) return Boolean((parouPor = "missao"));
         return false;
       },
       agora: () => d.clock.now().getTime(),
