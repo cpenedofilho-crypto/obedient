@@ -196,3 +196,21 @@ permitem, nunca amplia, e o objetivo escrito nunca vira autorização.
   conectado, ou um sistema só) e "Até quando" (sem prazo, amanhã, 7 ou 29 dias).
 - **Ainda não:** restringir por ambiente (produção, homologação) depende de as ferramentas declararem o
   ambiente, o que o registro de ferramentas ainda não faz (M5).
+
+## Reservas com dono e cerca (decisão D20, marco M5, 19/11/2026)
+
+A reserva de uma tentativa já era uma troca atômica pela versão, e a conclusão de um processo que
+perdeu a reserva já era descartada. Faltava o meio: um processo lento, com a reserva vencida e tomada
+por outro, ainda podia gravar passos e chamar ferramentas.
+
+- **Cerca:** `missions.cerca` sobe a cada reserva (inclusive a continuação depois de uma aprovação) e
+  nunca desce (gatilho no banco). `missions.reservada_por` diz qual processo tem a reserva: nome da
+  máquina, pid e um sufixo aleatório, sem dado da pessoa. Terminar, impedir ou cancelar tira o dono.
+- **Passo com cerca velha é recusado pelo banco** (migration `0012_cerca.sql`). Como o início de uma
+  chamada é gravado antes da chamada (M1), o processo que perdeu a reserva não chama mais nada; a
+  tentativa dele termina em falha passageira e a conclusão é descartada pela versão.
+- **O executor também confere a cerca ao começar** e, se ela mudou, não chama o modelo. É uma camada a
+  mais: sem ela, o banco recusa o primeiro passo do mesmo jeito (por isso a mutação que a remove não
+  reprova nenhum teste; o que os testes conferem é que o processo A não chama nada).
+- **Vários processos:** com a cerca, dois processos podem rodar o agendador ao mesmo tempo sem que um
+  escreva por cima do outro. A consulta de quem tem missão devida continua uma por volta.

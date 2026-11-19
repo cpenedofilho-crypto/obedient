@@ -24,6 +24,8 @@ interface LinhaMissao {
   max_tentativas: number;
   proxima_tentativa_em: unknown;
   reservada_ate: unknown;
+  cerca: number | string;
+  reservada_por: string | null;
   custo_centavos: number;
   teto_custo_centavos: number;
   proposta_id: string | null;
@@ -51,6 +53,8 @@ const paraMissao = (r: LinhaMissao): Missao => ({
   maxTentativas: r.max_tentativas,
   proximaTentativaEm: data(r.proxima_tentativa_em),
   reservadaAte: data(r.reservada_ate),
+  cerca: Number(r.cerca ?? 0),
+  reservadaPor: r.reservada_por ?? null,
   custoCentavos: r.custo_centavos,
   tetoCustoCentavos: r.teto_custo_centavos,
   propostaId: r.proposta_id,
@@ -85,10 +89,10 @@ export class PgMissionStore implements MissionStore {
     const { rows } = await this.tx.query(
       `update obedient.missions set estado = $3, impedimento = $4, desfecho_tipo = $5, desfecho_explicacao = $6, tentativas = $7,
          proxima_tentativa_em = $8, custo_centavos = $9, teto_custo_centavos = $10, proposta_id = $11, atualizada_em = $12, versao = $13,
-         rodada = $14::jsonb, reservada_ate = $15
+         rodada = $14::jsonb, reservada_ate = $15, cerca = $16, reservada_por = $17
        where id = $1 and versao = $2 returning id`,
       [m.id, versaoLida, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas,
-        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao, json(m.rodada), m.reservadaAte],
+        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao, json(m.rodada), m.reservadaAte, m.cerca, m.reservadaPor],
     );
     return rows.length > 0;
   }

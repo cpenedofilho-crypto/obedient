@@ -231,7 +231,13 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     const u = missao.userId;
     const abrir: AbrirMotor = (fn) => comoUsuario(d.db, u, (tx) => fn(motorNaTransacao(tx, opcoes)));
     const gravar = (p: Omit<NovoPasso, "missionId" | "userId" | "tentativa" | "criadoEm">) =>
-      comoUsuario(d.db, u, (tx) => passosNaTransacao(tx).registrar({ ...p, missionId: missao.id, userId: u, tentativa: missao.tentativas, criadoEm: d.clock.now() }));
+      comoUsuario(d.db, u, (tx) => passosNaTransacao(tx).registrar({ ...p, missionId: missao.id, userId: u, tentativa: missao.tentativas, cerca: missao.cerca, criadoEm: d.clock.now() }));
+
+    // Cerca (M5): se outro processo já tomou a reserva, esta tentativa não faz nada (nem chama o
+    // modelo). O banco também recusa todo passo com cerca velha, então a chamada não sai mesmo que a
+    // reserva seja tomada depois desta conferência.
+    const agora = await comoUsuario(d.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, opcoes), d.clock).get(missao.id));
+    if (!agora || agora.cerca !== missao.cerca) return { tipo: "falha_temporaria", erro: "a reserva desta tentativa passou para outro processo", custoCentavos: 0 };
 
     // Chamadas que ficaram sem fim numa tentativa anterior (o processo caiu no meio delas).
     const abertos = await comoUsuario(d.db, u, (tx) => passosNaTransacao(tx).abertos(missao.id));

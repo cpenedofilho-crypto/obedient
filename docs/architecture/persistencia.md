@@ -119,6 +119,13 @@ só inserção, RLS por pessoa, centavos positivos; a soma do mês é o teto da 
 mandato e não apaga o gasto. Transição nova: `created → blocked`. Detalhes em `missoes.md`, seção
 "Mandato, prazo final e teto do mês".
 
+## Cerca da reserva (0012)
+
+`obedient.missions.cerca` (sobe a cada reserva, nunca desce) e `obedient.missions.reservada_por`
+(qual processo tem a reserva). `obedient.mission_steps.cerca` guarda a cerca de cada passo, e um
+gatilho recusa passo cuja cerca não seja a atual da missão. Detalhes em `missoes.md`, seção
+"Reservas com dono e cerca".
+
 ## O que ainda não existe
 
 - **Políticas do usuário (`policiesFor`) no banco.** Hoje elas chegam por função; a tabela entra

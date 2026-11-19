@@ -88,6 +88,8 @@ export const MAX_EXPLICACAO = 2000;
  * para uma tentativa lenta, mas viva, não ser tomada por outro processo.
  */
 export const PRAZO_RESERVA_MS = 15 * 60_000;
+/** Dono da reserva quando quem reserva não se identifica (testes, uso em memória). */
+export const DONO_PADRAO = "processo";
 
 export type TipoDesfecho = "feito" | "nao_sei" | "nao_consegui";
 
@@ -112,6 +114,14 @@ export interface Missao {
    * proximaTentativaEm = reservadaAte: se o processo cair, a missão volta a ser devida quando vencer.
    */
   reservadaAte: Date | null;
+  /**
+   * Cerca da reserva (M5): sobe a cada reserva e nunca desce. Todo passo gravado leva a cerca da
+   * reserva em que nasceu, e o banco recusa passo com cerca velha: o processo que perdeu a reserva
+   * não chama mais nada.
+   */
+  cerca: number;
+  /** Qual processo tem a reserva (nome do processo, sem dado da pessoa); null sem tentativa em andamento. */
+  reservadaPor: string | null;
   custoCentavos: number;
   tetoCustoCentavos: number;
   /** Pedido de aprovação que a missão espera (quando waiting_approval). */
@@ -242,6 +252,8 @@ export class Missoes {
       maxTentativas: max,
       proximaTentativaEm: agora,
       reservadaAte: null,
+      cerca: 0,
+      reservadaPor: null,
       custoCentavos: 0,
       tetoCustoCentavos: teto,
       propostaId: null,
@@ -296,7 +308,7 @@ export class Missoes {
    * tentativa e grava (se o processo cair durante a execução, ela já contou). Duas chamadas ao mesmo
    * tempo: só uma reserva (troca atômica pela versão).
    */
-  async reservar(id: string): Promise<{ reservada: true; missao: Missao } | { reservada: false; missao: Missao }> {
+  async reservar(id: string, dono = DONO_PADRAO): Promise<{ reservada: true; missao: Missao } | { reservada: false; missao: Missao }> {
     const m = await this.store.get(id);
     if (!m) throw new ObedientError("PROPOSAL_NOT_FOUND", "missão inexistente");
     const nao = (x: Missao) => ({ reservada: false as const, missao: x });
@@ -329,7 +341,7 @@ export class Missoes {
       this.mudar(m, "running");
       m.propostaId = null;
       if (m.custoCentavos >= m.tetoCustoCentavos) return nao(await this.bloquear(m, this.textoTeto(m)));
-      this.reservarAte(m);
+      this.reservarAte(m, dono);
       m.atualizadaEm = this.clock.now();
       if (!(await this.salvar(m))) return nao((await this.store.get(id))!);
       return { reservada: true, missao: m };
@@ -352,15 +364,18 @@ export class Missoes {
 
     m.tentativas += 1;
     if (m.estado !== "running") this.mudar(m, "running");
-    this.reservarAte(m);
+    this.reservarAte(m, dono);
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) return nao((await this.store.get(id))!);
     return { reservada: true, missao: m };
   }
 
-  private reservarAte(m: Missao) {
+  private reservarAte(m: Missao, dono: string) {
     m.reservadaAte = new Date(this.clock.now().getTime() + PRAZO_RESERVA_MS);
     m.proximaTentativaEm = m.reservadaAte;
+    // Cerca (M5): cada reserva tem a sua; a anterior deixa de valer para gravar passos.
+    m.cerca += 1;
+    m.reservadaPor = dono.slice(0, 200) || DONO_PADRAO;
   }
 
   /**
@@ -371,6 +386,7 @@ export class Missoes {
   async concluir(reservada: Missao, r: ResultadoTentativa): Promise<Missao> {
     const m = structuredClone(reservada);
     m.reservadaAte = null;
+    m.reservadaPor = null;
     // Só a falha temporária marca a próxima tentativa (abaixo); o resto não tem próxima.
     m.proximaTentativaEm = null;
     const custo = Number.isFinite(r.custoCentavos) && r.custoCentavos > 0 ? Math.ceil(r.custoCentavos) : 0;
@@ -476,6 +492,7 @@ export class Missoes {
     m.desfecho = { tipo: "nao_consegui", explicacao: `Passou do prazo final que você deu (${m.mandato.prazoFinalEm!.toISOString()}) sem terminar.` };
     m.proximaTentativaEm = null;
     m.reservadaAte = null;
+    m.reservadaPor = null;
     m.rodada = null;
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) return (await this.store.get(m.id))!;
@@ -513,6 +530,7 @@ export class Missoes {
     m.rodada = null;
     m.proximaTentativaEm = this.clock.now();
     m.reservadaAte = null;
+    m.reservadaPor = null;
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) throw new ObedientError("PROPOSAL_NOT_PENDING", "a missão mudou enquanto isso");
     await this.registrar(m, "mission.retry", "info", [`teto ${reais(m.tetoCustoCentavos)}`]);
@@ -536,6 +554,7 @@ export class Missoes {
     this.mudar(m, "cancelled");
     m.proximaTentativaEm = null;
     m.reservadaAte = null;
+    m.reservadaPor = null;
     m.rodada = null;
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) return (await this.store.get(m.id))!;
@@ -548,6 +567,7 @@ export class Missoes {
     m.impedimento = impedimento;
     m.proximaTentativaEm = null;
     m.reservadaAte = null;
+    m.reservadaPor = null;
     m.rodada = null;
     m.atualizadaEm = this.clock.now();
     await this.gravar(m);

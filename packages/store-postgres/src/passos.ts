@@ -27,6 +27,8 @@ export interface NovoPasso {
   fecha?: { tentativa: number; seq: number } | null;
   tokensEntrada?: number | null;
   tokensSaida?: number | null;
+  /** Cerca da reserva em que o passo é gravado (M5); o banco recusa a que não for a atual. */
+  cerca?: number | null;
   criadoEm: Date;
 }
 
@@ -53,6 +55,7 @@ interface Linha {
   fecha_seq: number | null;
   tokens_entrada: number | null;
   tokens_saida: number | null;
+  cerca: number | string | null;
   criado_em: unknown;
 }
 
@@ -72,6 +75,7 @@ const paraPasso = (r: Linha): PassoGravado => ({
   fecha: r.fecha_seq === null || r.fecha_tentativa === null ? null : { tentativa: r.fecha_tentativa, seq: r.fecha_seq },
   tokensEntrada: r.tokens_entrada,
   tokensSaida: r.tokens_saida,
+  cerca: r.cerca === null || r.cerca === undefined ? null : Number(r.cerca),
   criadoEm: new Date(r.criado_em as string | Date),
 });
 
@@ -92,16 +96,16 @@ export function passosNaTransacao(tx: Executor): Passos {
       const r = await tx.query<{ seq: number; chave: string | null }>(
         `insert into obedient.mission_steps
            (mission_id, user_id, tentativa, seq, tipo, status, decisao, ferramenta, categoria, hash_argumentos, chave,
-            aprovacao_id, fecha_tentativa, fecha_seq, tokens_entrada, tokens_saida, criado_em)
+            aprovacao_id, fecha_tentativa, fecha_seq, tokens_entrada, tokens_saida, criado_em, cerca)
          select $1, $2, $3::integer, n.seq, $4, $5, $6, $7, $8, $9,
                 coalesce($10::text, case when $4 = 'inicio' then $1 || ':' || $3::integer || ':' || n.seq end),
-                $11, $12, $13, $14, $15, $16
+                $11, $12, $13, $14, $15, $16, $17
            from (select coalesce(max(seq), 0) + 1 as seq from obedient.mission_steps where mission_id = $1 and tentativa = $3::integer) n
          returning seq, chave`,
         [
           p.missionId, p.userId, p.tentativa, p.tipo, corta(p.status, 60) || "?", corta(p.decisao, 200), corta(p.ferramenta, 200),
           p.categoria ?? null, p.hashArgumentos ?? null, corta(p.chave, 200), p.aprovacaoId ?? null,
-          p.fecha?.tentativa ?? null, p.fecha?.seq ?? null, p.tokensEntrada ?? null, p.tokensSaida ?? null, p.criadoEm,
+          p.fecha?.tentativa ?? null, p.fecha?.seq ?? null, p.tokensEntrada ?? null, p.tokensSaida ?? null, p.criadoEm, p.cerca ?? null,
         ],
       );
       return { seq: r.rows[0]!.seq, chave: r.rows[0]!.chave };

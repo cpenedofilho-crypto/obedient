@@ -704,3 +704,57 @@ describe("executor das missões: mandato, prazo, teto do mês e tempo por chamad
     assert.deepEqual([fim!.estado, fim!.desfecho?.tipo], ["failed", "nao_consegui"]);
   });
 });
+
+describe("executor das missões: reservas com dono e cerca (D20, M5; AT2)", () => {
+  const lerAgenda = usar("t1", "google_agenda__listar_eventos", { de: "2026-11-04T00:00:00-03:00", ate: "2026-11-05T00:00:00-03:00" });
+  const PRAZO = 15 * 60_000;
+
+  it("processo com a reserva tomada por outro não chama o modelo nem ferramenta; só o dono atual termina", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    let leituras = 0;
+    c.google.responderApi = () => ((leituras += 1), { json: { items: [] } });
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "O que tenho amanhã?"));
+    const a = await c.missoes(u, (ms) => ms.reservar(m.id, "processo-a"));
+    c.clock.advance(PRAZO + 1000);
+    const b = await c.missoes(u, (ms) => ms.reservar(m.id, "processo-b"));
+    assert.ok(a.reservada && b.reservada);
+    const ra = roteiro(0.01, lerAgenda, concluir("feito", "x"), encerrar);
+    const exA = executorDeMissoes({ db: banco.db, conexoes: c.conexoes, novoModelo: ra.novo, centavosPorDolar: 600, clock: c.clock, http: c.google.fetch });
+    const resA = await exA(a.missao);
+    assert.equal(resA.tipo, "falha_temporaria");
+    assert.equal(ra.chamadas(), 0, "A não chama o modelo");
+    assert.equal(leituras, 0, "A não chama ferramenta");
+    const descartada = await c.missoes(u, (ms) => ms.concluir(a.missao, resA));
+    assert.deepEqual([descartada.estado, descartada.reservadaPor], ["running", "processo-b"], "o resultado de A é descartado");
+    const rb = roteiro(0, lerAgenda, concluir("feito", "Nada amanhã."), encerrar);
+    const exB = executorDeMissoes({ db: banco.db, conexoes: c.conexoes, novoModelo: rb.novo, centavosPorDolar: 600, clock: c.clock, http: c.google.fetch });
+    const resB = await exB(b.missao);
+    const fim = await c.missoes(u, (ms) => ms.concluir(b.missao, resB));
+    assert.deepEqual([fim.estado, fim.desfecho?.tipo, leituras], ["completed", "feito", 1]);
+  });
+
+  it("reserva tomada NO MEIO da tentativa: o início da chamada é recusado pelo banco e a ferramenta não é chamada", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    let leituras = 0;
+    c.google.responderApi = () => ((leituras += 1), { json: { items: [] } });
+    const m = await c.missoes(u, (ms) => ms.criar(u, "obedient", "O que tenho amanhã?"));
+    const a = await c.missoes(u, (ms) => ms.reservar(m.id, "processo-a"));
+    assert.ok(a.reservada);
+    const r = roteiro(0.01, async () => {
+      // Enquanto A espera o modelo, a reserva vence e B a toma.
+      c.clock.advance(PRAZO + 1000);
+      assert.ok((await c.missoes(u, (ms) => ms.reservar(m.id, "processo-b"))).reservada);
+      return lerAgenda();
+    }, concluir("feito", "x"), encerrar);
+    const ex = executorDeMissoes({ db: banco.db, conexoes: c.conexoes, novoModelo: r.novo, centavosPorDolar: 600, clock: c.clock, http: c.google.fetch });
+    const res = await ex(a.missao);
+    assert.equal(res.tipo, "falha_temporaria");
+    assert.match((res as { erro: string }).erro, /cerca velha/);
+    assert.equal(r.chamadas(), 1, "o modelo não é chamado de novo");
+    assert.equal(leituras, 0, "sem início gravado, a chamada não sai");
+  });
+});

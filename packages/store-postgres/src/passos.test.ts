@@ -21,7 +21,7 @@ let n = 0;
 const usuario = (nome: string) => `${nome}-p${++n}`;
 const novaMissao = (u: string) => comoUsuario(banco.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, { clock }), clock).criar(u, "obedient", "Ver a agenda"));
 const passos = <T>(u: string, fn: (p: ReturnType<typeof passosNaTransacao>) => Promise<T>) => comoUsuario(banco.db, u, (tx) => fn(passosNaTransacao(tx)));
-const base = (missionId: string, userId: string) => ({ missionId, userId, tentativa: 1, criadoEm: clock.now() });
+const base = (missionId: string, userId: string) => ({ missionId, userId, tentativa: 1, cerca: 0, criadoEm: clock.now() });
 const HASH = "a".repeat(64);
 
 describe("registro de passos no banco (D20, M1)", () => {
