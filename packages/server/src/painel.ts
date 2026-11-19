@@ -204,7 +204,12 @@ const nomeDaIntegracao = (id: string | undefined) => INTEGRACOES.find((i) => i.i
 const CONTESTAVEIS = new Set(["action.authorize", "proposal.execute", "memory.learn", "mission.feito", "mission.nao_sei", "mission.nao_consegui", "mission.attempt_failed"]);
 
 const SITUACAO: Record<string, string> = {
+  // Criada: a primeira tentativa sai em segundos, então para a pessoa já está "trabalhando nisso".
+  created: "Trabalhando nisso",
+  planning: "Planejando",
   running: "Trabalhando nisso",
+  verifying: "Conferindo o resultado",
+  retrying: "Vai tentar de novo em breve",
   waiting_approval: "Esperando a sua aprovação",
   blocked: "Parou e precisa de você",
   completed: "Terminou",

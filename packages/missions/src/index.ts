@@ -30,9 +30,44 @@ import { type Clock, type IdFactory, ObedientError, systemClock, uuid } from "@o
 import { CONSTITUTION_VERSION, type EthicsEngine } from "@obedient/ethics-engine";
 import { LIMITES_EQUIPE } from "@obedient/mission-engine";
 
-export const ESTADOS_MISSAO = ["running", "waiting_approval", "blocked", "completed", "failed", "cancelled"] as const;
+/**
+ * Estados da missão (decisão D20, marco M2). `planning` e `verifying` já estão na tabela, mas só entram
+ * em uso com o planejador (M5) e o verificador (M3).
+ *   created: criada, esperando a primeira tentativa · planning: o plano está sendo feito ·
+ *   running: uma tentativa está reservada e rodando · verifying: os critérios estão sendo conferidos ·
+ *   retrying: falhou de passagem e espera a hora da próxima tentativa · waiting_approval: espera a
+ *   pessoa decidir um pedido · blocked: parou e precisa da pessoa · completed, failed, cancelled: fim.
+ */
+export const ESTADOS_MISSAO = ["created", "planning", "running", "verifying", "retrying", "waiting_approval", "blocked", "completed", "failed", "cancelled"] as const;
 export type EstadoMissao = (typeof ESTADOS_MISSAO)[number];
-export const ABERTAS: readonly EstadoMissao[] = ["running", "waiting_approval", "blocked"];
+export const TERMINAIS: readonly EstadoMissao[] = ["completed", "failed", "cancelled"];
+export const ABERTAS: readonly EstadoMissao[] = ESTADOS_MISSAO.filter((e) => !TERMINAIS.includes(e));
+
+/**
+ * A ÚNICA tabela de transições da missão. Todo `estado` muda por `podeMudar`/`Missoes.mudar`, e o banco
+ * confere a mesma tabela num gatilho (0009). Duas arestas são provisórias e saem quando a peça que as
+ * substitui chegar: created → running (até o planejador, M5) e running → completed (até o verificador,
+ * M3). Terminal não sai para lugar nenhum.
+ */
+export const TRANSICOES: Readonly<Record<EstadoMissao, readonly EstadoMissao[]>> = {
+  created: ["planning", "running", "failed", "cancelled"],
+  planning: ["running", "waiting_approval", "blocked", "failed", "cancelled"],
+  running: ["verifying", "waiting_approval", "retrying", "blocked", "completed", "failed", "cancelled"],
+  verifying: ["completed", "running", "blocked", "failed", "cancelled"],
+  retrying: ["running", "blocked", "failed", "cancelled"],
+  waiting_approval: ["running", "blocked", "failed", "cancelled"],
+  blocked: ["retrying", "planning", "running", "failed", "cancelled"],
+  completed: [],
+  failed: [],
+  cancelled: [],
+};
+
+export function podeMudar(de: EstadoMissao, para: EstadoMissao): boolean {
+  return TRANSICOES[de]?.includes(para) ?? false;
+}
+
+/** Estados em que a missão espera uma tentativa (o agendador a pega quando a hora chega). */
+export const DEVIDAS: readonly EstadoMissao[] = ["created", "retrying", "running"];
 
 export const INTERVALO_BASE_MS = 30_000;
 export const INTERVALO_MAXIMO_MS = 60 * 60_000;
@@ -158,7 +193,7 @@ export class Missoes {
       userId,
       agente,
       objetivo: texto,
-      estado: "running",
+      estado: "created",
       impedimento: null,
       desfecho: null,
       tentativas: 0,
@@ -189,7 +224,7 @@ export class Missoes {
   /** Missões do usuário cuja próxima tentativa já chegou. */
   async devidas(userId: string): Promise<Missao[]> {
     const agora = this.clock.now().getTime();
-    return (await this.store.listByUser(userId)).filter((m) => (m.estado === "running" && (m.proximaTentativaEm?.getTime() ?? Infinity) <= agora) || m.estado === "waiting_approval");
+    return (await this.store.listByUser(userId)).filter((m) => (DEVIDAS.includes(m.estado) && (m.proximaTentativaEm?.getTime() ?? Infinity) <= agora) || m.estado === "waiting_approval");
   }
 
   /**
@@ -218,7 +253,8 @@ export class Missoes {
     const m = await this.store.get(id);
     if (!m) throw new ObedientError("PROPOSAL_NOT_FOUND", "missão inexistente");
     const nao = (x: Missao) => ({ reservada: false as const, missao: x });
-    if (!ABERTAS.includes(m.estado) || m.estado === "blocked") return nao(m);
+    // Só anda o que espera tentativa ou aprovação; parada, planejando ou conferindo não se reserva aqui.
+    if (!DEVIDAS.includes(m.estado) && m.estado !== "waiting_approval") return nao(m);
 
     const parada = await this.motor.stop.blocking(m.userId);
     if (parada) return nao(await this.cancelar(m, `parada de emergência: ${parada.reason}`));
@@ -238,7 +274,7 @@ export class Missoes {
       // Aprovado (ou já executado): a MESMA tentativa continua de onde parou (não conta outra). Com
       // prazo, como qualquer reserva: antes, a missão ficava devida na hora e um segundo processo
       // podia rodar a mesma continuação por cima.
-      m.estado = "running";
+      this.mudar(m, "running");
       m.propostaId = null;
       if (m.custoCentavos >= m.tetoCustoCentavos) return nao(await this.bloquear(m, this.textoTeto(m)));
       this.reservarAte(m);
@@ -263,6 +299,7 @@ export class Missoes {
     }
 
     m.tentativas += 1;
+    if (m.estado !== "running") this.mudar(m, "running");
     this.reservarAte(m);
     m.atualizadaEm = this.clock.now();
     if (!(await this.salvar(m))) return nao((await this.store.get(id))!);
@@ -293,7 +330,7 @@ export class Missoes {
       case "feito":
       case "nao_sei":
       case "nao_consegui": {
-        m.estado = r.tipo === "nao_consegui" ? "failed" : "completed";
+        this.mudar(m, r.tipo === "nao_consegui" ? "failed" : "completed");
         m.rodada = null;
         m.desfecho = { tipo: r.tipo, explicacao: curto(String(r.explicacao ?? "").trim() || "(sem explicação)", MAX_EXPLICACAO) };
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
@@ -301,14 +338,14 @@ export class Missoes {
         return m;
       }
       case "aguardando_aprovacao":
-        m.estado = "waiting_approval";
+        this.mudar(m, "waiting_approval");
         m.propostaId = r.propostaId;
         m.rodada = r.rodada ?? null;
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
         await this.registrar(m, "mission.waiting_approval", "approval_required", sobre);
         return m;
       case "impedida": {
-        m.estado = "blocked";
+        this.mudar(m, "blocked");
         m.impedimento = curto(String(r.motivo ?? "").trim() || "A missão precisa de você para continuar.", 500);
         m.rodada = null;
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
@@ -318,12 +355,15 @@ export class Missoes {
       case "falha_temporaria": {
         m.rodada = r.rodada ?? null;
         if (m.tentativas >= m.maxTentativas) {
-          m.estado = "blocked";
+          this.mudar(m, "blocked");
           m.impedimento = `Tentou ${m.tentativas} vez(es) e não conseguiu. Último erro: ${curto(String(r.erro), 200)}. Diga se quer tentar de novo ou cancelar.`;
         } else if (m.custoCentavos >= m.tetoCustoCentavos) {
-          m.estado = "blocked";
+          this.mudar(m, "blocked");
           m.impedimento = this.textoTeto(m);
-        } else m.proximaTentativaEm = new Date(this.clock.now().getTime() + intervaloDepois(m.tentativas));
+        } else {
+          this.mudar(m, "retrying");
+          m.proximaTentativaEm = new Date(this.clock.now().getTime() + intervaloDepois(m.tentativas));
+        }
         // Impedida, a missão recomeça do zero se a pessoa mandar tentar de novo.
         if (m.estado === "blocked") m.rodada = null;
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
@@ -332,6 +372,13 @@ export class Missoes {
         return m;
       }
     }
+  }
+
+  /** A única porta de troca de estado: fora da tabela TRANSICOES, nada muda. */
+  private mudar(m: Missao, para: EstadoMissao) {
+    if (m.estado === para) return;
+    if (!podeMudar(m.estado, para)) throw new ObedientError("INVALID_TRANSITION", `transição de estado não permitida: ${m.estado} → ${para}`);
+    m.estado = para;
   }
 
   private textoTeto(m: Missao) {
@@ -356,7 +403,7 @@ export class Missoes {
       m.tetoCustoCentavos = t;
     }
     if (m.custoCentavos >= m.tetoCustoCentavos) throw new ObedientError("INVALID_PAYLOAD", "o teto de custo já foi atingido: aumente o teto para tentar de novo");
-    m.estado = "running";
+    this.mudar(m, "retrying");
     m.impedimento = null;
     m.tentativas = 0;
     m.propostaId = null;
@@ -383,7 +430,7 @@ export class Missoes {
   }
 
   private async cancelar(m: Missao, motivo: string): Promise<Missao> {
-    m.estado = "cancelled";
+    this.mudar(m, "cancelled");
     m.proximaTentativaEm = null;
     m.reservadaAte = null;
     m.rodada = null;
@@ -394,7 +441,7 @@ export class Missoes {
   }
 
   private async bloquear(m: Missao, impedimento: string): Promise<Missao> {
-    m.estado = "blocked";
+    this.mudar(m, "blocked");
     m.impedimento = impedimento;
     m.proximaTentativaEm = null;
     m.reservadaAte = null;

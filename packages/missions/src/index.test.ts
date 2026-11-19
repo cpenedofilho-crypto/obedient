@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ManualClock } from "@obedient/core";
 import { AuditTrail, EthicsEngine, InMemoryAuditSink } from "@obedient/ethics-engine";
-import { type Executor, InMemoryMissionStore, type Missao, Missoes, PRAZO_RESERVA_MS, type ResultadoTentativa, intervaloDepois } from "./index.ts";
+import { ABERTAS, ESTADOS_MISSAO, type Executor, InMemoryMissionStore, type Missao, Missoes, PRAZO_RESERVA_MS, type ResultadoTentativa, TERMINAIS, TRANSICOES, intervaloDepois, podeMudar } from "./index.ts";
 
 const T0 = new Date("2026-11-03T12:00:00Z");
 
@@ -89,7 +89,7 @@ describe("missões: persistência responsável (Art. 7º)", () => {
     await assert.rejects(missoes.tentarDeNovo("ana", m.id, { novoTetoCentavos: 40 }), (e) => codigo(e) === "INVALID_PAYLOAD");
     await assert.rejects(missoes.tentarDeNovo("bia", m.id, { novoTetoCentavos: 200 }), (e) => codigo(e) === "PROPOSAL_NOT_FOUND");
     const de_novo = await missoes.tentarDeNovo("ana", m.id, { novoTetoCentavos: 200 });
-    assert.deepEqual([de_novo.estado, de_novo.tentativas, de_novo.tetoCustoCentavos], ["running", 0, 200]);
+    assert.deepEqual([de_novo.estado, de_novo.tentativas, de_novo.tetoCustoCentavos], ["retrying", 0, 200]);
     const fim = await missoes.avancar(m.id, roteiro({ tipo: "feito", explicacao: "pronto", custoCentavos: 30 }));
     assert.equal(fim.estado, "completed");
   });
@@ -172,7 +172,7 @@ describe("missões: aprovação e parada", () => {
     await motor.stop.engage({ kind: "user", userId: "ana" }, "ana", "parar tudo");
     assert.equal((await missoes.get(a.id))?.estado, "cancelled");
     assert.equal((await missoes.get(b.id))?.estado, "cancelled");
-    assert.equal((await missoes.get(outra.id))?.estado, "running", "a parada da Ana não mexe na Bia");
+    assert.equal((await missoes.get(outra.id))?.estado, "created", "a parada da Ana não mexe na Bia");
     const exec = roteiro({ tipo: "feito", explicacao: "x", custoCentavos: 1 });
     const nova = await missoes.criar("ana", "obedient", "depois da parada");
     assert.equal((await missoes.avancar(nova.id, exec)).estado, "cancelled");
@@ -306,6 +306,56 @@ describe("missões: impedida pelo executor (D20, M1)", () => {
     assert.ok((await sink.entries("ana")).some((e) => e.event === "mission.blocked" && e.correlationId === m.id));
     // A pessoa libera: volta a andar.
     const liberada = await missoes.tentarDeNovo("ana", m.id);
-    assert.equal(liberada.estado, "running");
+    assert.equal(liberada.estado, "retrying");
+  });
+});
+
+describe("missões: tabela única de transições (D20, M2)", () => {
+  it("é a tabela aprovada: terminal não sai; todo aberto pode ser cancelado ou falhar; nada volta a created", () => {
+    assert.deepEqual(TRANSICOES, {
+      created: ["planning", "running", "failed", "cancelled"],
+      planning: ["running", "waiting_approval", "blocked", "failed", "cancelled"],
+      running: ["verifying", "waiting_approval", "retrying", "blocked", "completed", "failed", "cancelled"],
+      verifying: ["completed", "running", "blocked", "failed", "cancelled"],
+      retrying: ["running", "blocked", "failed", "cancelled"],
+      waiting_approval: ["running", "blocked", "failed", "cancelled"],
+      blocked: ["retrying", "planning", "running", "failed", "cancelled"],
+      completed: [],
+      failed: [],
+      cancelled: [],
+    });
+    for (const t of TERMINAIS) for (const e of ESTADOS_MISSAO) assert.equal(podeMudar(t, e), false, `${t} → ${e}`);
+    for (const a of ABERTAS) for (const fim of ["failed", "cancelled"] as const) assert.ok(podeMudar(a, fim), `${a} → ${fim}`);
+    for (const e of ESTADOS_MISSAO) assert.equal(podeMudar(e, "created"), false, `${e} → created`);
+    assert.deepEqual([...ABERTAS], ["created", "planning", "running", "verifying", "retrying", "waiting_approval", "blocked"]);
+  });
+
+  it("ciclo: created → running → retrying → running → completed; cada estado gravado é um que a tabela permite", async () => {
+    const { missoes, clock } = setup();
+    const visto: string[] = [];
+    const m = await missoes.criar("ana", "obedient", "x");
+    visto.push(m.estado);
+    const exec = roteiro(falha(1), { tipo: "feito", explicacao: "ok", custoCentavos: 1 });
+    const r1 = await missoes.reservar(m.id);
+    visto.push(r1.missao.estado);
+    const depois1 = await missoes.concluir(r1.missao, await exec(r1.missao));
+    visto.push(depois1.estado);
+    clock.advance(intervaloDepois(1));
+    const r2 = await missoes.reservar(m.id);
+    visto.push(r2.missao.estado);
+    visto.push((await missoes.concluir(r2.missao, await exec(r2.missao))).estado);
+    assert.deepEqual(visto, ["created", "running", "retrying", "running", "completed"]);
+    for (let i = 1; i < visto.length; i++) assert.ok(podeMudar(visto[i - 1] as never, visto[i] as never));
+  });
+
+  it("transição fora da tabela é recusada antes de gravar: uma missão terminada não volta a rodar", async () => {
+    const { missoes } = setup();
+    const m = await missoes.criar("ana", "obedient", "x");
+    const fim = await missoes.avancar(m.id, roteiro({ tipo: "feito", explicacao: "ok", custoCentavos: 1 }));
+    assert.equal(fim.estado, "completed");
+    // concluir de novo com uma cópia antiga da reserva: completed → retrying não existe.
+    const velha = { ...fim, estado: "completed" as const };
+    await assert.rejects(missoes.concluir(velha, falha(1)), (e) => codigo(e) === "INVALID_TRANSITION");
+    assert.equal((await missoes.get(m.id))?.estado, "completed");
   });
 });

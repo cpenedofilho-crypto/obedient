@@ -186,7 +186,7 @@ describe("executor das missões", () => {
       encerrar,
     );
     const [primeira] = await c.processar(u, r);
-    assert.deepEqual([primeira!.estado, primeira!.desfecho], ["running", null]);
+    assert.deepEqual([primeira!.estado, primeira!.desfecho], ["retrying", null]);
     assert.ok(primeira!.proximaTentativaEm);
     c.clock.advance(30_000);
     const [fim] = await c.processar(u, r);
@@ -251,7 +251,7 @@ describe("executor das missões", () => {
       encerrar,
     );
     const [primeira] = await c.processar(u, r);
-    assert.equal(primeira!.estado, "running");
+    assert.equal(primeira!.estado, "retrying");
     c.clock.advance(30_000);
     const [fim] = await c.processar(u, r);
     assert.deepEqual([fim!.estado, fim!.desfecho?.tipo, fim!.tentativas], ["completed", "nao_sei", 2]);

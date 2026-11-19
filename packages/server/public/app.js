@@ -188,7 +188,7 @@ function renderMissoes(ops) {
     if (m.impedimento) filhos.push(el("p", { classe: "impedimento", texto: m.impedimento }));
     if (m.desfecho) filhos.push(el("p", { classe: m.desfecho.tipo === "feito" ? "estado bom" : "estado", texto: m.desfecho.explicacao }));
     if (mexendo.has(m.id)) filhos.push(el("p", { classe: "estado", texto: "Enviando…" }));
-    else if (["running", "waiting_approval", "blocked"].includes(m.estado)) {
+    else if (!["completed", "failed", "cancelled"].includes(m.estado)) {
       /** @type {Node[]} */
       const acoes = [];
       if (m.estado === "blocked") {

@@ -14,7 +14,36 @@ Pacote `@obedient/missions`; armazenamento em `@obedient/store-postgres` (migrat
 | `nao_sei` | Terminou como "Não soube responder", com a explicação (Art. 5º) |
 | `nao_consegui` | "Não conseguiu", com a explicação (Art. 5º) |
 | `aguardando_aprovacao` | Esperando a pessoa aprovar um pedido; aprovado, segue; recusado ou vencido, vira impedimento |
-| `falha_temporaria` | Tenta de novo depois de um intervalo, ou vira impedimento |
+| `falha_temporaria` | `retrying`: tenta de novo depois de um intervalo, ou vira impedimento |
+| `impedida` | `blocked`: o executor não pode seguir sem a pessoa (por exemplo, uma ação ficou sem resultado confirmado) |
+
+## Estados e transições (decisão D20, marco M2, 19/11/2026)
+
+Uma única tabela de transições (`TRANSICOES` em `packages/missions`) decide para onde cada estado pode
+ir. Todo `estado` muda por ela, e o banco confere a mesma tabela num gatilho
+(`obedient.mission_transitions`, migration `0009_estados.sql`): fora dela, nada muda, mesmo que o código
+erre. Um teste exige que a tabela do banco seja igual à do código.
+
+| Estado | Significado | Pode ir para |
+|---|---|---|
+| `created` | criada, esperando a primeira tentativa | planning, running*, failed, cancelled |
+| `planning` | o plano está sendo feito (entra em uso no M5) | running, waiting_approval, blocked, failed, cancelled |
+| `running` | uma tentativa está reservada e rodando | verifying, waiting_approval, retrying, blocked, completed*, failed, cancelled |
+| `verifying` | os critérios estão sendo conferidos (entra em uso no M3) | completed, running, blocked, failed, cancelled |
+| `retrying` | falhou de passagem e espera a hora da próxima tentativa | running, blocked, failed, cancelled |
+| `waiting_approval` | espera a pessoa decidir um pedido | running, blocked, failed, cancelled |
+| `blocked` | parou e precisa da pessoa | retrying, planning, running, failed, cancelled |
+| `completed`, `failed`, `cancelled` | fim | nada |
+
+\* Provisórias: `created → running` sai com o planejador (M5), e `running → completed` sai com o
+verificador (M3).
+
+- Missão nasce `created` (o banco recusa outro estado na inserção).
+- "Tentar de novo" leva `blocked → retrying`, com a próxima tentativa na hora.
+- Até o M2, "esperando tentativa" era um `running` sem reserva. A migration leva as que existiam para
+  `created` (sem tentativa) ou `retrying` (já tentou); `running` com reserva continua `running`.
+- Para a pessoa, `created` aparece como "Trabalhando nisso" (a primeira tentativa sai em segundos) e
+  `retrying` como "Vai tentar de novo em breve".
 
 ## Regras do Art. 7º
 

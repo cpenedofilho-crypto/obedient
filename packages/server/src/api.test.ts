@@ -462,7 +462,7 @@ describe("missões e identificação pelo app (Arts. 5º, 7º e 9º)", () => {
     assert.match(m!.impedimento!, /Tentou 3 vez\(es\).*o site do restaurante não abriu/);
     assert.equal((await acao(token, { tipo: "tentar_de_novo", missaoId: m!.id })).ok, true);
     [m] = (await missoesDoPainel(token)).missoes;
-    assert.equal(m!.situacao, "Trabalhando nisso");
+    assert.equal(m!.situacao, "Vai tentar de novo em breve");
     assert.equal((await acao(token, { tipo: "cancelar_missao", missaoId: m!.id })).ok, true);
     const outra = await acao(token, { tipo: "cancelar_missao", missaoId: m!.id });
     assert.equal(outra.mensagem, "Essa missão já tinha terminado.");
