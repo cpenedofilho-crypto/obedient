@@ -197,3 +197,19 @@ que comparam o que fica gravado.
   escrito para a pessoa.
 - **Ainda não:** a chave de idempotência é gravada, mas não é repassada aos sistemas de destino. Isso
   depende de cada destino aceitar uma chave e entra com o registro de ferramentas (marcos M4 e M5).
+
+## Mandato, teto do mês e tempo por chamada (decisão D20, marco M4, 19/11/2026)
+
+- **Catálogo pelo mandato.** Antes da rodada, o executor tira do catálogo toda ferramenta governada
+  que não cabe no mandato da missão. O modelo nem fica sabendo que ela existe.
+- **Teto da tentativa:** o menor entre o que resta do teto da missão e o que resta do teto do mês
+  (R$ 300, D21). O prazo da tentativa também não passa do prazo final da missão.
+- **Tempo por chamada:** cada chamada de ferramenta tem 60 s (`timeoutFerramentaMs` nas dependências,
+  para teste). Passado o tempo, o agente recebe `tempo_esgotado` com `resultado_incerto`. Se a
+  ferramenta é de leitura, a missão segue. Se é de qualquer outra categoria, a tentativa termina
+  `impedida` com o motivo, pedindo à pessoa que confira se a ação aconteceu: nada é repetido sozinho.
+  O temporizador não segura o processo vivo.
+- **Limites de AGORA na execução aprovada.** Ao executar uma ação aprovada, o Ethics Engine confere de
+  novo, além do grant vigente: o risco da ferramenta contra o risco máximo do grant, o valor contra o
+  valor máximo, e as políticas atuais (só uma regra `deny` barra; `require_approval` já foi atendida
+  pela aprovação). Um grant estreitado entre a aprovação e a execução barra a execução.

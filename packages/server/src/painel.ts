@@ -7,7 +7,7 @@
 
 import { type AuditEntry, type EthicsEngine, type Grant, type Proposal, ehOperador } from "@obedient/ethics-engine";
 import { CATEGORIAS_DE_APRENDIZADO, type Memoria } from "@obedient/memory";
-import { ABERTAS, type Missao, type Missoes } from "@obedient/missions";
+import { ABERTAS, AVISO_MENSAL, TETO_MENSAL_CENTAVOS, type Missao, type Missoes } from "@obedient/missions";
 import { INTEGRACOES } from "@obedient/integrations";
 import type { Contestacao } from "@obedient/store-postgres";
 
@@ -95,6 +95,9 @@ export interface MissaoNoPainel {
   criadaEm: string;
   /** O que o verificador conferiu (M3), em frases curtas; null enquanto não houve verificação. */
   verificacao: { resumo: string; itens: { ok: boolean; detalhe: string }[] } | null;
+  /** Mandato (M4): só as ferramentas listadas (null = as conectadas) e o prazo final, se houver. */
+  ferramentas: string[] | null;
+  prazoFinalEm: string | null;
 }
 
 export interface Painel {
@@ -107,6 +110,8 @@ export interface Painel {
   aprendizado: { categorias: CategoriaNoPainel[]; licoes: LicaoNoPainel[] };
   contestacoes: ContestacaoNoPainel[];
   missoes: MissaoNoPainel[];
+  /** Gasto das missões no mês (D21): teto de R$ 300; aviso ao passar de 80%. */
+  gastoDoMes: { valor: string; teto: string; centavos: number; tetoCentavos: number; aviso: boolean; esgotado: boolean };
   /** Art. 5º: como as mensagens enviadas em nome da pessoa se identificam (null = não configurada). */
   identificacao: string | null;
   geradoEm: string;
@@ -250,6 +255,8 @@ function missaoNoPainel(m: Missao, evs: readonly EvidenciaDoPainel[] = []): Miss
     tetoCentavos: m.tetoCustoCentavos,
     criadaEm: m.criadaEm.toISOString(),
     verificacao: verificacaoNoPainel(evs),
+    ferramentas: m.mandato.ferramentas,
+    prazoFinalEm: m.mandato.prazoFinalEm?.toISOString() ?? null,
   };
 }
 
@@ -349,6 +356,7 @@ export async function montarPainel(
   const escolhidas = [...todas.filter((x) => ABERTAS.includes(x.estado)), ...todas.filter((x) => !ABERTAS.includes(x.estado)).slice(0, 10)];
   const listaDeMissoes: MissaoNoPainel[] = [];
   for (const x of escolhidas) listaDeMissoes.push(missaoNoPainel(x, await missoes.evidencias(x.id)));
+  const gasto = await missoes.gastoDoMes(userId);
   return {
     usuario: userId,
     reautenticado,
@@ -368,6 +376,14 @@ export async function montarPainel(
     contestacoes: contestacoes.map((c) => ({ id: c.id, seq: c.auditSeq, motivo: c.motivo, status: c.status, resposta: c.resposta, quando: c.criadaEm })),
     // Abertas primeiro; das encerradas, só as 10 mais recentes (o resto está em "Baixar meus dados").
     missoes: listaDeMissoes,
+    gastoDoMes: {
+      valor: reais(gasto),
+      teto: reais(TETO_MENSAL_CENTAVOS),
+      centavos: gasto,
+      tetoCentavos: TETO_MENSAL_CENTAVOS,
+      aviso: gasto >= TETO_MENSAL_CENTAVOS * AVISO_MENSAL,
+      esgotado: gasto >= TETO_MENSAL_CENTAVOS,
+    },
     identificacao,
     geradoEm: agora.toISOString(),
   };

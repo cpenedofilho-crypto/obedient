@@ -31,7 +31,10 @@ import { CONSTITUTION_VERSION, type EthicsEngine } from "@obedient/ethics-engine
 import { LIMITES_EQUIPE } from "@obedient/mission-engine";
 import { type Criterio, type Evidencia, problemasDosCriterios, textoNaoVerificada, verificar } from "./verificacao.ts";
 
+import { type Mandato, TETO_MENSAL_CENTAVOS, inicioDoMes, lerMandato, problemasDoMandato } from "./mandato.ts";
+
 export * from "./verificacao.ts";
+export * from "./mandato.ts";
 
 /**
  * Estados da missão (decisão D20, marco M2). `planning` e `verifying` já estão na tabela, mas só entram
@@ -53,7 +56,8 @@ export const ABERTAS: readonly EstadoMissao[] = ESTADOS_MISSAO.filter((e) => !TE
  * verifying. Terminal não sai para lugar nenhum.
  */
 export const TRANSICOES: Readonly<Record<EstadoMissao, readonly EstadoMissao[]>> = {
-  created: ["planning", "running", "failed", "cancelled"],
+  // created → blocked desde o M4: o teto do mês pode parar a missão antes da primeira tentativa.
+  created: ["planning", "running", "blocked", "failed", "cancelled"],
   planning: ["running", "waiting_approval", "blocked", "failed", "cancelled"],
   running: ["verifying", "waiting_approval", "retrying", "blocked", "failed", "cancelled"],
   verifying: ["completed", "running", "blocked", "failed", "cancelled"],
@@ -94,6 +98,8 @@ export interface Missao {
   objetivo: string;
   /** Critérios de conclusão (M3), fixados na criação. Vazio = a evidência diz que não havia critério. */
   criterios: Criterio[];
+  /** Mandato (M4), fixado na criação: só estreita o que os grants permitem. */
+  mandato: Mandato;
   estado: EstadoMissao;
   /** Por que parou e o que a pessoa pode fazer (só quando blocked). */
   impedimento: string | null;
@@ -145,6 +151,10 @@ export interface MissionStore {
   /** Guarda as evidências da verificação (só inserção). */
   gravarEvidencias(m: Missao, evidencias: readonly Evidencia[]): Promise<void>;
   evidencias(missionId: string): Promise<(Evidencia & { tentativa: number })[]>;
+  /** Gasto de uma tentativa (só inserção), para o teto mensal (M4). */
+  registrarGasto(m: Missao, centavos: number, em: Date): Promise<void>;
+  /** Soma do que a pessoa gastou desde `desde`, em todas as missões. */
+  gastoDesde(userId: string, desde: Date): Promise<number>;
 }
 
 export class InMemoryMissionStore implements MissionStore {
@@ -174,6 +184,13 @@ export class InMemoryMissionStore implements MissionStore {
   async evidencias(missionId: string) {
     return structuredClone(this.provas.get(missionId) ?? []);
   }
+  private readonly gastos: { userId: string; centavos: number; em: Date }[] = [];
+  async registrarGasto(m: Missao, centavos: number, em: Date) {
+    this.gastos.push({ userId: m.userId, centavos, em: new Date(em) });
+  }
+  async gastoDesde(userId: string, desde: Date) {
+    return this.gastos.filter((g) => g.userId === userId && g.em.getTime() >= desde.getTime()).reduce((a, g) => a + g.centavos, 0);
+  }
 }
 
 /** Intervalo antes da tentativa n+1, depois de n falhas: 30 s, 1 min, 2 min, … até 1 h. */
@@ -198,7 +215,7 @@ export class Missoes {
   }
 
   /** A pessoa pede uma missão. */
-  async criar(userId: string, agente: string, objetivo: string, opts: { tetoCustoCentavos?: number; maxTentativas?: number; criterios?: Criterio[] } = {}): Promise<Missao> {
+  async criar(userId: string, agente: string, objetivo: string, opts: { tetoCustoCentavos?: number; maxTentativas?: number; criterios?: Criterio[]; mandato?: { ferramentas?: string[] | null; prazoFinalEm?: Date | string | null } } = {}): Promise<Missao> {
     const texto = typeof objetivo === "string" ? objetivo.replace(/\s+/g, " ").trim() : "";
     if (!texto || texto.length > MAX_OBJETIVO) throw new ObedientError("INVALID_PAYLOAD", `o objetivo precisa ter de 1 a ${MAX_OBJETIVO} caracteres`);
     if (agente === userId) throw new ObedientError("INVALID_PAYLOAD", "o agente não pode ser a própria pessoa");
@@ -209,12 +226,15 @@ export class Missoes {
     const problemas = problemasDosCriterios(opts.criterios);
     if (problemas.length) throw new ObedientError("INVALID_PAYLOAD", `critérios inválidos: ${problemas.slice(0, 3).join("; ")}`);
     const agora = this.clock.now();
+    const doMandato = problemasDoMandato(opts.mandato, agora);
+    if (doMandato.length) throw new ObedientError("INVALID_PAYLOAD", `mandato inválido: ${doMandato.slice(0, 3).join("; ")}`);
     const m: Missao = {
       id: this.newId(),
       userId,
       agente,
       objetivo: texto,
       criterios: structuredClone(opts.criterios ?? []),
+      mandato: lerMandato(opts.mandato),
       estado: "created",
       impedimento: null,
       desfecho: null,
@@ -286,6 +306,11 @@ export class Missoes {
     const parada = await this.motor.stop.blocking(m.userId);
     if (parada) return nao(await this.cancelar(m, `parada de emergência: ${parada.reason}`));
 
+    // Prazo final do mandato (M4): passou, não tenta mais.
+    if (m.mandato.prazoFinalEm && this.clock.now().getTime() >= m.mandato.prazoFinalEm.getTime()) return nao(await this.falharPorPrazo(m));
+    // Teto do mês (D21): nenhuma tentativa começa depois de atingido.
+    if ((await this.gastoDoMes(m.userId)) >= TETO_MENSAL_CENTAVOS) return nao(await this.bloquear(m, this.textoTetoMensal()));
+
     if (m.estado === "waiting_approval") {
       const p = m.propostaId ? await this.motor.approvals.get(m.propostaId) : undefined;
       if (!p || p.status === "pending") return nao(m); // a pessoa ainda não decidiu
@@ -352,6 +377,8 @@ export class Missoes {
     m.custoCentavos += custo;
     m.atualizadaEm = this.clock.now();
     const sobre = [`tentativa ${m.tentativas} de ${m.maxTentativas}`, `custo ${reais(custo)} (total ${reais(m.custoCentavos)})`];
+    // O gasto aconteceu, mesmo que o resultado seja descartado depois: conta para o teto do mês.
+    if (custo > 0) await this.store.registrarGasto(m, custo, this.clock.now());
 
     switch (r.tipo) {
       case "nao_consegui": {
@@ -410,6 +437,10 @@ export class Missoes {
         } else if (m.custoCentavos >= m.tetoCustoCentavos) {
           this.mudar(m, "blocked");
           m.impedimento = this.textoTeto(m);
+        } else if ((await this.gastoDoMes(m.userId)) >= TETO_MENSAL_CENTAVOS) {
+          // O teto do mês (D21) acabou nesta tentativa: aumentar o teto da missão não ajudaria.
+          this.mudar(m, "blocked");
+          m.impedimento = this.textoTetoMensal();
         } else {
           this.mudar(m, "retrying");
           m.proximaTentativaEm = new Date(this.clock.now().getTime() + intervaloDepois(m.tentativas));
@@ -431,6 +462,27 @@ export class Missoes {
     m.estado = para;
   }
 
+  /** Quanto a pessoa gastou neste mês (Brasil, UTC−3), somando todas as missões. */
+  gastoDoMes(userId: string) {
+    return this.store.gastoDesde(userId, inicioDoMes(this.clock.now()));
+  }
+
+  private textoTetoMensal() {
+    return `Chegou ao teto do mês (${reais(TETO_MENSAL_CENTAVOS)}). As missões voltam a andar no mês que vem, ou cancele.`;
+  }
+
+  private async falharPorPrazo(m: Missao): Promise<Missao> {
+    this.mudar(m, "failed");
+    m.desfecho = { tipo: "nao_consegui", explicacao: `Passou do prazo final que você deu (${m.mandato.prazoFinalEm!.toISOString()}) sem terminar.` };
+    m.proximaTentativaEm = null;
+    m.reservadaAte = null;
+    m.rodada = null;
+    m.atualizadaEm = this.clock.now();
+    if (!(await this.salvar(m))) return (await this.store.get(m.id))!;
+    await this.registrar(m, "mission.nao_consegui", "failed", ["passou do prazo final do mandato"]);
+    return m;
+  }
+
   private textoTeto(m: Missao) {
     return `Chegou ao teto de custo (${reais(m.tetoCustoCentavos)}) sem terminar. Aumente o teto ou cancele.`;
   }
@@ -447,6 +499,7 @@ export class Missoes {
     const m = await this.store.get(id);
     if (!m || m.userId !== userId) throw new ObedientError("PROPOSAL_NOT_FOUND", "missão inexistente");
     if (m.estado !== "blocked") throw new ObedientError("PROPOSAL_NOT_PENDING", "a missão não está parada esperando você");
+    if (m.mandato.prazoFinalEm && this.clock.now().getTime() >= m.mandato.prazoFinalEm.getTime()) throw new ObedientError("INVALID_PAYLOAD", "o prazo final desta missão já passou: crie outra");
     if (opts.novoTetoCentavos !== undefined) {
       const t = opts.novoTetoCentavos;
       if (!Number.isInteger(t) || t <= m.tetoCustoCentavos || t > TETO_CUSTO_MAXIMO) throw new ObedientError("INVALID_PAYLOAD", `o novo teto precisa ser maior que o atual e até ${TETO_CUSTO_MAXIMO} centavos`);

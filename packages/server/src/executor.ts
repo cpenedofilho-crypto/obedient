@@ -45,7 +45,7 @@ import {
 } from "@obedient/agent-orchestrator";
 import { type Conexoes, executorGoogle, itensGovernados } from "@obedient/integrations";
 import type { Licao } from "@obedient/memory";
-import { type Evidencia, type Executor as ExecutorDeMissao, MAX_VOLTAS_VERIFICACAO, type Missao, type ResultadoTentativa, type TipoDesfecho, verificar } from "@obedient/missions";
+import { type Evidencia, type Executor as ExecutorDeMissao, MAX_VOLTAS_VERIFICACAO, type Missao, type ResultadoTentativa, TETO_MENSAL_CENTAVOS, type TipoDesfecho, cabeNoMandato, verificar } from "@obedient/missions";
 import type { ClienteA2A } from "@obedient/a2a-client";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCompras, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
@@ -60,6 +60,8 @@ const CHAVE_LEMBRAR = `obedient/${LEMBRAR}`;
 export const MAX_RODADA = 1_500_000;
 
 export const LIMITES_PADRAO = { maxPassos: 24, maxTokensTotal: 3_000_000, prazoMs: 10 * 60_000, maxTokensResposta: 16_000 };
+/** Tempo máximo de uma chamada de ferramenta (M4). Passou: resultado incerto; escrita incerta para a missão. */
+export const TIMEOUT_FERRAMENTA_MS = 60_000;
 
 /** Um modelo que soma o que gastou (ModeloAnthropic faz isso). */
 export type ModeloComGasto = ModeloAgente & { readonly gastoEmDolares: number };
@@ -83,6 +85,8 @@ export interface DepsExecutor {
   /** Servidores MCP do dono (mcp-servidores.ts). Ausente: nenhum. */
   mcp?: { servidores: readonly ServidorMcp[]; conexao(s: ServidorMcp, userId: string): ConexaoMcp } | null;
   log?: (e: Record<string, unknown>) => void;
+  /** Tempo máximo por chamada de ferramenta (padrão TIMEOUT_FERRAMENTA_MS). */
+  timeoutFerramentaMs?: number;
 }
 
 interface RodadaGuardada {
@@ -282,9 +286,21 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       }
     }
 
+    // Mandato (M4): a missão só enxerga as ferramentas que ele lista; as outras nem são oferecidas.
+    // Só estreita: as internas (concluir, lembrar) ficam, e o resto continua sob os grants.
+    for (const [nome, item] of [...catalogo]) if (categoriaDe(item) && !cabeNoMandato(missao.mandato, item.chave)) catalogo.delete(nome);
+
     const modelo = d.novoModelo();
     const gastoCentavos = () => Math.ceil(modelo.gastoEmDolares * d.centavosPorDolar);
-    const resta = missao.tetoCustoCentavos - missao.custoCentavos;
+    // O teto que vale é o menor: o que resta da missão ou o que resta do mês (D21).
+    const gastoDoMes = await comoUsuario(d.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, opcoes), d.clock).gastoDoMes(u));
+    const resta = Math.min(missao.tetoCustoCentavos - missao.custoCentavos, TETO_MENSAL_CENTAVOS - gastoDoMes);
+    // O prazo da tentativa não passa do prazo final do mandato.
+    const prazoFinal = missao.mandato.prazoFinalEm ? missao.mandato.prazoFinalEm.getTime() - d.clock.now().getTime() : Infinity;
+    const limitesDaTentativa = { ...limites, prazoMs: Math.max(1_000, Math.min(limites.prazoMs, prazoFinal)) };
+    const timeoutMs = d.timeoutFerramentaMs ?? TIMEOUT_FERRAMENTA_MS;
+    // Escritas que passaram do tempo: podem ter acontecido. A missão para no fim da tentativa.
+    const incertas: string[] = [];
     let parouPor: "teto" | "missao" | null = null;
     let desfecho: { tipo: TipoDesfecho; explicacao: string; evidencias?: Evidencia[] } | null = null;
     // Verificação (M3): "feito" só vale com os critérios conferidos. Até MAX_VOLTAS_VERIFICACAO voltas de
@@ -385,11 +401,23 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     // Ferramenta governada: o INÍCIO é gravado antes da chamada; sem ele gravado, a chamada não sai.
     const chamar = async (item: ItemCatalogo, args: Record<string, unknown>, approvalId?: string): Promise<ResultadoChamada> => {
       const categoria = categoriaDe(item);
-      if (categoria) {
-        const { seq } = await gravar({ tipo: "inicio", status: "chamando", ferramenta: item.chave, categoria, hashArgumentos: hashDoPasso(item.chave, args), aprovacaoId: approvalId ?? null });
-        inicioAberto = { tentativa: missao.tentativas, seq };
-      }
-      return chamarGovernada(item, args, approvalId);
+      if (!categoria) return chamarGovernada(item, args, approvalId);
+      const { seq } = await gravar({ tipo: "inicio", status: "chamando", ferramenta: item.chave, categoria, hashArgumentos: hashDoPasso(item.chave, args), aprovacaoId: approvalId ?? null });
+      inicioAberto = { tentativa: missao.tentativas, seq };
+      // Tempo máximo por chamada (M4). A chamada que passou do tempo segue sozinha (não há como
+      // cancelar no destino): o resultado é incerto, e escrita incerta para a missão no fim.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const esgotou = new Promise<"tempo">((ok) => {
+        timer = setTimeout(() => ok("tempo"), timeoutMs);
+        // O prazo não segura o processo vivo sozinho (o processo que encerra não espera por ele).
+        timer.unref?.();
+      });
+      const chamada = chamarGovernada(item, args, approvalId);
+      chamada.catch(() => {});
+      const r = await Promise.race([chamada, esgotou]).finally(() => clearTimeout(timer));
+      if (r !== "tempo") return r;
+      if (categoria !== "READ") incertas.push(item.chave);
+      return { status: "tool_error", motivo: "tempo_esgotado", approvalId: approvalId ?? null, resultado: { resultado_incerto: true, aviso: "a ferramenta passou do tempo; a ação pode ter acontecido mesmo assim: não repita" } };
     };
 
     const r: ResultadoRodada = await executarRodada({
@@ -401,7 +429,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       ...(salva ? { estado: salva.estado } : {}),
       ...(salva?.pendente ? { pendente: salva.pendente } : {}),
       situacaoAprovacao: situacaoPeloEthicsEmEtapas(abrir),
-      limites,
+      limites: limitesDaTentativa,
       aoPasso,
       cancelado: async () => {
         if (gastoCentavos() >= resta) return Boolean((parouPor = "teto"));
@@ -419,6 +447,8 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       return JSON.stringify(g).length <= MAX_RODADA ? g : undefined;
     };
     const longaDemais = { tipo: "nao_consegui" as const, explicacao: "A conversa desta missão ficou longa demais para continuar. Tente pedir em partes menores.", custoCentavos };
+    // Escrita que passou do tempo: nada segue sem a pessoa conferir (mesma regra do início sem fim).
+    if (incertas.length) return { tipo: "impedida", motivo: textoIncerto(incertas), custoCentavos };
 
     switch (r.status) {
       case "completed": {

@@ -14,6 +14,8 @@ interface LinhaMissao {
   agente: string;
   objetivo: string;
   criterios: Criterio[] | null;
+  mandato_ferramentas: string[] | null;
+  prazo_final_em: unknown;
   estado: EstadoMissao;
   impedimento: string | null;
   desfecho_tipo: TipoDesfecho | null;
@@ -41,6 +43,7 @@ const paraMissao = (r: LinhaMissao): Missao => ({
   agente: r.agente,
   objetivo: r.objetivo,
   criterios: Array.isArray(r.criterios) ? r.criterios : [],
+  mandato: { ferramentas: Array.isArray(r.mandato_ferramentas) ? r.mandato_ferramentas : null, prazoFinalEm: data(r.prazo_final_em) },
   estado: r.estado,
   impedimento: r.impedimento,
   desfecho: r.desfecho_tipo ? { tipo: r.desfecho_tipo, explicacao: r.desfecho_explicacao ?? "" } : null,
@@ -62,10 +65,11 @@ export class PgMissionStore implements MissionStore {
   async insert(m: Missao): Promise<void> {
     await this.tx.query(
       `insert into obedient.missions (id, user_id, agente, objetivo, estado, impedimento, desfecho_tipo, desfecho_explicacao, tentativas, max_tentativas,
-         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao, reservada_ate, criterios)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20::jsonb)`,
+         proxima_tentativa_em, custo_centavos, teto_custo_centavos, proposta_id, rodada, criada_em, atualizada_em, versao, reservada_ate, criterios, mandato_ferramentas, prazo_final_em)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16,$17,$18,$19,$20::jsonb,$21::jsonb,$22)`,
       [m.id, m.userId, m.agente, m.objetivo, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas, m.maxTentativas,
-        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, json(m.rodada), m.criadaEm, m.atualizadaEm, m.versao, m.reservadaAte, JSON.stringify(m.criterios ?? [])],
+        m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, json(m.rodada), m.criadaEm, m.atualizadaEm, m.versao, m.reservadaAte, JSON.stringify(m.criterios ?? []),
+        m.mandato?.ferramentas ? JSON.stringify(m.mandato.ferramentas) : null, m.mandato?.prazoFinalEm ?? null],
     );
   }
   async get(id: string): Promise<Missao | undefined> {
@@ -97,6 +101,13 @@ export class PgMissionStore implements MissionStore {
         [m.id, m.userId, m.tentativas, ev.criterio, ev.tipo, ev.ok, ev.referencia?.slice(0, 400) ?? null, ev.detalhe.slice(0, 500), m.atualizadaEm],
       );
     }
+  }
+  async registrarGasto(m: Missao, centavos: number, em: Date): Promise<void> {
+    await this.tx.query("insert into obedient.mission_spend (user_id, mission_id, tentativa, centavos, em) values ($1, $2, $3, $4, $5)", [m.userId, m.id, m.tentativas, Math.ceil(centavos), em]);
+  }
+  async gastoDesde(userId: string, desde: Date): Promise<number> {
+    const { rows } = await this.tx.query<{ total: string | number | null }>("select coalesce(sum(centavos), 0) as total from obedient.mission_spend where user_id = $1 and em >= $2", [userId, desde]);
+    return Number(rows[0]?.total ?? 0);
   }
   async evidencias(missionId: string): Promise<(Evidencia & { tentativa: number })[]> {
     const { rows } = await this.tx.query<{ tentativa: number; criterio: number | null; tipo: Evidencia["tipo"]; ok: boolean; referencia: string | null; detalhe: string }>(

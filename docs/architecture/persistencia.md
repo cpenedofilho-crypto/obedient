@@ -111,6 +111,14 @@ início e o passo fechado numa linha `incerto`. Detalhes em `executor.md`, seç�
 e `obedient.mission_evidence` o que o verificador conferiu: só inserção, RLS por pessoa, chave primária
 `(mission_id, seq)`. Detalhes em `missoes.md`, seção "Critérios de conclusão e verificação".
 
+## Mandato e gasto do mês (0011)
+
+`obedient.missions.mandato_ferramentas` (lista de 1 a 30, ou null) e `obedient.missions.prazo_final_em`
+guardam o mandato, fixo depois da criação. `obedient.mission_spend` guarda o gasto de cada tentativa:
+só inserção, RLS por pessoa, centavos positivos; a soma do mês é o teto da D21. "Apagar" esvazia o
+mandato e não apaga o gasto. Transição nova: `created → blocked`. Detalhes em `missoes.md`, seção
+"Mandato, prazo final e teto do mês".
+
 ## O que ainda não existe
 
 - **Políticas do usuário (`policiesFor`) no banco.** Hoje elas chegam por função; a tabela entra

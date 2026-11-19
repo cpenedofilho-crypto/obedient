@@ -162,7 +162,37 @@ o agente disse que terminou.
 - **Evidências** em `obedient.mission_evidence` (migration `0010_verificacao.sql`): só inserção, RLS por
   pessoa; "apagar o que o OBEDIENT sabe" apaga as evidências e esvazia os critérios.
 - **No app:** a ação `criar_missao` aceita `criterios`; o painel mostra "Conferido: N de M critério(s)" ou
-  "Sem critério de conclusão: conferido só o registro de passos". A tela de criação ainda não tem campo
-  para critérios (entra com o mandato, M4).
+  "Sem critério de conclusão: conferido só o registro de passos". Na tela de criação, o critério entra
+  pela opção "Só dar por feito se ele usar esse sistema" (M4), que vira `ferramenta_ok` com `<sistema>/*`.
 - **Ainda não:** o verificador é só determinístico. Uma revisão por outro modelo, só com ferramentas de
   leitura, dobraria o custo de cada missão e depende de decisão.
+
+## Mandato, prazo final e teto do mês (decisão D20, marco M4; D21; D22; 19/11/2026)
+
+O mandato é o que a pessoa diz que a missão pode fazer. Ele **só estreita** o que os grants já
+permitem, nunca amplia, e o objetivo escrito nunca vira autorização.
+
+- **Ferramentas:** lista de nomes exatos ou prefixos com `*` (até 30; sem curinga sozinho, mínimo de 3
+  caracteres antes do `*`, como nos grants). A missão só **enxerga** as ferramentas listadas: as outras
+  nem são oferecidas ao agente. Sem lista, valem as que a pessoa conectou, como antes. Isto é mais
+  estrito que o plano (que previa levar a ferramenta de fora do mandato a `waiting_approval`): fora do
+  mandato é recusa, e ampliar é a pessoa criar outra missão.
+- **Prazo final:** até 30 dias à frente. Passado o prazo, a missão não tenta mais e termina `failed`
+  com "não conseguiu" ("Passou do prazo final que você deu"); "tentar de novo" é recusado. Cada
+  tentativa também tem o prazo dela limitado pelo prazo final.
+- **Autonomia:** o mandato não tem campo de autonomia (D22). Só leitura é autônoma; toda escrita,
+  inclusive MEDIUM, continua pedindo aprovação (D18).
+- **Fixo depois de criado:** o app não altera o mandato (`missions.mandato_ferramentas` e
+  `missions.prazo_final_em`, migration `0011_mandato.sql`).
+- **Teto do mês (D21):** R$ 300 por pessoa por mês (mês do Brasil, UTC−3), somando o gasto de todas as
+  tentativas, gravado em `obedient.mission_spend` no fim de cada tentativa (também quando o resultado é
+  descartado: o gasto aconteceu). Com o teto atingido, nenhuma tentativa começa (`created → blocked`,
+  transição nova) e a missão em andamento para em `blocked` com "Chegou ao teto do mês". Dentro da
+  tentativa, o executor usa o menor entre o que resta da missão e o que resta do mês. O painel mostra
+  o gasto do mês e avisa ao passar de 80%. "Apagar o que o OBEDIENT sabe" não apaga o gasto: é
+  contabilidade sem conteúdo da pessoa, e apagá-lo zeraria o teto.
+- **No app:** `criar_missao` aceita `mandato: { ferramentas?, prazoFinalEm? }`; a forma é conferida na
+  entrada e o prazo (que depende do relógio) na criação. A tela tem "Pode usar" (tudo o que está
+  conectado, ou um sistema só) e "Até quando" (sem prazo, amanhã, 7 ou 29 dias).
+- **Ainda não:** restringir por ambiente (produção, homologação) depende de as ferramentas declararem o
+  ambiente, o que o registro de ferramentas ainda não faz (M5).

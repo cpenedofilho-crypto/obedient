@@ -363,6 +363,14 @@ describe("executor das missões: reinício do processo e aprovações", () => {
       ["vencido", async (c) => c.clock.advance(31 * 60_000)],
       ["grant revogado", (c, u) => c.motor(u, async (mt) => { for (const g of await mt.grants.list(u)) if (!g.revokedAt) await mt.grants.revoke(g.id, u); })],
       ["consentimento revogado", (c, u) => c.motor(u, (mt) => mt.consent.revokePurpose(u, "integracao:google_agenda"))],
+      // M4: o grant continua, mas mais estreito (risco máximo MEDIUM); apagar é HIGH.
+      ["grant estreitado", (c, u) => c.motor(u, async (mt) => {
+        for (const g of await mt.grants.list(u)) {
+          if (g.revokedAt) continue;
+          await mt.grants.revoke(g.id, u);
+          await mt.grants.grant({ userId: u, agentId: g.agentId, systemId: g.systemId, capability: g.capability, purpose: g.purpose, expiresAt: g.expiresAt, limits: { ...g.limits, maxRisk: "MEDIUM", autonomousUpTo: "LOW" } }, u);
+        }
+      })],
     ];
     for (const [nome, depoisDeAprovar] of casos) {
       const c = montar();
@@ -578,5 +586,121 @@ describe("executor das missões: verificação ao concluir (D20, M3)", () => {
     const [fim] = await c.processar(u, roteiro(0, concluir("feito", "Oi!"), encerrar));
     assert.equal(fim!.estado, "completed");
     assert.deepEqual((await evidencias(u, m.id)).map((e) => [e.tipo, e.ok, e.detalhe]), [["sem_criterio", true, "Nenhum critério definido: conferido só o registro de passos (0 chamada(s) com sucesso)."]]);
+  });
+});
+
+describe("executor das missões: mandato, prazo, teto do mês e tempo por chamada (D20, M4)", () => {
+  const lerAgenda = usar("t1", "google_agenda__listar_eventos", { de: "2026-11-04T00:00:00-03:00", ate: "2026-11-05T00:00:00-03:00" });
+
+  it("mandato: a missão só enxerga as ferramentas listadas; o resto nem é oferecido ao agente", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    c.google.responderApi = () => ({ json: { items: [] } });
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "O que tenho amanhã?", { mandato: { ferramentas: ["google_agenda/google_agenda.listar_eventos"] } }));
+    const r = roteiro(0, lerAgenda, concluir("feito", "Nada."), encerrar);
+    const [fim] = await c.processar(u, r);
+    assert.equal(fim!.estado, "completed");
+    assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name).sort(), [CONCLUIR, "google_agenda__listar_eventos"], "criar e apagar ficaram de fora");
+  });
+
+  it("mandato inválido não cria missão: curinga, prefixo curto, prazo no passado ou longe demais", async () => {
+    const c = montar();
+    const u = usuario();
+    for (const mandato of [{ ferramentas: ["*"] }, { ferramentas: ["go*"] }, { ferramentas: [] }, { prazoFinalEm: new Date(T0.getTime() - 1) }, { prazoFinalEm: new Date(T0.getTime() + 31 * 24 * 3_600_000) }])
+      await assert.rejects(c.missoes(u, (ms) => ms.criar(u, "obedient", "x", { mandato })), /mandato inválido/, JSON.stringify(mandato));
+  });
+
+  it("prazo final vencido: a missão termina como 'não conseguiu' sem chamar o modelo", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Lembrar do aniversário", { mandato: { prazoFinalEm: new Date(T0.getTime() + 60_000) } }));
+    c.clock.advance(61_000);
+    const r = roteiro(0);
+    const [fim] = await c.processar(u, r);
+    assert.deepEqual([fim!.estado, fim!.desfecho?.tipo], ["failed", "nao_consegui"]);
+    assert.match(fim!.desfecho!.explicacao, /Passou do prazo final/);
+    assert.equal(r.chamadas(), 0);
+  });
+
+  it("teto do mês (D21): com R$ 300 gastos no mês, nenhuma tentativa nova começa; a missão para explicando", async () => {
+    const c = montar();
+    const u = usuario();
+    // Uma missão gasta o teto do mês inteiro numa tentativa: US$ 50 × 600 centavos por dólar.
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Missão cara", { tetoCustoCentavos: 10_000 }));
+    await c.processar(u, roteiro(50, concluir("nao_consegui", "Não deu.")));
+    assert.equal(await c.missoes(u, (ms) => ms.gastoDoMes(u)), 30_000);
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Outra"));
+    const r = roteiro(0.01, concluir("feito", "ok"), encerrar);
+    const fins = await c.processar(u, r);
+    const outra = fins.find((m) => m.objetivo === "Outra")!;
+    assert.equal(outra.estado, "blocked");
+    assert.match(outra.impedimento!, /teto do mês/);
+    assert.equal(r.chamadas(), 0);
+  });
+
+  it("teto do mês (D21): a tentativa usa o MENOR entre o que resta da missão e o que resta do mês", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    c.google.responderApi = () => ({ json: { items: [] } });
+    // Uma missão gasta R$ 299,40 (US$ 49,90 × 600); restam 60 centavos no mês.
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Missão cara", { tetoCustoCentavos: 10_000 }));
+    await c.processar(u, roteiro(49.9, concluir("nao_consegui", "Não deu.")));
+    assert.equal(await c.missoes(u, (ms) => ms.gastoDoMes(u)), 29_940);
+    // A outra tem teto de R$ 15, mas o mês só tem 60 centavos: para depois da primeira chamada (60).
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Ver a agenda"));
+    const r = roteiro(0.1, lerAgenda, concluir("feito", "Nada."), encerrar);
+    const fins = await c.processar(u, r);
+    const fim = fins.find((m) => m.objetivo === "Ver a agenda")!;
+    assert.equal(r.chamadas(), 1, "não chama o modelo de novo depois do teto do mês");
+    assert.equal(fim.estado, "blocked");
+    assert.match(fim.impedimento!, /teto do mês/);
+  });
+
+  it("tempo por chamada: escrita aprovada que passa do tempo para a missão (incerta); nada é repetido", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Apague o compromisso ev1", { maxTentativas: 2 }));
+    const [esperando] = await c.processar(u, roteiro(0, usar("t1", "google_agenda__apagar_evento", { id: "ev1" })));
+    await c.motor(u, async (mt) => mt.approve(esperando!.propostaId!, { id: u, kind: "user", strongAuth: true }, (await mt.approvals.get(esperando!.propostaId!))!.payloadHash));
+    let deletes = 0;
+    const travado = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        deletes++;
+        return new Promise<Response>(() => {});
+      }
+      return c.google.fetch(url, init);
+    }) as typeof fetch;
+    const r = roteiro(0, concluir("nao_sei", "Não sei se apagou."), encerrar);
+    const ex = executorDeMissoes({ db: banco.db, conexoes: c.conexoes, novoModelo: r.novo, centavosPorDolar: 600, clock: c.clock, http: travado, timeoutFerramentaMs: 30 });
+    const [fim] = await processarMissoes(banco.db, u, ex, {}, c.clock);
+    assert.equal(fim!.estado, "blocked");
+    assert.match(fim!.impedimento!, /apagar_evento/);
+    assert.equal(deletes, 1, "uma chamada só");
+  });
+
+  it("tempo por chamada: leitura que passa do tempo volta ao agente como erro, e a missão segue", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "O que tenho amanhã?"));
+    const travado = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).includes("/calendar/")) return new Promise<Response>(() => {});
+      return c.google.fetch(url, init);
+    }) as typeof fetch;
+    const r = roteiro(
+      0,
+      lerAgenda,
+      (p) => {
+        assert.match(resultados(p)[0]!.content, /tempo_esgotado|resultado_incerto|passou do tempo/);
+        return concluir("nao_consegui", "A agenda não respondeu.")();
+      },
+      encerrar,
+    );
+    const ex = executorDeMissoes({ db: banco.db, conexoes: c.conexoes, novoModelo: r.novo, centavosPorDolar: 600, clock: c.clock, http: travado, timeoutFerramentaMs: 30 });
+    const [fim] = await processarMissoes(banco.db, u, ex, {}, c.clock);
+    assert.deepEqual([fim!.estado, fim!.desfecho?.tipo], ["failed", "nao_consegui"]);
   });
 });

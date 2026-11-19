@@ -313,7 +313,7 @@ describe("missões: impedida pelo executor (D20, M1)", () => {
 describe("missões: tabela única de transições (D20, M2)", () => {
   it("é a tabela aprovada: terminal não sai; todo aberto pode ser cancelado ou falhar; nada volta a created", () => {
     assert.deepEqual(TRANSICOES, {
-      created: ["planning", "running", "failed", "cancelled"],
+      created: ["planning", "running", "blocked", "failed", "cancelled"],
       planning: ["running", "waiting_approval", "blocked", "failed", "cancelled"],
       running: ["verifying", "waiting_approval", "retrying", "blocked", "failed", "cancelled"],
       verifying: ["completed", "running", "blocked", "failed", "cancelled"],

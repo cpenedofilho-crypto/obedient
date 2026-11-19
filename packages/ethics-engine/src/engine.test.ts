@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ManualClock, ObedientError } from "@obedient/core";
 import { ApprovalGateway, AuditTrail, ConsentManager, EmergencyStop, EthicsEngine, GrantRegistry, InMemoryAuditSink, InMemoryGrantStore, type GrantSpec } from "./index.ts";
+import type { Policy } from "@obedient/policy-engine";
 
 const T0 = new Date("2026-11-02T12:00:00Z");
 const HOUR = 3_600_000;
@@ -290,5 +291,82 @@ describe("audit trail (Art. 8º)", () => {
     const entries = await engine.audit.forUser("u1");
     assert.equal(entries.length, 20);
     assert.equal(await engine.audit.verify("u1"), true);
+  });
+});
+
+describe("execução de ação aprovada: limites de AGORA (D20, M4)", () => {
+  /** Engine com regras mutáveis, para uma regra nova depois da aprovação. */
+  function setupComRegras() {
+    const clock = new ManualClock(T0);
+    let seq = 0;
+    const id = () => `id-${++seq}`;
+    const regras: Policy[] = [];
+    const engine = new EthicsEngine({
+      clock,
+      grants: new GrantRegistry(new InMemoryGrantStore(), clock, id),
+      consent: new ConsentManager(clock),
+      approvals: new ApprovalGateway(clock, id),
+      stop: new EmergencyStop(clock, new Set(["op-1"])),
+      audit: new AuditTrail(new InMemoryAuditSink(), clock),
+      policiesFor: () => regras,
+    });
+    const spec = (limits: GrantSpec["limits"]): GrantSpec => ({
+      userId: "u1", agentId: "obedient", systemId: "calendar", capability: "calendar.*", purpose: "organizar a agenda da semana",
+      limits, expiresAt: new Date(T0.getTime() + 24 * HOUR),
+    });
+    return { engine, regras, spec };
+  }
+  /** Pede, aprova e devolve a proposta pronta para executar. */
+  async function aprovada(engine: EthicsEngine, args: Record<string, unknown>, risk: "MEDIUM" | "HIGH" = "HIGH") {
+    const a = await engine.authorize(req({ risk, args }));
+    assert.equal(a.outcome, "approval_required");
+    if (a.outcome !== "approval_required") throw new Error("sem proposta");
+    await engine.approve(a.proposal.id, { id: "u1", kind: "user", strongAuth: true }, a.proposal.payloadHash);
+    return a.proposal;
+  }
+  const trocarGrant = async (engine: EthicsEngine, novo: GrantSpec) => {
+    for (const g of await engine.grants.list("u1")) if (!g.revokedAt) await engine.grants.revoke(g.id, "u1");
+    await engine.grants.grant(novo, "u1");
+  };
+
+  it("valor: o grant ficou mais estreito depois da aprovação; o valor aprovado passa do teto novo e não executa", async () => {
+    const { engine, spec } = setupComRegras();
+    await engine.grants.grant(spec({ maxRisk: "HIGH", autonomousUpTo: null, maxAmount: 500, amountField: "valor" }), "u1");
+    const p = await aprovada(engine, { title: "Jantar", valor: 300 });
+    await trocarGrant(engine, spec({ maxRisk: "HIGH", autonomousUpTo: null, maxAmount: 100, amountField: "valor" }));
+    let rodou = false;
+    await assert.rejects(engine.executeApproved(p.id, p.payloadHash, async () => (rodou = true), { category: "WRITE", risk: "HIGH" }), (e: unknown) => e instanceof ObedientError && e.code === "INVALID_GRANT" && /300 acima do limite do grant vigente \(100\)/.test(e.message));
+    assert.equal(rodou, false);
+    assert.equal((await engine.approvals.get(p.id))?.status, "approved", "recusa não reivindica");
+    const ultima = (await engine.audit.forUser("u1")).at(-1)!;
+    assert.deepEqual([ultima.event, ultima.outcome], ["proposal.execute", "denied"]);
+  });
+
+  it("risco: o teto de risco do grant baixou depois da aprovação; não executa", async () => {
+    const { engine, spec } = setupComRegras();
+    await engine.grants.grant(spec({ maxRisk: "HIGH", autonomousUpTo: null, maxAmount: null, amountField: null }), "u1");
+    const p = await aprovada(engine, { title: "Reunião" });
+    await trocarGrant(engine, spec({ maxRisk: "MEDIUM", autonomousUpTo: null, maxAmount: null, amountField: null }));
+    await assert.rejects(engine.executeApproved(p.id, p.payloadHash, async () => 1, { category: "WRITE", risk: "HIGH" }), /risco HIGH acima do máximo do grant vigente \(MEDIUM\)/);
+  });
+
+  it("regra nova que nega, depois da aprovação: não executa; regra que só pede aprovação não barra o que já foi aprovado", async () => {
+    const { engine, regras, spec } = setupComRegras();
+    await engine.grants.grant(spec({ maxRisk: "HIGH", autonomousUpTo: null, maxAmount: null, amountField: null }), "u1");
+    const regra = (effect: Policy["effect"]): Policy => ({ id: `r-${effect}`, effect, systemId: null, toolPattern: "calendar.*", principalId: "*", riskLevels: null, eventTypes: null, entityTypes: null, roles: null, contextMatch: null, amountField: null, amountAbove: null, expiresAt: null, active: true });
+    const p1 = await aprovada(engine, { title: "A" });
+    regras.push(regra("require_approval"));
+    assert.equal(await engine.executeApproved(p1.id, p1.payloadHash, async () => "ok", { category: "WRITE", risk: "HIGH" }), "ok");
+    const p2 = await aprovada(engine, { title: "B" });
+    regras.push(regra("deny"));
+    await assert.rejects(engine.executeApproved(p2.id, p2.payloadHash, async () => "não", { category: "WRITE", risk: "HIGH" }), (e: unknown) => e instanceof ObedientError && e.code === "INVALID_GRANT");
+  });
+
+  it("sem o risco do registro no contexto, o teto de risco não é conferido de novo (comportamento de antes)", async () => {
+    const { engine, spec } = setupComRegras();
+    await engine.grants.grant(spec({ maxRisk: "HIGH", autonomousUpTo: null, maxAmount: null, amountField: null }), "u1");
+    const p = await aprovada(engine, { title: "Reunião" });
+    await trocarGrant(engine, spec({ maxRisk: "MEDIUM", autonomousUpTo: null, maxAmount: null, amountField: null }));
+    assert.equal(await engine.executeApproved(p.id, p.payloadHash, async () => "ok"), "ok");
   });
 });

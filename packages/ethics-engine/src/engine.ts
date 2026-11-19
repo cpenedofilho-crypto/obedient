@@ -13,7 +13,7 @@
 // O sistema de destino (Recupera, Motor, calendário...) continua aplicando a PRÓPRIA política
 // depois disto: o OBEDIENT pode restringir um agente, nunca ampliar o que o destino recusa.
 
-import { type Clock, ObedientError, type RiskLevel, payloadHash, riskRank, systemClock } from "@obedient/core";
+import { type Clock, ObedientError, type RiskLevel, type ToolCategory, payloadHash, riskRank, systemClock } from "@obedient/core";
 import { type Action, type Decision, type Defaults, type Policy, SYSTEM_DEFAULTS, amountOf, decide, effectiveRisk } from "@obedient/policy-engine";
 import { ApprovalGateway, type ApproverIdentity, type Proposal, type ProposalPayload } from "./approvals.ts";
 import { AuditTrail } from "./audit.ts";
@@ -45,6 +45,8 @@ export interface ActionRequest {
  */
 export interface ContextoExecucao {
   category?: string;
+  /** Risco que o registro da ferramenta dá (nunca o modelo). Com ele, o teto de risco do grant é conferido de novo. */
+  risk?: RiskLevel;
   dataCategories?: readonly string[];
   purpose?: string;
 }
@@ -294,6 +296,41 @@ export class EthicsEngine {
     if (!g || !still) {
       await this.auditExecution(p, hash, "denied", ["grant revogado ou vencido depois da aprovação"]);
       throw new ObedientError("GRANT_NOT_FOUND", "grant revogado ou vencido depois da aprovação");
+    }
+    // Os limites valem os de AGORA (marco M4): o grant que cobre a ferramenta pode ter ficado mais
+    // estreito depois da aprovação, e uma regra pode passar a negar. A aprovação já cobriu o "pedir".
+    const argsAgora = p.payload.args ?? {};
+    if (contexto.risk) {
+      const risk = effectiveRisk(contexto.risk, contexto.category as ToolCategory | undefined);
+      if (riskRank(risk) > riskRank(still.limits.maxRisk)) {
+        await this.auditExecution(p, hash, "denied", [`risco ${risk} acima do máximo do grant vigente (${still.limits.maxRisk})`]);
+        throw new ObedientError("INVALID_GRANT", `risco ${risk} acima do máximo do grant vigente (${still.limits.maxRisk})`);
+      }
+    }
+    if (still.limits.maxAmount !== null && still.limits.amountField) {
+      const v = amountOf(argsAgora, still.limits.amountField);
+      if (v === null || v > still.limits.maxAmount) {
+        const motivo = v === null ? `valor ilegível em ${still.limits.amountField}` : `valor ${v} acima do limite do grant vigente (${still.limits.maxAmount})`;
+        await this.auditExecution(p, hash, "denied", [motivo]);
+        throw new ObedientError("INVALID_GRANT", motivo);
+      }
+    }
+    if (contexto.risk) {
+      const acao: Action = {
+        systemId: p.payload.systemId,
+        tool: p.payload.tool,
+        risk: contexto.risk,
+        ...(contexto.category ? { category: contexto.category as ToolCategory } : {}),
+        principal: { kind: "agent", id: agentId, role: null },
+        args: argsAgora,
+        context: {},
+      };
+      const auto = autonomyPolicy(still);
+      const decisao = decide(acao, [...this.policiesFor(p.userId), ...(auto ? [auto] : [])], this.defaultsFor(p.userId), this.clock.now());
+      if (decisao.effect === "deny") {
+        await this.auditExecution(p, hash, "denied", [decisao.reason]);
+        throw new ObedientError("INVALID_GRANT", decisao.reason);
+      }
     }
     // Art. 5º: a mensagem sai com a identificação de AGORA (a pessoa pode ter trocado ou apagado).
     const args = p.payload.args ?? {};

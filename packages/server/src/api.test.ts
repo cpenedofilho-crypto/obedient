@@ -466,6 +466,25 @@ describe("missões e identificação pelo app (Arts. 5º, 7º e 9º)", () => {
     assert.deepEqual(m!.verificacao?.itens.map((i) => i.ok), [false]);
   });
 
+  it("mandato (M4): forma inválida é recusada na entrada, prazo no passado vira recusa da missão, e o painel mostra mandato e gasto do mês", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    for (const mandato of [{ ferramentas: ["*"] }, { ferramentas: "gmail/*" }, { prazoFinalEm: "amanhã" }, { outra: 1 }]) {
+      const ruim = await api(post("/api/acoes", { opId: opId(), tipo: "criar_missao", objetivo: "x", mandato }, token));
+      assert.equal(ruim.status, 400, JSON.stringify(mandato));
+      assert.match(JSON.stringify(corpo(ruim)), /mandato inválido/);
+    }
+    const passado = await acao(token, { tipo: "criar_missao", objetivo: "x", mandato: { prazoFinalEm: "2020-01-01T00:00:00Z" } });
+    assert.equal(passado.ok, false);
+    const prazo = new Date(clock.now().getTime() + 2 * 24 * 3_600_000).toISOString();
+    assert.equal((await acao(token, { tipo: "criar_missao", objetivo: "Ver a agenda", mandato: { ferramentas: ["google_agenda/*"], prazoFinalEm: prazo } })).ok, true);
+    type V = { ferramentas: string[] | null; prazoFinalEm: string | null };
+    const p = corpo<{ missoes: V[]; gastoDoMes: { centavos: number; tetoCentavos: number; aviso: boolean; esgotado: boolean; teto: string } }>(await api(get("/api/painel", token)));
+    assert.deepEqual([p.missoes[0]!.ferramentas, p.missoes[0]!.prazoFinalEm], [["google_agenda/*"], prazo]);
+    assert.deepEqual([p.gastoDoMes.centavos, p.gastoDoMes.tetoCentavos, p.gastoDoMes.aviso, p.gastoDoMes.esgotado], [0, 30_000, false, false]);
+    assert.match(p.gastoDoMes.teto, /300,00/);
+  });
+
   it("falhou até o teto: impedimento explicado; a pessoa manda tentar de novo ou cancela", async () => {
     const u = usuario("ana");
     const { token } = await cadastrar(u);

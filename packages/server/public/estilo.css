@@ -265,6 +265,18 @@ a:focus-visible {
   color: var(--texto);
   font: inherit;
 }
+.formulario .opcao {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+}
+.formulario .opcao input {
+  min-height: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
 #c-codigo {
   letter-spacing: 0.1em;
   text-transform: uppercase;
