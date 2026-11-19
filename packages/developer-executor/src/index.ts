@@ -61,3 +61,20 @@ export function validarPedido(
     return { permitido: false, motivo: "operacao_critica_nao_implementada" };
   return { permitido: true };
 }
+
+/**
+ * Fronteira de integração: nunca chama um executor diretamente.
+ * A implementação de `autorizarEExecutar` deverá ser a porta governada
+ * chamarComEthicsEmEtapas do @obedient/agent-orchestrator.
+ * Este módulo NÃO implementa essa porta nem concede grants.
+ */
+export async function encaminharPedido<T>(
+  escopo: EscopoDesenvolvimento,
+  pedido: PedidoDesenvolvimento,
+  agora: Date,
+  autorizarEExecutar: (pedido: PedidoDesenvolvimento) => Promise<T>,
+): Promise<{ status: "denied"; motivo: string } | { status: "delegated"; resultado: T }> {
+  const validacao = validarPedido(escopo, pedido, agora);
+  if (!validacao.permitido) return { status: "denied", motivo: validacao.motivo };
+  return { status: "delegated", resultado: await autorizarEExecutar(pedido) };
+}
