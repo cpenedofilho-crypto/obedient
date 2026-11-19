@@ -20,7 +20,7 @@ Pacote `@obedient/missions`; armazenamento em `@obedient/store-postgres` (migrat
 
 - **Teto de tentativas:** de 1 a 5, padrão 3. O banco também confere (`CHECK`).
 - **Intervalo crescente:** 30 s, 1 min, 2 min, 4 min… até 1 h.
-- **Teto de custo por missão:** padrão R$ 5, máximo R$ 100, conferido antes **e** depois de cada
+- **Teto de custo por missão:** padrão R$ 15 (decisão D21), máximo R$ 100, conferido antes **e** depois de cada
   tentativa.
 - **Impedimento explicado, nunca laço.** Ao bater num teto, ou quando o pedido de aprovação é
   recusado ou vence, a missão para com um texto que diz por quê e o que a pessoa pode fazer: "Tentou

@@ -36,8 +36,8 @@ export const ABERTAS: readonly EstadoMissao[] = ["running", "waiting_approval", 
 
 export const INTERVALO_BASE_MS = 30_000;
 export const INTERVALO_MAXIMO_MS = 60 * 60_000;
-/** Teto de custo padrão e máximo por missão, em centavos (R$ 5 e R$ 100). */
-export const TETO_CUSTO_PADRAO = 500;
+/** Teto de custo padrão e máximo por missão, em centavos (R$ 15 e R$ 100; decisão D21). */
+export const TETO_CUSTO_PADRAO = 1500;
 export const TETO_CUSTO_MAXIMO = 10_000;
 export const MAX_OBJETIVO = 2000;
 export const MAX_EXPLICACAO = 2000;
