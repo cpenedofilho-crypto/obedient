@@ -1,7 +1,8 @@
 # Proposta D19: o OBEDIENT no celular da própria pessoa
 
-> **Estado: proposta, não decidida.** Nada aqui muda código nem a D17 até o fundador decidir e a
-> linha entrar em `docs/governance/decisoes.md`. Escrita em 17/11/2026, somente leitura do que existe.
+> **Estado: decidida em 17/11/2026 (D19).** O fundador aprovou a direção, a regra do último toque
+> para dinheiro e a distribuição por APK direto (seção "Decisões do fundador", no fim). Nenhum código
+> antes de a fase 0 sair limpa.
 
 ## A ideia
 
@@ -95,7 +96,7 @@ num emulador, pelo `android-qa`.
 
 | Fase | Entrega | Portão para seguir |
 |---|---|---|
-| 0 | Ler a política da Play e a do Modo de Proteção Avançada na fonte oficial; escrever o resultado aqui | Se a Play proibir agente autônomo, decidir entre APK direto ou parar |
+| 0 | Conferir na fonte oficial e escrever o resultado aqui: (a) **verificação de desenvolvedor do Android** para app instalado fora da Play em aparelho certificado no Brasil (anunciada pelo Google em 08/2025 para começar em 09/2026; cadastro no nome da Casa de IA); (b) o que o **Play Protect** faz com um APK que pede Serviço de Acessibilidade; (c) o **Modo de Proteção Avançada** do Android; (d) lista de bancos para testar a faixa C. A política da Play deixa de ser bloqueio (APK direto), mas fica registrada | Cadastro de desenvolvedor possível; Play Protect não bloqueia o APK por padrão |
 | 1 | App Android com o `AdaptadorAcessibilidade`, **só faixa A**, num celular de teste do fundador, com a segunda trava no aparelho e o botão de parar | Testes do motor passando com o adaptador novo; prova de mutação das duas travas |
 | 2 | Entrada por áudio e a entrega "pronto" com a trilha | Custo e tempo medidos por tarefa |
 | 3 | Faixa B (mensagem) com cartão de aprovação | Decisão escrita sobre o risco de bloqueio da conta |
@@ -110,8 +111,8 @@ num emulador, pelo `android-qa`.
 - Configurações, loja, instalador e autenticador continuam negados; evasão de detecção continua
   proibida.
 
-## Decisões pedidas ao fundador
+## Decisões do fundador (17/11/2026)
 
-1. Aprovar a D19 como direção (celular da própria pessoa, por acessibilidade, nas faixas acima)?
-2. Aceitar a regra "o OBEDIENT prepara, a pessoa dá o último toque" para dinheiro?
-3. Se a Play proibir agente autônomo por acessibilidade: distribuir por APK direto ou esperar?
+1. **D19 aprovada** como direção: celular da própria pessoa, por acessibilidade, nas faixas acima.
+2. **Regra do último toque** para dinheiro: o OBEDIENT prepara, a pessoa confirma.
+3. **Distribuição por APK direto**, sem depender da Play.
