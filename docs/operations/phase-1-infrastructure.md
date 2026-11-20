@@ -1,5 +1,8 @@
 # Fase 1 — infraestrutura do OBEDIENT (plano de homologação)
 
+> A operação do servidor que já está no ar (publicar, voltar, parar, variáveis, alertas) está em
+> [runbook.md](./runbook.md). Este documento continua sendo o plano da homologação.
+
 **Estado:** projeto pre-alpha; este documento não provisiona VM nem publica serviços. Não conectar pagamentos reais.
 
 ## Topologia-alvo

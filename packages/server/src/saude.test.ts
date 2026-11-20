@@ -12,7 +12,7 @@ import { comoOperador, comoUsuario, lerMetricas, missoesNaTransacao, motorNaTran
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { criarApi, type Pedido } from "./api.ts";
 import { servidorHttp } from "./http.ts";
-import { textoPrometheus, tokenConfere } from "./saude.ts";
+import { textoPrometheus, tokenConfere, versaoDoAmbiente } from "./saude.ts";
 
 const T0 = new Date("2026-11-19T12:00:00Z");
 const ORIGIN = "https://obedient.exemplo.test";
@@ -36,6 +36,15 @@ describe("saúde, prontidão e métricas (D20, M5)", () => {
     assert.deepEqual([h.status, JSON.parse(h.body)], [200, { vivo: true }]);
     const r = await a(get("/ready"));
     assert.deepEqual([r.status, JSON.parse(r.body)], [200, { pronto: true }]);
+  });
+
+  it("/health mostra a versão do código (M7): o commit do deploy, só hexadecimal, cortado em 12", async () => {
+    assert.equal(versaoDoAmbiente({}), null);
+    assert.equal(versaoDoAmbiente({ RAILWAY_GIT_COMMIT_SHA: "ABCDEF0123456789abcdef0123456789abcdef01" }), "abcdef012345");
+    assert.equal(versaoDoAmbiente({ OBEDIENT_VERSAO: "1234567", RAILWAY_GIT_COMMIT_SHA: "a".repeat(40) }), "1234567", "a do dono vale primeiro");
+    assert.equal(versaoDoAmbiente({ OBEDIENT_VERSAO: "<script>", RAILWAY_GIT_COMMIT_SHA: "123456" }), null, "texto arbitrário não entra");
+    const h = await criarApi(banco.db, { rpName: "OBEDIENT", rpId: "obedient.exemplo.test", origin: ORIGIN, versao: "abcdef012345" }, clock)(get("/health"));
+    assert.deepEqual(JSON.parse(h.body), { vivo: true, versao: "abcdef012345" });
   });
 
   it("/ready: migration com conteúdo diferente do código deixa o servidor não pronto (503), com o nome dela", async () => {

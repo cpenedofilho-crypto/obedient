@@ -45,6 +45,7 @@
 //   OBEDIENT_DEPLOYS_PROJETOS    [{"id":"recupera_os","nome":"Recupera OS","projeto":"prj_…",           } nenhuma
 //                                  "saude":"https://…/api/health"}]
 //   OBEDIENT_DEPLOYS_USUARIOS    quem pode receber a autoridade, ids separados por vírgula
+//   OBEDIENT_VERSAO              versão mostrada no /health (hex de 7 a 40; padrão: RAILWAY_GIT_COMMIT_SHA)
 //   OBEDIENT_OPERADOR            nome de quem roda os comandos de conceder (padrão "cli"); a trilha grava
 //                                o grant como concedido por "operador:<nome>", nunca como se fosse a pessoa
 
@@ -62,6 +63,7 @@ import { agendarMissoes } from "./agendador.ts";
 import { executorDeMissoes } from "./executor.ts";
 import { criarApi } from "./api.ts";
 import { servidorHttp } from "./http.ts";
+import { versaoDoAmbiente } from "./saude.ts";
 import { Passkeys } from "./passkeys.ts";
 import { Cofre, Conexoes, lerChaves } from "@obedient/integrations";
 import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
@@ -229,7 +231,9 @@ async function main(argv: string[]) {
     agente(db, google ? new Conexoes(db, google.cofre, google.cliente, fetch, systemClock) : null, servidoresMcp, conexoesMcp);
     const tokenMetricas = env("OBEDIENT_METRICAS_TOKEN");
     if (!tokenMetricas) console.log("métricas desligadas (sem OBEDIENT_METRICAS_TOKEN): /metrics responde 404");
-    servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(tokenMetricas ? { tokenMetricas } : {}), ...(google ? { google } : {}), ...(conexoesMcp ? { mcp: { conexoes: conexoesMcp, servidores: servidoresMcp } } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
+    const versao = versaoDoAmbiente();
+    console.log(versao ? `versão ${versao}` : "versão desconhecida (sem OBEDIENT_VERSAO nem RAILWAY_GIT_COMMIT_SHA)");
+    servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, versao, ...(tokenMetricas ? { tokenMetricas } : {}), ...(google ? { google } : {}), ...(conexoesMcp ? { mcp: { conexoes: conexoesMcp, servidores: servidoresMcp } } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
     return;
   }
   throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | mcp conceder|retirar <servidor> <usuario> | deploys conceder|retirar <usuario> | servir");

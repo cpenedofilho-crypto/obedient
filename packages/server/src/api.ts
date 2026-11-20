@@ -52,6 +52,8 @@ export interface ConfigApi extends ConfigPasskey {
   limites?: Partial<Limites>;
   /** Token da rota /metrics (saude.ts). Ausente: a rota não existe. */
   tokenMetricas?: string;
+  /** Versão do código mostrada no /health (saude.ts, versaoDoAmbiente). */
+  versao?: string | null;
 }
 
 export const COOKIE_OAUTH = "__Host-obedient-oauth";
@@ -116,7 +118,7 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
   async function rota(p: Pedido): Promise<Resposta> {
     const [caminho] = p.path.split("?");
     // Saúde, prontidão e métricas (M5): sem sessão; as métricas têm token próprio.
-    const saude = await rotaDeSaude(db, { ...(cfg.tokenMetricas ? { tokenMetricas: cfg.tokenMetricas } : {}) }, clock, p.method, caminho ?? "", p.headers.authorization);
+    const saude = await rotaDeSaude(db, { ...(cfg.tokenMetricas ? { tokenMetricas: cfg.tokenMetricas } : {}), versao: cfg.versao ?? null }, clock, p.method, caminho ?? "", p.headers.authorization);
     if (saude) return saude;
     if (p.method === "POST" && !origemOk(p)) return erro(403, "origem", "pedido fora do app");
     if (p.method === "POST" && ROTAS_DE_ENTRADA.has(caminho ?? "")) {

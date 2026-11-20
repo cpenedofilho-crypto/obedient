@@ -3,7 +3,8 @@
 //
 // Saúde, prontidão e métricas (decisão D20, marco M5; G8).
 //
-//   • GET /health: o processo responde. Não toca o banco;
+//   • GET /health: o processo responde, e com qual versão do código (M7: o commit que o deploy
+//     publicou, para conferir de fora que o deploy chegou). Não toca o banco;
 //   • GET /ready: o banco responde e todas as migrations do código estão aplicadas, com o mesmo
 //     conteúdo. 503 com o motivo curto se não; nunca a mensagem de erro do banco;
 //   • GET /metrics: formato de texto do Prometheus, só números somados sobre todas as pessoas. Fecha
@@ -20,6 +21,21 @@ import { type Database, type Metricas, comoOperador, conferirMigracoes, lerMetri
 export interface ConfigSaude {
   /** Token das métricas; ausente = rota desligada. */
   tokenMetricas?: string;
+  /** Versão do código em execução (versaoDoAmbiente). Ausente: /health não a mostra. */
+  versao?: string | null;
+}
+
+/**
+ * A versão do código, do ambiente: OBEDIENT_VERSAO, se o dono a definir, ou o commit que o Railway
+ * informa ao publicar (RAILWAY_GIT_COMMIT_SHA). Só hexadecimal de 7 a 40, cortado em 12: qualquer outra
+ * coisa é ignorada, para o /health nunca repetir texto arbitrário do ambiente.
+ */
+export function versaoDoAmbiente(env: Record<string, string | undefined> = process.env): string | null {
+  for (const k of ["OBEDIENT_VERSAO", "RAILWAY_GIT_COMMIT_SHA"]) {
+    const v = env[k]?.trim().toLowerCase();
+    if (v && /^[0-9a-f]{7,40}$/.test(v)) return v.slice(0, 12);
+  }
+  return null;
 }
 
 /** Acima disto de missões paradas esperando a pessoa, o medidor de alerta acende. */
@@ -73,7 +89,7 @@ export function textoPrometheus(m: Metricas): string {
 /** Atende /health, /ready e /metrics; devolve null para qualquer outro caminho. */
 export async function rotaDeSaude(db: Database, cfg: ConfigSaude, clock: Clock, metodo: string, caminho: string, autorizacao: string | undefined): Promise<RespostaSaude | null> {
   if (metodo !== "GET") return null;
-  if (caminho === "/health") return json(200, { vivo: true });
+  if (caminho === "/health") return json(200, { vivo: true, ...(cfg.versao ? { versao: cfg.versao } : {}) });
   if (caminho === "/ready") {
     try {
       const { pendentes, divergentes } = await comoOperador(db, (tx) => conferirMigracoes(tx));
