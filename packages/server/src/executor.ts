@@ -49,6 +49,7 @@ import { type Evidencia, type Executor as ExecutorDeMissao, MAX_VOLTAS_VERIFICAC
 import type { ClienteA2A } from "@obedient/a2a-client";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
 import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_CODIGO, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCodigo, itensGrowthOsCompras, temCodigoGrowthOs, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
+import { type ConfigDeploys, SISTEMA_DEPLOYS, executorDeploys, itensDeploys, temDeploys } from "./deploys.ts";
 import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, motivoMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
 import { type Database, type NovoPasso, type OpcoesMotor, PgMissionStore, type TipoPasso, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao, passosNaTransacao } from "@obedient/store-postgres";
 
@@ -100,6 +101,8 @@ export interface DepsExecutor {
   http?: typeof fetch;
   /** Growth OS por A2A (growth-os.ts). Ausente: a ferramenta não existe neste servidor. */
   growthOs?: { cliente: ClienteA2A; usuarios: ReadonlySet<string> } | null;
+  /** Deploys na Vercel, só leitura (deploys.ts, M7). Ausente: a ferramenta não existe neste servidor. */
+  deploys?: ConfigDeploys | null;
   /** Servidores MCP do dono (mcp-servidores.ts). Ausente: nenhum. */
   mcp?: { servidores: readonly ServidorMcp[]; conexao(s: ServidorMcp, userId: string): ConexaoMcp } | null;
   log?: (e: Record<string, unknown>) => void;
@@ -374,12 +377,14 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       const growthCompras = Boolean(d.growthOs?.usuarios.has(u)) && (await temComprasGrowthOs(motor, u, d.clock.now()));
       // Código pelo Growth OS (M6): outro grant, também concedido pela linha de comando.
       const growthCodigo = Boolean(d.growthOs?.usuarios.has(u)) && (await temCodigoGrowthOs(motor, u, d.clock.now()));
+      // Deploys (M7): só leitura, só quem o dono listou E tem grant vigente.
+      const deploys = Boolean(d.deploys?.usuarios.has(u)) && (await temDeploys(motor, u, d.clock.now()));
       // MCP: servidores em que a pessoa está na lista do dono E tem grant vigente.
       const mcp = d.mcp ? await servidoresDaPessoa(motor, d.mcp.servidores, u, d.clock.now()) : [];
-      const conectadas = [...google, ...(growthOs ? [SISTEMA_GROWTH_OS] : []), ...(growthCompras ? [SISTEMA_GROWTH_OS_COMPRAS] : []), ...(growthCodigo ? [SISTEMA_GROWTH_OS_CODIGO] : []), ...mcp.map((s) => s.id)];
+      const conectadas = [...google, ...(growthOs ? [SISTEMA_GROWTH_OS] : []), ...(growthCompras ? [SISTEMA_GROWTH_OS_COMPRAS] : []), ...(growthCodigo ? [SISTEMA_GROWTH_OS_CODIGO] : []), ...(deploys ? [SISTEMA_DEPLOYS] : []), ...mcp.map((s) => s.id)];
       const memoria = memoriaNaTransacao(tx, motor, d.clock);
       const categorias = (await memoria.categorias(u)).filter((c) => c.ligada).map((c) => c.id);
-      return { google, growthOs, growthCompras, growthCodigo, mcp, conectadas, categorias, identificacao: await lerIdentificacao(tx, u), licoes: await memoria.paraContexto(u) };
+      return { google, growthOs, growthCompras, growthCodigo, deploys, mcp, conectadas, categorias, identificacao: await lerIdentificacao(tx, u), licoes: await memoria.paraContexto(u) };
     });
 
     // O teto que vale é o menor: o que resta da missão ou o que resta do mês (D21).
@@ -457,6 +462,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     if (ctx.growthOs) for (const i of itensGrowthOs()) catalogo.set(i.definicao.name, i);
     if (ctx.growthCompras) for (const i of itensGrowthOsCompras()) catalogo.set(i.definicao.name, i);
     if (ctx.growthCodigo) for (const i of itensGrowthOsCodigo()) catalogo.set(i.definicao.name, i);
+    if (ctx.deploys && d.deploys) for (const i of itensDeploys(d.deploys)) catalogo.set(i.definicao.name, i);
     // MCP: as ferramentas de cada servidor saem do tools/list, filtradas pela lista do dono. Servidor fora do ar fica de fora desta vez.
     const conexoesMcp = new Map<string, ConexaoMcp>();
     for (const s of ctx.mcp) {
@@ -512,9 +518,14 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       }))
       : null;
     const mcp = conexoesMcp.size ? executorMcp(ctx.mcp, conexoesMcp) : null;
-    const governada = google || growth || mcp
+    const deploys = ctx.deploys && d.deploys ? executorDeploys(d.deploys, d.http) : null;
+    const governada = google || growth || mcp || deploys
       ? chamarComEthicsEmEtapas(abrir, { userId: u, agentId: missao.agente, correlationId: missao.id }, (sistema, ferramenta, args, execucao) => {
         if (conexoesMcp.has(sistema)) return mcp!(sistema, ferramenta, args);
+        if (sistema === SISTEMA_DEPLOYS) {
+          if (!deploys) throw new Error("deploys desligados neste servidor");
+          return deploys(sistema, ferramenta, args);
+        }
         if (sistema === SISTEMA_GROWTH_OS || sistema === SISTEMA_GROWTH_OS_COMPRAS || sistema === SISTEMA_GROWTH_OS_CODIGO) {
           if (!growth) throw new Error("Growth OS desligado neste servidor");
           return growth(sistema, ferramenta, args, execucao);

@@ -277,3 +277,45 @@ O código está em `packages/server/src/mcp-oauth.ts` e segue o mesmo desenho da
   - Só nomes `x-…`; o servidor não sobe com nome que pareça credencial (`auth`, `token`, `key`, `secret`, `cookie`).
   - Nunca substituem o `authorization`.
   - No Recupera, prendem a sessão à escola do agente cadastrado em `agentes_ia`.
+
+## Deploys na Vercel, só leitura (M7, 20/11/2026)
+
+O agente pode ver em que pé está o deploy de um projeto da casa e se ele responde. Serve para
+acompanhar uma missão que terminou num Pull Request, ou para dizer à pessoa se algo saiu do ar. Código
+em `packages/server/src/deploys.ts`.
+
+**Não há ferramenta de escrita.** Promover, reverter, apagar, mexer em variável de ambiente ou disparar
+build ficam de fora: deploy de produção é ato que não se delega (CONSTITUTION). Nenhum stub, nenhuma
+ferramenta "para depois".
+
+As três ferramentas são leitura (risco LOW, categoria READ):
+
+| Ferramenta | O que devolve |
+|---|---|
+| `deploys.listar_deploys` | até 10 deploys recentes do projeto: id, estado, ambiente, criado em, commit, branch |
+| `deploys.situacao_deploy` | um deploy do projeto: o mesmo, mais pronto em e se o endereço principal já aponta para ele |
+| `deploys.verificar_saude` | um GET no endereço de saúde configurado: só o código HTTP e o tempo |
+
+- **Lista fechada de projetos.** O modelo escolhe um nome da lista; o id do projeto na Vercel e o
+  endereço de saúde vêm da configuração. Um deploy de outro projeto da mesma conta é recusado, mesmo
+  com o id certo (`deploy_de_outro_projeto`).
+- **Projeção.** Volta só o que confere por formato: estado de lista fechada, commit de 40 hex, branch
+  de caracteres seguros. Autor, e-mail, mensagem de commit, variável de ambiente e log de build ficam
+  de fora, porque são texto livre ou dado pessoal.
+- **Saúde sem corpo.** O corpo da resposta não é lido. O token da Vercel não vai para esse endereço.
+  Queda ou prazo de 10 s viram `responde: false`, com o motivo numa lista fechada.
+- **Grant** `deploys.*`, risco baixo, 30 dias, concedido pela linha de comando
+  (`cli.ts deploys conceder <usuario>`), só para quem está em `OBEDIENT_DEPLOYS_USUARIOS`. Sem grant
+  vigente, as ferramentas nem são oferecidas.
+- **Token de leitura** (`OBEDIENT_VERCEL_TOKEN`), criado pela pessoa no painel da Vercel e posto no
+  ambiente do servidor (pendência A8). Ele nunca passa pela conversa. É relido a cada pedido e não vai
+  para log, banco ou modelo.
+
+Configuração, todas ou nenhuma:
+
+```
+OBEDIENT_VERCEL_TOKEN=<token de leitura>
+OBEDIENT_VERCEL_TIME=team_…            (opcional)
+OBEDIENT_DEPLOYS_PROJETOS=[{"id":"recupera_os","nome":"Recupera OS","projeto":"prj_…","saude":"https://…/api/health"}]
+OBEDIENT_DEPLOYS_USUARIOS=<ids separados por vírgula>
+```

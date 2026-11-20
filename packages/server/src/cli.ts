@@ -10,6 +10,7 @@
 //   node --import tsx packages/server/src/cli.ts growth-os conceder|retirar <usuario>
 //   node --import tsx packages/server/src/cli.ts growth-os conceder-codigo|retirar-codigo <usuario>   (M6: pedir código, sempre com aprovação)
 //   node --import tsx packages/server/src/cli.ts mcp conceder|retirar <servidor> <usuario>
+//   node --import tsx packages/server/src/cli.ts deploys conceder|retirar <usuario>   (M7: ver deploys na Vercel, só leitura)
 //
 // Variáveis:
 //   OBEDIENT_DATABASE_URL        conexão do SERVIDOR (papel de login membro de obedient_app/_operator/_auth)
@@ -39,6 +40,11 @@
 //                                  "token_env":"OBEDIENT_MCP_MOTOR_IGA_TOKEN","usuarios":["Juca"],
 //                                  "ferramentas":["motor_quem_sou_eu", …]}]
 //   OBEDIENT_MCP_<…>_TOKEN       o token de cada servidor (segredo do ambiente; o JSON só diz o NOME)
+//   OBEDIENT_VERCEL_TOKEN        token da Vercel, de LEITURA, criado pela pessoa (segredo do ambiente)    } deploys.ts,
+//   OBEDIENT_VERCEL_TIME         time da Vercel (team_…), se os projetos forem de um time (opcional)     } todas ou
+//   OBEDIENT_DEPLOYS_PROJETOS    [{"id":"recupera_os","nome":"Recupera OS","projeto":"prj_…",           } nenhuma
+//                                  "saude":"https://…/api/health"}]
+//   OBEDIENT_DEPLOYS_USUARIOS    quem pode receber a autoridade, ids separados por vírgula
 //   OBEDIENT_OPERADOR            nome de quem roda os comandos de conceder (padrão "cli"); a trilha grava
 //                                o grant como concedido por "operador:<nome>", nunca como se fosse a pessoa
 
@@ -60,6 +66,7 @@ import { Passkeys } from "./passkeys.ts";
 import { Cofre, Conexoes, lerChaves } from "@obedient/integrations";
 import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
 import { clienteGrowthOs, concederCodigoGrowthOs, concederComprasGrowthOs, concederGrowthOs, retirarCodigoGrowthOs, retirarComprasGrowthOs, configGrowthOsDoAmbiente, retirarGrowthOs } from "./growth-os.ts";
+import { concederDeploys, configDeploysDoAmbiente, retirarDeploys } from "./deploys.ts";
 import { type ServidorMcp, concederMcp, conexaoMcp, retirarMcp, servidoresMcpDoAmbiente, tokenDoAmbiente } from "./mcp-servidores.ts";
 import { ConexoesMcp, comOAuth } from "./mcp-oauth.ts";
 
@@ -85,6 +92,8 @@ function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null, s
   console.log(`modelos: executor ${teste.modelo}, planejador ${planejador.modelo}`);
   const growth = configGrowthOsDoAmbiente();
   console.log(growth ? `Growth OS por A2A ligado para ${growth.usuarios.size} pessoa(s)` : "Growth OS desligado (sem OBEDIENT_GROWTH_OS_*)");
+  const deploys = configDeploysDoAmbiente();
+  console.log(deploys ? `deploys (só leitura) ligados: ${deploys.projetos.map((p) => p.id).join(", ")}` : "deploys desligados (sem OBEDIENT_VERCEL_TOKEN / OBEDIENT_DEPLOYS_*)");
   if (servidoresMcp.length) console.log(`servidores MCP: ${servidoresMcp.map((s) => `${s.id} (${s.ferramentas.length} ferramentas${comOAuth(s) ? ", OAuth da pessoa" : ""})`).join(", ")}`);
   // Token de máquina (variável de ambiente) ou o da PESSOA, conectado no app (mcp-oauth.ts).
   const tokenDe = (s: ServidorMcp, u: string) => (comOAuth(s) ? async () => (conexoesMcp ? conexoesMcp.tokenDeAcesso(u, s.id) : null) : tokenDoAmbiente(s));
@@ -94,6 +103,7 @@ function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null, s
     mcp: servidoresMcp.length ? { servidores: servidoresMcp, conexao: (s, u) => conexaoMcp(s, tokenDe(s, u)) } : null,
     log: (e) => console.log(JSON.stringify(e)),
     growthOs: growth ? { cliente: clienteGrowthOs(growth), usuarios: growth.usuarios } : null,
+    deploys,
     novoModelo: () => new ModeloAnthropic({ cliente, modelo: teste.modelo, esforco, fallbacks }),
     novoModeloPlanejador: () => new ModeloAnthropic({ cliente, modelo: planejador.modelo, esforco, fallbacks }),
     centavosPorDolar,
@@ -185,6 +195,20 @@ async function main(argv: string[]) {
     console.log(acao === "conceder" ? `${usuario}: o agente pode ler ${s.nome} por 30 dias (${s.ferramentas.length} ferramentas; aparece no app e pode ser tirado)` : `${usuario}: autoridade em ${s.nome} retirada`);
     return fechar();
   }
+  if (comando === "deploys") {
+    const [acao, usuario] = resto;
+    if ((acao !== "conceder" && acao !== "retirar") || !usuario) throw new Error("uso: deploys conceder|retirar <usuario>");
+    const cfg = configDeploysDoAmbiente();
+    if (!cfg) throw new Error("deploys desligados: defina OBEDIENT_VERCEL_TOKEN, OBEDIENT_DEPLOYS_PROJETOS e OBEDIENT_DEPLOYS_USUARIOS");
+    const { db, fechar } = banco("OBEDIENT_DATABASE_URL");
+    await comoUsuario(db, usuario, async (tx) => {
+      const motor = motorNaTransacao(tx, { clock: systemClock });
+      if (acao === "conceder") await concederDeploys(motor, cfg, usuario, systemClock.now(), operadorDaCli());
+      else await retirarDeploys(motor, usuario);
+    });
+    console.log(acao === "conceder" ? `${usuario}: o agente pode VER os deploys de ${cfg.projetos.length} projeto(s) na Vercel por 30 dias, só leitura (aparece no app e pode ser tirado)` : `${usuario}: autoridade de ver deploys retirada`);
+    return fechar();
+  }
   if (comando === "servir") {
     const origin = env("OBEDIENT_ORIGIN");
     if (!origin) throw new Error("defina OBEDIENT_ORIGIN");
@@ -208,7 +232,7 @@ async function main(argv: string[]) {
     servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, ...(tokenMetricas ? { tokenMetricas } : {}), ...(google ? { google } : {}), ...(conexoesMcp ? { mcp: { conexoes: conexoesMcp, servidores: servidoresMcp } } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
     return;
   }
-  throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | mcp conceder|retirar <servidor> <usuario> | servir");
+  throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | mcp conceder|retirar <servidor> <usuario> | deploys conceder|retirar <usuario> | servir");
 }
 
 main(process.argv.slice(2)).catch((e) => {
