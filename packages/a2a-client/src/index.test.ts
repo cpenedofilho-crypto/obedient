@@ -184,6 +184,16 @@ describe("correlação (correlation_id)", () => {
     assert.equal(correlacaoA2A("x".repeat(300)).length, 120);
   });
 
+  it("sem correlação de quem chama, o mesmo messageId leva a mesma correlação: o reenvio é a mesma mensagem", async () => {
+    const c = novoCliente();
+    await c.enviar("resumo_operacional", { messageId: "msg-0000000001" });
+    const a = enviadoA();
+    vistos.length = 0;
+    await c.enviar("resumo_operacional", { messageId: "msg-0000000001" });
+    assert.deepEqual(enviadoA(), a);
+    assert.equal(a.metadata, "obedient-msg-0000000001");
+  });
+
   it("correlação devolvida fora do formato é descartada (dado do servidor, não confiável)", async () => {
     respostaForcada = (r) => ({ jsonrpc: "2.0", id: r.id, result: { id: "t", status: { state: "TASK_STATE_COMPLETED" }, metadata: { correlationId: "tem espaço\ne quebra" } } });
     assert.equal((await novoCliente().obter("t")).correlationId, null);
