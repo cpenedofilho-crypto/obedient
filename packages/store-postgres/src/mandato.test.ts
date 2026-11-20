@@ -111,3 +111,29 @@ describe("mandato e gasto do mês no banco (D20, M4; D21)", () => {
     assert.equal(await missoes(ana, (ms) => ms.gastoDoMes(ana)), 77);
   });
 });
+
+describe("espera e evidência de PR no banco (D20, M6)", () => {
+  it("as esperas ficam na missão; o banco recusa número negativo", async () => {
+    const ana = usuario("ana");
+    const m = await missoes(ana, (ms) => ms.criar(ana, "obedient", "x"));
+    const fim = await missoes(ana, async (ms) => {
+      const r = await ms.reservar(m.id);
+      return ms.concluir(r.missao, { tipo: "aguardando_externo", ate: new Date(T0.getTime() + 3_600_000), motivo: "Growth OS", rodada: { messages: [{ role: "user", content: "x" }] }, custoCentavos: 1 });
+    });
+    const lida = await missoes(ana, (ms) => ms.get(m.id));
+    assert.deepEqual([lida!.esperas, lida!.tentativas, lida!.estado], [1, 0, "retrying"]);
+    assert.equal(fim.esperas, 1);
+    await assert.rejects(comoUsuario(banco.db, ana, (tx) => tx.query("update obedient.missions set esperas = -1 where id = $1", [m.id])), /check constraint/);
+  });
+
+  it("evidência pull_request é aceita sem critério, e recusada com critério", async () => {
+    const ana = usuario("ana");
+    const m = await missoes(ana, (ms) => ms.criar(ana, "obedient", "x"));
+    const inserir = (seq: number, criterio: number | null) =>
+      comoUsuario(banco.db, ana, (tx) =>
+        tx.query("insert into obedient.mission_evidence (mission_id, user_id, tentativa, seq, criterio, tipo, ok, referencia, detalhe, criado_em) values ($1, $2, 1, $3, $4, 'pull_request', true, 'https://github.com/casa/sandbox/pull/7', 'PR', $5)", [m.id, ana, seq, criterio, T0]),
+      );
+    await inserir(1, null);
+    await assert.rejects(inserir(2, 0), /check constraint/);
+  });
+});

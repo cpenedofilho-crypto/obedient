@@ -13,8 +13,8 @@ import { ManualClock } from "@obedient/core";
 import type { PedidoModelo, RespostaModelo, ResultadoFerramenta } from "@obedient/agent-orchestrator";
 import { comoUsuario, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao } from "@obedient/store-postgres";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
-import { CONCLUIR, LEMBRAR, executorDeMissoes, type ModeloComGasto } from "./executor.ts";
-import { clienteGrowthOs, concederComprasGrowthOs, executorGrowthOs, idDaMensagemA2A, itensGrowthOs, concederGrowthOs, configGrowthOsDoAmbiente, retirarComprasGrowthOs, retirarGrowthOs, type ConfigGrowthOs } from "./growth-os.ts";
+import { AGUARDAR, CONCLUIR, LEMBRAR, executorDeMissoes, type ModeloComGasto } from "./executor.ts";
+import { clienteGrowthOs, concederCodigoGrowthOs, concederComprasGrowthOs, executorGrowthOs, idDaMensagemA2A, itensGrowthOs, concederGrowthOs, configGrowthOsDoAmbiente, retirarComprasGrowthOs, retirarGrowthOs, type ConfigGrowthOs } from "./growth-os.ts";
 import { processarMissoes } from "./processador.ts";
 
 const T0 = new Date("2026-11-08T12:00:00Z");
@@ -33,7 +33,8 @@ before(async () => { banco = await bancoDeTeste(); });
 after(() => banco.fechar());
 
 /** Growth OS falso: guarda o que recebeu para o teste conferir. */
-function growthFalso(o: { preco?: string; compraLigada?: boolean; falha?: string; perderRespostaDaCompra?: boolean } = {}) {
+function growthFalso(o: { preco?: string; compraLigada?: boolean; falha?: string; perderRespostaDaCompra?: boolean; situacoes?: Record<string, unknown>[] } = {}) {
+  let situacao = 0;
   const recebidos: { metodo: string; params: unknown; auth: string | null; correlacao: string | null }[] = [];
   /** Compras feitas de fato, por messageId (como um servidor A2A idempotente: reenvio não compra de novo). */
   const compras = new Map<string, number>();
@@ -52,7 +53,7 @@ function growthFalso(o: { preco?: string; compraLigada?: boolean; falha?: string
         name: "Growth OS", description: "x", version: "0.1.0",
         supportedInterfaces: [{ url: `${ORIGEM}/api/a2a`, protocolBinding: "JSONRPC", protocolVersion: "1.0" }],
         capabilities: {}, defaultInputModes: ["application/json"], defaultOutputModes: ["application/json"],
-        skills: ["resumo_operacional", "catalogo_marketplace", "comprar_conhecimento"].map((id) => ({ id, name: id, description: "x", tags: [] })),
+        skills: ["resumo_operacional", "catalogo_marketplace", "comprar_conhecimento", "abrir_tarefa_codigo", "status_tarefa_codigo"].map((id) => ({ id, name: id, description: "x", tags: [] })),
       });
     }
     if (u.origin === ORIGEM && u.pathname === "/api/a2a") {
@@ -62,6 +63,9 @@ function growthFalso(o: { preco?: string; compraLigada?: boolean; falha?: string
       const correlacao = (rpc.params as { message?: { metadata?: { correlation_id?: string } } }).message?.metadata?.correlation_id ?? req.headers.get("x-correlation-id");
       const skill = ((rpc.params as { message?: { parts?: { data?: { skill?: string } }[] } }).message?.parts?.[0]?.data?.skill) ?? "";
       const tarefa = (data: unknown) => Response.json({ jsonrpc: "2.0", id: rpc.id, result: { task: { id: "t-2", contextId: "c-2", status: { state: "TASK_STATE_COMPLETED" }, artifacts: [{ artifactId: "a", name: skill, parts: [{ data, mediaType: "application/json" }] }] } } });
+      // Código (M6): abrir devolve a missão; a situação segue a lista do teste, uma por chamada.
+      if (skill === "abrir_tarefa_codigo") return tarefa({ fonte: "growth-os:software-factory", missao_id: "5e1b0c3a-0000-4000-8000-000000000001", estado: "aguardando_inicio" });
+      if (skill === "status_tarefa_codigo") return tarefa(o.situacoes?.[Math.min(situacao++, (o.situacoes?.length ?? 1) - 1)] ?? { estado: "pending" });
       if (skill === "catalogo_marketplace") return tarefa({ fonte: "growth-os:mission-control/marketplace", compra_ligada: o.compraLigada ?? true, ofertas: [{ oferta: "fichas-da-cozinha", preco_micros: o.preco ?? "100000", moeda: "USD", recurso: "conhecimento", escopo: "equipe" }] });
       if (skill === "comprar_conhecimento") {
         if (o.falha) return Response.json({ jsonrpc: "2.0", id: rpc.id, result: { task: { id: "t-3", contextId: "c-3", status: { state: "TASK_STATE_FAILED" }, metadata: { erro: o.falha } } } });
@@ -425,5 +429,127 @@ describe("Growth OS: compra não se repete (falha ambígua, reinício)", () => {
     assert.equal(comprasEnviadas(c).length, 1, "uma chamada de compra só");
     assert.deepEqual([...c.g.compras.values()], [1]);
     assert.equal(idDe(comprasEnviadas(c)[0]!), idDaMensagemA2A(esperando!.propostaId!, "growth_os_compras.comprar_conhecimento"));
+  });
+});
+
+describe("Growth OS: pedir código (M6), com aprovação, espera e evidência do PR", () => {
+  const ABRIR = "growth_os_codigo__abrir_tarefa_codigo";
+  const STATUS = "growth_os_codigo__status_tarefa_codigo";
+  const MISSAO = "5e1b0c3a-0000-4000-8000-000000000001";
+  const PR = "https://github.com/casa/sandbox/pull/7";
+  const ESPERANDO = { fonte: "growth-os:software-factory", missao_id: MISSAO, estado: "pending", aguardando_pessoa: ["iniciar"], pull_request: null };
+  const PRONTO = (ci: string) => ({ fonte: "growth-os:software-factory", missao_id: MISSAO, estado: "completed", aguardando_pessoa: [], pull_request: { url: PR, numero: 7, commit_sha: "a".repeat(40), ci } });
+  const PEDIDO = { repositorio: "casa/sandbox", pedido: "Trocar o rótulo do botão de Gravar para Salvar", caminhos: ["src/botao/"] };
+  const aprovar = (c: ReturnType<typeof montar>, u: string, id: string) => c.motor(u, async (m) => m.approve(id, { id: u, kind: "user", strongAuth: true }, (await m.approvals.get(id))!.payloadHash));
+  const skills = (c: ReturnType<typeof montar>) => c.g.recebidos.map((r) => (r.params as { message: { parts: { data: { skill: string } }[] } }).message.parts[0]!.data.skill);
+
+  it("sem o grant de código, nem as ferramentas de código nem a espera aparecem", async () => {
+    const c = montar();
+    await c.motor("ana-growth", (m) => concederGrowthOs(m, c.cfg, "ana-growth", T0));
+    await c.missao("ana-growth", "Troque o rótulo do botão.");
+    const r = roteiro((p) => {
+      assert.ok(!p.tools.some((t) => t.name === ABRIR || t.name === STATUS || t.name === AGUARDAR));
+      return usar("fim", CONCLUIR, { tipo: "nao_consegui", explicacao: "Não posso pedir código." })();
+    }, encerrar);
+    await c.processar("ana-growth", r);
+  });
+
+  it("o grant de código: só a situação é autônoma; abrir é HIGH e sempre pede aprovação", async () => {
+    const c = montar();
+    await c.motor("bia-growth", (m) => concederCodigoGrowthOs(m, c.cfg, "bia-growth", T0));
+    const [g] = (await c.motor("bia-growth", (m) => m.grants.list("bia-growth"))).filter((x) => x.systemId === "growth_os_codigo" && !x.revokedAt);
+    assert.deepEqual([g!.limits.maxRisk, g!.limits.autonomousUpTo, g!.capability], ["HIGH", "LOW", "growth_os_codigo.*"]);
+    await assert.rejects(c.motor("cris", (m) => concederCodigoGrowthOs(m, c.cfg, "cris", T0)), /OBEDIENT_GROWTH_OS_USUARIOS/);
+  });
+
+  it("de ponta a ponta: aprovação, pedido único ao Growth OS, espera sem gastar tentativa, PR com CI verde vira evidência", async () => {
+    const c = montar({ situacoes: [ESPERANDO, PRONTO("passou")] });
+    const u = "ana-growth";
+    await c.motor(u, (m) => concederCodigoGrowthOs(m, c.cfg, u, T0));
+    await c.missao(u, "Troque o rótulo do botão de Gravar para Salvar no casa/sandbox.");
+    const r = roteiro(
+      (p) => {
+        assert.ok(p.tools.some((t) => t.name === AGUARDAR), "a espera existe com a ferramenta de código");
+        return usar("t1", ABRIR, PEDIDO)();
+      },
+      (p) => {
+        assert.match(resultados(p)[0]!.content, new RegExp(MISSAO));
+        return usar("t2", STATUS, { missao_id: MISSAO })();
+      },
+      (p) => {
+        assert.match(resultados(p)[0]!.content, /"aguardando_pessoa":\["iniciar"\]/);
+        return usar("t3", AGUARDAR, { minutos: 60, motivo: "esperando uma pessoa do Growth OS iniciar" })();
+      },
+      encerrar,
+      (p) => {
+        assert.match(String(p.messages.at(-1)!.content), /A espera terminou/);
+        return usar("t4", STATUS, { missao_id: MISSAO })();
+      },
+      usar("fim", CONCLUIR, { tipo: "feito", explicacao: `PR aberto: ${PR}` }),
+      encerrar,
+    );
+    const [esperando] = await c.processar(u, r);
+    assert.equal(esperando!.estado, "waiting_approval");
+    assert.equal(c.g.recebidos.length, 0, "nada sai antes da aprovação");
+    await aprovar(c, u, esperando!.propostaId!);
+    const [dormindo] = await c.processar(u, r);
+    assert.deepEqual([dormindo!.estado, dormindo!.esperas, dormindo!.tentativas], ["retrying", 1, 0], "a espera não gastou a tentativa");
+    assert.equal(dormindo!.proximaTentativaEm!.getTime(), T0.getTime() + 60 * 60_000);
+    const abrir = c.g.recebidos.find((x) => (x.params as { message: { parts: { data: { skill: string } }[] } }).message.parts[0]!.data.skill === "abrir_tarefa_codigo")!;
+    const msg = (abrir.params as { message: { messageId: string; parts: unknown[] } }).message;
+    assert.equal(msg.messageId, idDaMensagemA2A(esperando!.propostaId!, "growth_os_codigo.abrir_tarefa_codigo"), "messageId da aprovação: reenviar não abre outra");
+    assert.deepEqual(msg.parts, [{ data: { ...PEDIDO, skill: "abrir_tarefa_codigo" }, mediaType: "application/json" }]);
+    // Antes da hora, nada.
+    const cedo = await c.processar(u, r);
+    assert.deepEqual(cedo.map((m) => m.estado), []);
+    c.clock.advance(61 * 60_000);
+    const [fim] = await c.processar(u, r);
+    assert.deepEqual([fim!.estado, fim!.desfecho?.tipo], ["completed", "feito"]);
+    const evs = await comoUsuario(banco.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, { clock: c.clock }), c.clock).evidencias(fim!.id));
+    assert.deepEqual(evs.filter((e) => e.tipo === "pull_request").map((e) => [e.ok, e.referencia]), [[true, PR]]);
+    assert.deepEqual(skills(c), ["abrir_tarefa_codigo", "status_tarefa_codigo", "status_tarefa_codigo"]);
+  });
+
+  it("CI vermelha: o 'feito' volta ao agente com o motivo; sem o PR visto nesta tentativa, também", async () => {
+    const c = montar({ situacoes: [PRONTO("falhou")] });
+    const u = "bia-growth";
+    await c.motor(u, (m) => concederCodigoGrowthOs(m, c.cfg, u, T0));
+    await c.missao(u, "Troque o rótulo.");
+    const r = roteiro(
+      usar("t1", ABRIR, PEDIDO),
+      usar("fim1", CONCLUIR, { tipo: "feito", explicacao: "Pedi." }),
+      (p) => {
+        assert.match(resultados(p)[0]!.content, /ainda não mostrou o Pull Request/);
+        return usar("t2", STATUS, { missao_id: MISSAO })();
+      },
+      usar("fim2", CONCLUIR, { tipo: "feito", explicacao: "PR aberto." }),
+      (p) => {
+        assert.match(resultados(p)[0]!.content, /CI está falhou/);
+        return usar("fim3", CONCLUIR, { tipo: "nao_consegui", explicacao: "A CI do PR ficou vermelha." })();
+      },
+      encerrar,
+    );
+    const [esperando] = await c.processar(u, r);
+    await aprovar(c, u, esperando!.propostaId!);
+    const [fim] = await c.processar(u, r);
+    assert.deepEqual([fim!.estado, fim!.desfecho?.tipo], ["failed", "nao_consegui"]);
+  });
+
+  it("espera fora do intervalo é recusada na hora; nada é pedido ao Growth OS por ela", async () => {
+    const c = montar();
+    const u = "ana-growth";
+    await c.motor(u, (m) => concederCodigoGrowthOs(m, c.cfg, u, T0));
+    await c.missao(u, "Veja a tarefa de código.");
+    const r = roteiro(
+      usar("t1", AGUARDAR, { minutos: 1, motivo: "x" }),
+      (p) => {
+        assert.match(resultados(p)[0]!.content, /minutos de 5 a 360/);
+        return usar("fim", CONCLUIR, { tipo: "nao_sei", explicacao: "Nada a esperar." })();
+      },
+      encerrar,
+    );
+    const [fim] = await c.processar(u, r);
+    assert.equal(fim!.estado, "completed");
+    assert.equal(c.g.recebidos.length, 0);
   });
 });

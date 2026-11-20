@@ -8,6 +8,7 @@
 //   node --import tsx packages/server/src/cli.ts servir
 //   node --import tsx packages/server/src/cli.ts chave       (gera uma chave nova para o cofre)
 //   node --import tsx packages/server/src/cli.ts growth-os conceder|retirar <usuario>
+//   node --import tsx packages/server/src/cli.ts growth-os conceder-codigo|retirar-codigo <usuario>   (M6: pedir código, sempre com aprovação)
 //   node --import tsx packages/server/src/cli.ts mcp conceder|retirar <servidor> <usuario>
 //
 // Variáveis:
@@ -54,7 +55,7 @@ import { servidorHttp } from "./http.ts";
 import { Passkeys } from "./passkeys.ts";
 import { Cofre, Conexoes, lerChaves } from "@obedient/integrations";
 import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
-import { clienteGrowthOs, concederComprasGrowthOs, concederGrowthOs, retirarComprasGrowthOs, configGrowthOsDoAmbiente, retirarGrowthOs } from "./growth-os.ts";
+import { clienteGrowthOs, concederCodigoGrowthOs, concederComprasGrowthOs, concederGrowthOs, retirarCodigoGrowthOs, retirarComprasGrowthOs, configGrowthOsDoAmbiente, retirarGrowthOs } from "./growth-os.ts";
 import { type ServidorMcp, concederMcp, conexaoMcp, retirarMcp, servidoresMcpDoAmbiente, tokenDoAmbiente } from "./mcp-servidores.ts";
 import { ConexoesMcp, comOAuth } from "./mcp-oauth.ts";
 
@@ -136,8 +137,8 @@ async function main(argv: string[]) {
   }
   if (comando === "growth-os") {
     const [acao, usuario, teto] = resto;
-    const acoes = ["conceder", "retirar", "conceder-compras", "retirar-compras"];
-    if (!acao || !acoes.includes(acao) || !usuario) throw new Error("uso: growth-os conceder|retirar <usuario>  |  growth-os conceder-compras <usuario> <teto_em_micro_unidades>  |  growth-os retirar-compras <usuario>");
+    const acoes = ["conceder", "retirar", "conceder-compras", "retirar-compras", "conceder-codigo", "retirar-codigo"];
+    if (!acao || !acoes.includes(acao) || !usuario) throw new Error("uso: growth-os conceder|retirar <usuario>  |  growth-os conceder-compras <usuario> <teto_em_micro_unidades>  |  growth-os retirar-compras <usuario>  |  growth-os conceder-codigo|retirar-codigo <usuario>");
     const cfg = configGrowthOsDoAmbiente();
     if (!cfg) throw new Error("Growth OS desligado: defina as OBEDIENT_GROWTH_OS_*");
     const tetoMicros = Number(teto);
@@ -148,13 +149,17 @@ async function main(argv: string[]) {
       if (acao === "conceder") await concederGrowthOs(motor, cfg, usuario, systemClock.now(), operadorDaCli());
       else if (acao === "retirar") await retirarGrowthOs(motor, usuario);
       else if (acao === "conceder-compras") await concederComprasGrowthOs(motor, cfg, usuario, tetoMicros, systemClock.now(), operadorDaCli());
-      else await retirarComprasGrowthOs(motor, usuario);
+      else if (acao === "retirar-compras") await retirarComprasGrowthOs(motor, usuario);
+      else if (acao === "conceder-codigo") await concederCodigoGrowthOs(motor, cfg, usuario, systemClock.now(), operadorDaCli());
+      else await retirarCodigoGrowthOs(motor, usuario);
     });
     console.log({
       conceder: `${usuario}: o agente pode ler o Growth OS por 30 dias (aparece no app e pode ser tirado)`,
       retirar: `${usuario}: autoridade no Growth OS retirada`,
       "conceder-compras": `${usuario}: o agente pode PROPOR compras no marketplace do Growth OS por 30 dias, até ${tetoMicros} micro-unidades cada; toda compra pede aprovação no app`,
       "retirar-compras": `${usuario}: autoridade de compra no Growth OS retirada`,
+      "conceder-codigo": `${usuario}: o agente pode PROPOR tarefas de código ao Growth OS por 30 dias; cada uma pede aprovação no app, e lá passa por pessoas até o Pull Request (nunca merge)`,
+      "retirar-codigo": `${usuario}: autoridade de pedir código ao Growth OS retirada`,
     }[acao]);
     return fechar();
   }

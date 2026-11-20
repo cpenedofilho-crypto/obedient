@@ -17,6 +17,11 @@
 //     com grant próprio: categoria FINANCIAL, então toda compra para e pede a aprovação da pessoa,
 //     e o grant tem teto de valor por compra. Sem esse grant, a ferramenta de compra nem é oferecida.
 //     O pagamento é simulado (carteiras contábeis do Growth OS); a regra é a mesma de dinheiro;
+//   • PEDIR CÓDIGO (M6) é um terceiro sistema (growth_os_codigo), com grant próprio: abrir uma tarefa
+//     de código é risco HIGH e sempre pede a aprovação da pessoa; ver a situação dela é leitura. No
+//     Growth OS, a tarefa vira uma missão da Software Factory que uma pessoa de lá inicia, com o plano
+//     e o relatório aprovados por gente, e termina num Pull Request. Merge nunca. O OBEDIENT não recebe
+//     token do GitHub;
 //   • o resultado volta ao modelo como conteúdo externo, nunca como instrução;
 //   • a compra leva um messageId DERIVADO da aprovação (idDaMensagemA2A): reenviar a mesma execução
 //     aprovada chega ao Growth OS com o mesmo id e não compra de novo (idempotência do A2A). Sem
@@ -47,6 +52,14 @@ export const TETO_MAXIMO_MICROS = 10_000_000;
 export const FINALIDADE_GROWTH_OS_COMPRAS = `integracao:${SISTEMA_GROWTH_OS_COMPRAS}`;
 export const explicacaoCompras = (tetoMicros: number) =>
   `Comprar, no marketplace interno do Growth OS, consultas ao conhecimento aprovado da organização, até ${tetoMicros} micro-unidades por compra. Pagamento simulado entre carteiras contábeis. Cada compra pede a sua aprovação.`;
+
+/** Código: sistema à parte. Abrir é HIGH (sempre com aprovação); a situação é leitura. */
+export const SISTEMA_GROWTH_OS_CODIGO = "growth_os_codigo";
+const FERRAMENTA_ABRIR_CODIGO = "growth_os_codigo.abrir_tarefa_codigo";
+const FERRAMENTA_STATUS_CODIGO = "growth_os_codigo.status_tarefa_codigo";
+export const FINALIDADE_GROWTH_OS_CODIGO = `integracao:${SISTEMA_GROWTH_OS_CODIGO}`;
+export const EXPLICACAO_GROWTH_OS_CODIGO =
+  "Pedir ao Growth OS mudanças de código nos repositórios que o cadastro de lá libera: cada pedido pede a sua aprovação aqui, vira uma missão que uma pessoa do Growth OS inicia, tem o plano e o relatório aprovados por gente e termina num Pull Request. Nunca faz merge. Ver a situação do pedido é só leitura.";
 
 export const FINALIDADE_GROWTH_OS = `integracao:${SISTEMA_GROWTH_OS}`;
 /**
@@ -149,6 +162,71 @@ export function itensGrowthOsCompras(): ItemGovernado[] {
   }];
 }
 
+/** As ferramentas de código. Só entram no catálogo de quem tem o grant de código vigente. */
+export function itensGrowthOsCodigo(): ItemGovernado[] {
+  return [
+    {
+      definicao: {
+        name: nomeParaModelo(FERRAMENTA_ABRIR_CODIGO),
+        description:
+          "Pede ao Growth OS uma mudança de código num repositório liberado lá. Sempre pede a aprovação da pessoa. Não escreve nada na hora: abre uma missão que uma pessoa do Growth OS inicia, com o plano e o relatório aprovados por gente, e que termina num Pull Request (em rascunho, por padrão). Nunca faz merge. Devolve o missao_id para acompanhar com status_tarefa_codigo.",
+        input_schema: {
+          type: "object",
+          properties: {
+            repositorio: { type: "string", description: "dono/repositorio, liberado no cadastro do Growth OS." },
+            pedido: { type: "string", description: "O que mudar, em linguagem de pessoa (10 a 2000 caracteres). Sem e-mail nem telefone." },
+            caminhos: { type: "array", items: { type: "string" }, description: "Os únicos caminhos que podem ser tocados (relativos, de 1 a 30)." },
+            rascunho: { type: "boolean", description: "PR em rascunho (padrão true)." },
+          },
+          required: ["repositorio", "pedido", "caminhos"],
+          additionalProperties: false,
+        },
+      },
+      chave: `${SISTEMA_GROWTH_OS_CODIGO}/${FERRAMENTA_ABRIR_CODIGO}`,
+      sistema: SISTEMA_GROWTH_OS_CODIGO,
+      ferramenta: FERRAMENTA_ABRIR_CODIGO,
+      risco: "HIGH",
+      categoria: "WRITE",
+      finalidade: FINALIDADE_GROWTH_OS_CODIGO,
+    },
+    {
+      definicao: {
+        name: nomeParaModelo(FERRAMENTA_STATUS_CODIGO),
+        description:
+          "Situação de uma tarefa de código aberta no Growth OS: estado da missão e de cada etapa, o que espera uma pessoa de lá (iniciar, aprovar o plano, aprovar o relatório) e, quando houver, o Pull Request (endereço, número, commit e CI). Só leitura.",
+        input_schema: { type: "object", properties: { missao_id: { type: "string", description: "O missao_id que abrir_tarefa_codigo devolveu." } }, required: ["missao_id"], additionalProperties: false },
+      },
+      chave: `${SISTEMA_GROWTH_OS_CODIGO}/${FERRAMENTA_STATUS_CODIGO}`,
+      sistema: SISTEMA_GROWTH_OS_CODIGO,
+      ferramenta: FERRAMENTA_STATUS_CODIGO,
+      risco: "LOW",
+      categoria: "READ",
+      finalidade: FINALIDADE_GROWTH_OS_CODIGO,
+    },
+  ];
+}
+
+const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Abrir a tarefa de código, depois de aprovada. O messageId vem da aprovação: reenviar não abre outra. */
+async function abrirCodigo(enviar: Enviar, a: Record<string, unknown>, approvalId: string | undefined) {
+  if (!approvalId) return { estado: "recusada", motivo: "codigo_sem_aprovacao" };
+  if (Object.keys(a).some((k) => !["repositorio", "pedido", "caminhos", "rascunho"].includes(k))) return { estado: "recusada", motivo: "argumento_nao_previsto" };
+  if (typeof a.repositorio !== "string" || !REPO.test(a.repositorio)) return { estado: "recusada", motivo: "repositorio_invalido" };
+  if (typeof a.pedido !== "string" || a.pedido.trim().length < 10 || a.pedido.length > 2000) return { estado: "recusada", motivo: "pedido_invalido" };
+  if (!Array.isArray(a.caminhos) || !a.caminhos.length || a.caminhos.length > 30 || a.caminhos.some((c) => typeof c !== "string" || !c || c.length > 300 || c.includes("..") || c.startsWith("/")))
+    return { estado: "recusada", motivo: "caminhos_invalidos" };
+  if (a.rascunho !== undefined && typeof a.rascunho !== "boolean") return { estado: "recusada", motivo: "rascunho_invalido" };
+  const dados = { repositorio: a.repositorio, pedido: a.pedido.trim(), caminhos: a.caminhos, ...(a.rascunho !== undefined ? { rascunho: a.rascunho } : {}) };
+  return paraModelo(await enviar("abrir_tarefa_codigo", { messageId: idDaMensagemA2A(approvalId, FERRAMENTA_ABRIR_CODIGO), dados }));
+}
+
+async function statusCodigo(enviar: Enviar, a: Record<string, unknown>) {
+  if (Object.keys(a).some((k) => k !== "missao_id") || typeof a.missao_id !== "string" || !UUID.test(a.missao_id)) return { estado: "recusada", motivo: "missao_id_invalido" };
+  return paraModelo(await enviar("status_tarefa_codigo", { messageId: `obedient-${randomUUID()}`, dados: { missao_id: a.missao_id } }));
+}
+
 /** O que volta ao modelo: só o estado e os dados das partes estruturadas. Nem id de tarefa, nem texto livre. */
 function paraModelo(t: Tarefa) {
   if (t.estado !== "TASK_STATE_COMPLETED") return { estado: t.estado, ...(t.erro ? { erro: t.erro } : {}), dados: null };
@@ -223,6 +301,8 @@ export function executorGrowthOs(cliente: ClienteA2A, registrar?: (c: Correlacao
       return t;
     };
     if (sistema === SISTEMA_GROWTH_OS_COMPRAS && ferramenta === FERRAMENTA_COMPRA) return comprar(enviar, argumentos, execucao?.approvalId);
+    if (sistema === SISTEMA_GROWTH_OS_CODIGO && ferramenta === FERRAMENTA_ABRIR_CODIGO) return abrirCodigo(enviar, argumentos, execucao?.approvalId);
+    if (sistema === SISTEMA_GROWTH_OS_CODIGO && ferramenta === FERRAMENTA_STATUS_CODIGO) return statusCodigo(enviar, argumentos);
     if (sistema !== SISTEMA_GROWTH_OS || !(ferramenta in SKILLS)) throw new Error("ferramenta do Growth OS desconhecida");
     // Os argumentos do modelo não chegam ao Growth OS: a skill é escolhida aqui, pela ferramenta autorizada.
     return paraModelo(await enviar(SKILLS[ferramenta as Ferramenta], { messageId: `obedient-${randomUUID()}` }));
@@ -289,4 +369,34 @@ export async function retirarComprasGrowthOs(motor: EthicsEngine, userId: string
 
 export async function temComprasGrowthOs(motor: EthicsEngine, userId: string, agora: Date): Promise<boolean> {
   return (await motor.grants.list(userId)).some((g) => g.agentId === AGENTE && g.systemId === SISTEMA_GROWTH_OS_COMPRAS && !g.revokedAt && g.expiresAt > agora);
+}
+
+/**
+ * Concede à pessoa a autoridade de PEDIR CÓDIGO ao Growth OS (M6). Ato explícito do dono do servidor,
+ * pela linha de comando, só para quem está em OBEDIENT_GROWTH_OS_USUARIOS. Abrir uma tarefa é HIGH:
+ * sempre pede a aprovação da pessoa. Só a situação (leitura) é autônoma. Conceder de novo substitui.
+ */
+export async function concederCodigoGrowthOs(motor: EthicsEngine, cfg: ConfigGrowthOs, userId: string, agora: Date, concedidoPor: string = userId): Promise<void> {
+  if (!cfg.usuarios.has(userId)) throw new Error("essa pessoa não está em OBEDIENT_GROWTH_OS_USUARIOS");
+  await retirarCodigoGrowthOs(motor, userId);
+  await motor.grants.grant(
+    {
+      userId,
+      agentId: AGENTE,
+      systemId: SISTEMA_GROWTH_OS_CODIGO,
+      capability: `${SISTEMA_GROWTH_OS_CODIGO}.*`,
+      purpose: EXPLICACAO_GROWTH_OS_CODIGO,
+      limits: { maxRisk: "HIGH", autonomousUpTo: "LOW", maxAmount: null, amountField: null },
+      expiresAt: new Date(agora.getTime() + PRAZO_DO_GRANT_MS),
+    },
+    concedidoPor,
+  );
+}
+
+export async function retirarCodigoGrowthOs(motor: EthicsEngine, userId: string): Promise<void> {
+  for (const g of await motor.grants.list(userId)) if (g.agentId === AGENTE && g.systemId === SISTEMA_GROWTH_OS_CODIGO && !g.revokedAt) await motor.grants.revoke(g.id, userId);
+}
+
+export async function temCodigoGrowthOs(motor: EthicsEngine, userId: string, agora: Date): Promise<boolean> {
+  return (await motor.grants.list(userId)).some((g) => g.agentId === AGENTE && g.systemId === SISTEMA_GROWTH_OS_CODIGO && !g.revokedAt && g.expiresAt > agora);
 }

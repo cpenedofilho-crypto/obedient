@@ -201,6 +201,14 @@ O Growth OS é o servidor A2A da casa. O OBEDIENT fala com ele como cliente, pel
 - Ao Growth OS vão só a oferta e a consulta. Quem paga e o teto de lá saem do cadastro do cliente A2A no Growth OS, feito por pessoa.
 - Se o Growth OS recusa (sem saldo, acima do teto de lá), o código do erro volta ao modelo.
 
+**Pedir código ao Growth OS (20/11/2026, marco M6, autorização A3)** é um terceiro sistema, `growth_os_codigo`, com grant próprio. O OBEDIENT não recebe token do GitHub e não escreve código.
+- O ato: `cli.ts growth-os conceder-codigo <usuario>` (e `retirar-codigo`). Só para quem está em `OBEDIENT_GROWTH_OS_USUARIOS`.
+- O grant é `growth_os_codigo.*`, 30 dias, risco até HIGH e **autonomia só até LOW**: ver a situação é autônomo; abrir uma tarefa é HIGH e sempre pede a aprovação da pessoa.
+- `growth_os_codigo.abrir_tarefa_codigo` (HIGH, `WRITE`): depois de aprovada, manda ao Growth OS só o repositório, o pedido, os caminhos e se o PR é rascunho. O `messageId` vem da aprovação, então reenviar não abre outra tarefa. Lá, a tarefa vira uma missão da Software Factory que uma pessoa inicia, com o plano e o relatório aprovados por gente, e termina num Pull Request. Merge nunca. O repositório precisa estar no cadastro do cliente no Growth OS, decidido por duas pessoas.
+- `growth_os_codigo.status_tarefa_codigo` (LOW, `READ`): a situação em lista fechada (estados, o que espera uma pessoa, e do PR só endereço, número, commit e CI).
+- **Espera:** com essas ferramentas, a missão ganha `aguardar_sistema`. O agente diz em quantos minutos voltar (de 5 a 360) e por quê; a missão dorme sem gastar tentativa e continua a conversa na volta. Até 30 esperas; depois, para e pede a pessoa. O teto de custo e o prazo final continuam valendo.
+- **"Feito" só com o PR e a CI verde,** lidos na situação da tarefa na mesma tentativa (evidência `pull_request`, com o endereço do PR). É dado do Growth OS, conferido lá pelo harness, não o que o agente disse. Com a CI vermelha, ou sem o PR visto, o "feito" volta ao agente com o motivo.
+
 **Configuração:** todas as variáveis ou nenhuma, senão o servidor não sobe.
 - `OBEDIENT_GROWTH_OS_CARD_URL`, `_TOKEN_URL`, `_CLIENT_ID`, `_SEGREDO` e `_USUARIOS`.
 - O card e o token precisam ser https.

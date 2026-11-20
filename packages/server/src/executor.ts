@@ -48,7 +48,7 @@ import type { Licao } from "@obedient/memory";
 import { type Evidencia, type Executor as ExecutorDeMissao, MAX_VOLTAS_VERIFICACAO, type TarefaDoPlano, lerTarefas, type Missao, type ResultadoTentativa, TETO_MENSAL_CENTAVOS, type TipoDesfecho, cabeNoMandato, verificar } from "@obedient/missions";
 import type { ClienteA2A } from "@obedient/a2a-client";
 import { CONSTITUTION_VERSION } from "@obedient/ethics-engine";
-import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCompras, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
+import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_CODIGO, SISTEMA_GROWTH_OS_COMPRAS, executorGrowthOs, itensGrowthOs, itensGrowthOsCodigo, itensGrowthOsCompras, temCodigoGrowthOs, temComprasGrowthOs, temGrowthOs } from "./growth-os.ts";
 import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, motivoMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
 import { type Database, type NovoPasso, type OpcoesMotor, PgMissionStore, type TipoPasso, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao, passosNaTransacao } from "@obedient/store-postgres";
 
@@ -61,6 +61,11 @@ const CHAVE_PROPOR_PLANO = `obedient/${PROPOR_PLANO}`;
 /** Na execução pelo plano aprovado, o agente marca cada tarefa feita por aqui. */
 export const CONCLUIR_TAREFA = "concluir_tarefa";
 const CHAVE_CONCLUIR_TAREFA = `obedient/${CONCLUIR_TAREFA}`;
+/** Espera por sistema externo (M6): só oferecida quando a missão tem ferramenta de trabalho longo. */
+export const AGUARDAR = "aguardar_sistema";
+const CHAVE_AGUARDAR = `obedient/${AGUARDAR}`;
+const CHAVE_ABRIR_CODIGO = "growth_os_codigo/growth_os_codigo.abrir_tarefa_codigo";
+const CHAVE_STATUS_CODIGO = "growth_os_codigo/growth_os_codigo.status_tarefa_codigo";
 /** Voltas de correção de um plano que não confere; na seguinte, a tentativa termina sem plano. */
 export const MAX_VOLTAS_PLANO = 2;
 const CHAVE_LEMBRAR = `obedient/${LEMBRAR}`;
@@ -151,6 +156,37 @@ const ferramentaProporPlano: ItemCatalogo = {
     },
   },
 };
+
+const ferramentaAguardar: ItemCatalogo = {
+  chave: CHAVE_AGUARDAR,
+  definicao: {
+    name: AGUARDAR,
+    description:
+      "Quando outro sistema ainda está trabalhando no que você pediu (por exemplo, uma tarefa de código no Growth OS esperando uma pessoa de lá), pede para a missão voltar mais tarde, sem gastar tentativa. Diga em quantos minutos (de 5 a 360) e o motivo. Depois de chamar, encerre a resposta: a missão volta e você continua daqui. Não use para adiar o que dá para fazer agora.",
+    input_schema: {
+      type: "object",
+      properties: { minutos: { type: "integer", minimum: 5, maximum: 360 }, motivo: { type: "string", maxLength: 200 } },
+      required: ["minutos", "motivo"],
+      additionalProperties: false,
+    },
+  },
+};
+
+/** O PR que a situação da tarefa de código mostrou (dado do Growth OS, conferido lá pelo harness). */
+interface PrVisto {
+  url: string;
+  ci: string | null;
+  commit: string | null;
+}
+function prDaSituacao(resultado: unknown): PrVisto | null {
+  const dados = (resultado as { conteudo_externo?: { dados?: unknown[] } } | null)?.conteudo_externo?.dados;
+  for (const d of Array.isArray(dados) ? dados : []) {
+    const pr = (d as { pull_request?: unknown } | null)?.pull_request as Record<string, unknown> | null | undefined;
+    if (pr && typeof pr.url === "string" && /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+$/.test(pr.url))
+      return { url: pr.url, ci: typeof pr.ci === "string" ? pr.ci : null, commit: typeof pr.commit_sha === "string" && /^[0-9a-f]{40}$/.test(pr.commit_sha) ? pr.commit_sha : null };
+  }
+  return null;
+}
 
 const ferramentaConcluirTarefa: ItemCatalogo = {
   chave: CHAVE_CONCLUIR_TAREFA,
@@ -331,12 +367,14 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       const growthOs = Boolean(d.growthOs?.usuarios.has(u)) && (await temGrowthOs(motor, u, d.clock.now()));
       // Comprar no Growth OS é um grant à parte, com teto de valor; cada compra pede aprovação.
       const growthCompras = Boolean(d.growthOs?.usuarios.has(u)) && (await temComprasGrowthOs(motor, u, d.clock.now()));
+      // Código pelo Growth OS (M6): outro grant, também concedido pela linha de comando.
+      const growthCodigo = Boolean(d.growthOs?.usuarios.has(u)) && (await temCodigoGrowthOs(motor, u, d.clock.now()));
       // MCP: servidores em que a pessoa está na lista do dono E tem grant vigente.
       const mcp = d.mcp ? await servidoresDaPessoa(motor, d.mcp.servidores, u, d.clock.now()) : [];
-      const conectadas = [...google, ...(growthOs ? [SISTEMA_GROWTH_OS] : []), ...(growthCompras ? [SISTEMA_GROWTH_OS_COMPRAS] : []), ...mcp.map((s) => s.id)];
+      const conectadas = [...google, ...(growthOs ? [SISTEMA_GROWTH_OS] : []), ...(growthCompras ? [SISTEMA_GROWTH_OS_COMPRAS] : []), ...(growthCodigo ? [SISTEMA_GROWTH_OS_CODIGO] : []), ...mcp.map((s) => s.id)];
       const memoria = memoriaNaTransacao(tx, motor, d.clock);
       const categorias = (await memoria.categorias(u)).filter((c) => c.ligada).map((c) => c.id);
-      return { google, growthOs, growthCompras, mcp, conectadas, categorias, identificacao: await lerIdentificacao(tx, u), licoes: await memoria.paraContexto(u) };
+      return { google, growthOs, growthCompras, growthCodigo, mcp, conectadas, categorias, identificacao: await lerIdentificacao(tx, u), licoes: await memoria.paraContexto(u) };
     });
 
     // O teto que vale é o menor: o que resta da missão ou o que resta do mês (D21).
@@ -413,6 +451,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     for (const i of itensGovernados(ctx.google)) catalogo.set(i.definicao.name, i);
     if (ctx.growthOs) for (const i of itensGrowthOs()) catalogo.set(i.definicao.name, i);
     if (ctx.growthCompras) for (const i of itensGrowthOsCompras()) catalogo.set(i.definicao.name, i);
+    if (ctx.growthCodigo) for (const i of itensGrowthOsCodigo()) catalogo.set(i.definicao.name, i);
     // MCP: as ferramentas de cada servidor saem do tools/list, filtradas pela lista do dono. Servidor fora do ar fica de fora desta vez.
     const conexoesMcp = new Map<string, ConexaoMcp>();
     for (const s of ctx.mcp) {
@@ -430,6 +469,9 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     // O ambiente (M5) vem da configuração do servidor MCP; o resto (Google, Growth OS) é produção.
     const ambienteDe = (chave: string) => ctx.mcp.find((s) => chave.startsWith(`${s.id}/`))?.ambiente ?? "producao";
     for (const [nome, item] of [...catalogo]) if (categoriaDe(item) && !cabeNoMandato(missao.mandato, item.chave, ambienteDe(item.chave))) catalogo.delete(nome);
+    // A espera (M6) só existe quando a missão tem uma ferramenta de trabalho longo em outro sistema.
+    const temCodigo = [...catalogo.values()].some((i) => i.chave === CHAVE_ABRIR_CODIGO || i.chave === CHAVE_STATUS_CODIGO);
+    if (temCodigo) catalogo.set(AGUARDAR, ferramentaAguardar);
 
     const modelo = d.novoModelo();
     const gastoCentavos = () => Math.ceil(modelo.gastoEmDolares * d.centavosPorDolar);
@@ -442,11 +484,14 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     // correção; na seguinte, o "feito" vai com as evidências que não conferem e a missão para.
     let voltasVerificacao = 0;
     let externo = leuConteudoExterno(salva?.estado);
+    // Espera pedida pelo agente nesta tentativa, e o PR que a situação da tarefa de código mostrou.
+    let espera: { ate: Date; motivo: string } | null = null;
+    let prVisto: PrVisto | null = null;
 
     // Um executor por sistema; o Ethics Engine autoriza antes de qualquer um rodar.
     const google = d.conexoes ? executorGoogle(d.conexoes, u, d.http ?? fetch) : null;
     // A correlação que o Growth OS devolve vai para a trilha da pessoa, ligada à missão.
-    const growth = (ctx.growthOs || ctx.growthCompras) && d.growthOs
+    const growth = (ctx.growthOs || ctx.growthCompras || ctx.growthCodigo) && d.growthOs
       ? executorGrowthOs(d.growthOs.cliente, (c) => abrir(async (m) => {
         await m.audit.record({
           userId: u,
@@ -465,7 +510,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     const governada = google || growth || mcp
       ? chamarComEthicsEmEtapas(abrir, { userId: u, agentId: missao.agente, correlationId: missao.id }, (sistema, ferramenta, args, execucao) => {
         if (conexoesMcp.has(sistema)) return mcp!(sistema, ferramenta, args);
-        if (sistema === SISTEMA_GROWTH_OS || sistema === SISTEMA_GROWTH_OS_COMPRAS) {
+        if (sistema === SISTEMA_GROWTH_OS || sistema === SISTEMA_GROWTH_OS_COMPRAS || sistema === SISTEMA_GROWTH_OS_CODIGO) {
           if (!growth) throw new Error("Growth OS desligado neste servidor");
           return growth(sistema, ferramenta, args, execucao);
         }
@@ -507,6 +552,23 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
           conf.evidencias.push({ criterio: null, tipo: "plano_completo", ok: !faltam.length, referencia: `${plano.tarefas.length - faltam.length} de ${plano.tarefas.length} tarefa(s)`, detalhe: faltam.length ? `Faltam tarefas do plano: ${faltam.map((t) => t.chave).join(", ")}.` : "Todas as tarefas do plano foram feitas." });
           if (faltam.length) conf.ok = false;
         }
+        // Código pelo Growth OS (M6): se a missão pediu código, "feito" só com o PR aberto e a CI verde,
+        // lidos na situação da tarefa nesta tentativa. É dado do Growth OS, não o que o agente disse.
+        const pediuCodigo = passos.some((x) => x.ferramenta === CHAVE_ABRIR_CODIGO && (x.tipo === "ferramenta" || x.tipo === "retomada") && x.status === "succeeded");
+        if (pediuCodigo) {
+          const pr = prVisto as PrVisto | null;
+          const ok = !!pr && pr.ci === "passou";
+          conf.evidencias.push({
+            criterio: null,
+            tipo: "pull_request",
+            ok,
+            referencia: pr ? pr.url : null,
+            detalhe: !pr
+              ? "A missão pediu código, mas a situação da tarefa ainda não mostrou o Pull Request nesta tentativa."
+              : ok ? `Pull Request aberto, com a CI verde${pr.commit ? ` no commit ${pr.commit.slice(0, 12)}` : ""}.` : `Pull Request aberto, mas a CI está ${pr.ci ?? "sem status"}.`,
+          });
+          if (!ok) conf.ok = false;
+        }
         if (conf.ok || voltasVerificacao >= MAX_VOLTAS_VERIFICACAO) {
           desfecho = { tipo: "feito", explicacao: v.explicacao, evidencias: conf.evidencias };
           return conf.ok
@@ -525,6 +587,14 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
             proximo_passo: "corrija o que falta e chame concluir_missao de novo, ou conclua nao_consegui explicando",
           },
         };
+      }
+      if (item.chave === CHAVE_AGUARDAR) {
+        const minutos = args.minutos;
+        const motivo = typeof args.motivo === "string" ? args.motivo.trim().slice(0, 200) : "";
+        if (Object.keys(args).some((k) => k !== "minutos" && k !== "motivo") || !Number.isInteger(minutos) || (minutos as number) < 5 || (minutos as number) > 360 || !motivo)
+          return { status: "tool_error", motivo: "minutos de 5 a 360 e um motivo", approvalId: null, resultado: { aguardando: false, motivo: "minutos de 5 a 360 e um motivo" } };
+        espera = { ate: new Date(d.clock.now().getTime() + (minutos as number) * 60_000), motivo };
+        return { status: "succeeded", motivo: null, approvalId: null, resultado: { aguardando: true, proximo_passo: "encerre a resposta: a missão volta depois e você continua daqui" } };
       }
       if (item.chave === CHAVE_CONCLUIR_TAREFA) {
         if (!plano) return { status: "denied", motivo: "esta missão não tem plano aprovado", approvalId: null, resultado: null };
@@ -548,6 +618,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       if (!governada) return { status: "denied", motivo: "integrações desligadas neste servidor", approvalId: null, resultado: null };
       const res = await governada(item, args, approvalId);
       if (res.status === "succeeded") externo = true;
+      if (res.status === "succeeded" && item.chave === CHAVE_STATUS_CODIGO) prVisto = prDaSituacao(res.resultado) ?? prVisto;
       return res;
     };
     // Ferramenta governada: o INÍCIO é gravado antes da chamada; sem ele gravado, a chamada não sai.
@@ -604,6 +675,13 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       case "completed": {
         const fim = desfecho as { tipo: TipoDesfecho; explicacao: string; evidencias?: Evidencia[] } | null;
         if (fim) return { ...fim, custoCentavos };
+        // Pediu para esperar o outro sistema (M6): a conversa fica guardada e continua na volta.
+        const aguardar = espera as { ate: Date; motivo: string } | null;
+        if (aguardar) {
+          r.estado.messages.push({ role: "user", content: "A espera terminou. Confira de novo a situação no outro sistema e siga: espere de novo, se ainda não terminou, ou conclua." });
+          const g = guardar(null);
+          return g ? { tipo: "aguardando_externo", ate: aguardar.ate, motivo: aguardar.motivo, rodada: g, custoCentavos } : longaDemais;
+        }
         // Terminou sem dizer o desfecho: não é "feito". A próxima tentativa continua a conversa e pede o desfecho.
         r.estado.messages.push({ role: "user", content: `Você terminou sem chamar ${CONCLUIR}. Chame agora, com o desfecho real.` });
         const g = guardar(null);

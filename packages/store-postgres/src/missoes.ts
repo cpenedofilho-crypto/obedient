@@ -27,6 +27,7 @@ interface LinhaMissao {
   cerca: number | string;
   reservada_por: string | null;
   planejar: boolean;
+  esperas: number;
   mandato_ambientes: Ambiente[] | null;
   plano_versao: number;
   plano_hash: string | null;
@@ -52,6 +53,7 @@ const paraMissao = (r: LinhaMissao): Missao => ({
   criterios: Array.isArray(r.criterios) ? r.criterios : [],
   mandato: { ferramentas: Array.isArray(r.mandato_ferramentas) ? r.mandato_ferramentas : null, prazoFinalEm: data(r.prazo_final_em), ambientes: Array.isArray(r.mandato_ambientes) ? r.mandato_ambientes : null },
   planejar: r.planejar === true,
+  esperas: Number(r.esperas ?? 0),
   planoVersao: Number(r.plano_versao ?? 0),
   // As tarefas entram depois (comPlano), numa consulta à parte.
   plano: r.plano_hash ? { versao: Number(r.plano_versao), hash: r.plano_hash, aprovadoEm: data(r.plano_aprovado_em), tarefas: [] } : null,
@@ -127,11 +129,11 @@ export class PgMissionStore implements MissionStore {
       `update obedient.missions set estado = $3, impedimento = $4, desfecho_tipo = $5, desfecho_explicacao = $6, tentativas = $7,
          proxima_tentativa_em = $8, custo_centavos = $9, teto_custo_centavos = $10, proposta_id = $11, atualizada_em = $12, versao = $13,
          rodada = $14::jsonb, reservada_ate = $15, cerca = $16, reservada_por = $17,
-         plano_versao = $18, plano_hash = $19, plano_aprovado_em = $20
+         plano_versao = $18, plano_hash = $19, plano_aprovado_em = $20, esperas = $21
        where id = $1 and versao = $2 returning id`,
       [m.id, versaoLida, m.estado, m.impedimento, m.desfecho?.tipo ?? null, m.desfecho?.explicacao ?? null, m.tentativas,
         m.proximaTentativaEm, m.custoCentavos, m.tetoCustoCentavos, m.propostaId, m.atualizadaEm, m.versao, json(m.rodada), m.reservadaAte, m.cerca, m.reservadaPor,
-        m.planoVersao, m.plano?.hash ?? null, m.plano?.aprovadoEm ?? null],
+        m.planoVersao, m.plano?.hash ?? null, m.plano?.aprovadoEm ?? null, m.esperas ?? 0],
     );
     return rows.length > 0;
   }
