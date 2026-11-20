@@ -22,7 +22,8 @@
 //   OBEDIENT_CHAVES_COFRE        chaves do cofre de credenciais, "id:base64,…" (gere com: cli.ts chave)
 //   OBEDIENT_AGENTE              "ligado" para o servidor executar as missões com o modelo (padrão: desligado).
 //                                A credencial da Anthropic vem do ambiente, como o SDK lê (ANTHROPIC_API_KEY).
-//   OBEDIENT_MODELO              modelo (padrão claude-opus-5-5; precisa estar na tabela de preços)
+//   OBEDIENT_MODELO              modelo do executor (padrão claude-opus-5-5; precisa estar na tabela de preços)
+//   OBEDIENT_MODELO_PLANEJADOR   modelo do planejador (padrão claude-sonnet-5-5, decisão D28; idem)
 //   OBEDIENT_ESFORCO             low | medium | high | xhigh | max (padrão high)
 //   OBEDIENT_FALLBACK            "desligado" para não refazer no servidor o que os classificadores recusarem
 //   OBEDIENT_CENTAVOS_POR_DOLAR  câmbio para o teto de custo das missões (padrão 600, isto é, R$ 6,00: a mais)
@@ -47,6 +48,9 @@ import { systemClock } from "@obedient/core";
 import { ehOperador } from "@obedient/ethics-engine";
 import type { Esforco } from "@obedient/agent-orchestrator";
 import { ModeloAnthropic } from "@obedient/modelo-anthropic";
+
+/** Modelo padrão do planejador (decisão D28, 20/11/2026). */
+export const MODELO_PLANEJADOR = "claude-sonnet-5-5";
 import { fromPgPool, migrate } from "@obedient/store-postgres";
 import { agendarMissoes } from "./agendador.ts";
 import { executorDeMissoes } from "./executor.ts";
@@ -76,6 +80,9 @@ function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null, s
   const fallbacks = env("OBEDIENT_FALLBACK") !== "desligado";
   // Confere o modelo agora (sem preço conhecido, não sobe).
   const teste = new ModeloAnthropic({ cliente, ...(modelo ? { modelo } : {}), esforco, fallbacks });
+  // Planejador (D28): Sonnet 5.5 por padrão. Só propõe o plano, sem ferramenta, e o código e a pessoa conferem.
+  const planejador = new ModeloAnthropic({ cliente, modelo: env("OBEDIENT_MODELO_PLANEJADOR") ?? MODELO_PLANEJADOR, esforco, fallbacks });
+  console.log(`modelos: executor ${teste.modelo}, planejador ${planejador.modelo}`);
   const growth = configGrowthOsDoAmbiente();
   console.log(growth ? `Growth OS por A2A ligado para ${growth.usuarios.size} pessoa(s)` : "Growth OS desligado (sem OBEDIENT_GROWTH_OS_*)");
   if (servidoresMcp.length) console.log(`servidores MCP: ${servidoresMcp.map((s) => `${s.id} (${s.ferramentas.length} ferramentas${comOAuth(s) ? ", OAuth da pessoa" : ""})`).join(", ")}`);
@@ -88,6 +95,7 @@ function agente(db: ReturnType<typeof banco>["db"], conexoes: Conexoes | null, s
     log: (e) => console.log(JSON.stringify(e)),
     growthOs: growth ? { cliente: clienteGrowthOs(growth), usuarios: growth.usuarios } : null,
     novoModelo: () => new ModeloAnthropic({ cliente, modelo: teste.modelo, esforco, fallbacks }),
+    novoModeloPlanejador: () => new ModeloAnthropic({ cliente, modelo: planejador.modelo, esforco, fallbacks }),
     centavosPorDolar,
     clock: systemClock,
     ...(env("OBEDIENT_FUSO") ? { fuso: env("OBEDIENT_FUSO")! } : {}),

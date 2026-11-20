@@ -83,6 +83,13 @@ tamanho no banco. Some quando a missão termina, é cancelada, fica impedida ou 
 - **SDK:** o oficial, `@anthropic-ai/sdk` 1.3.0, Apache-2.0 (na allowlist de licenças).
 - **Modelo e esforço:** padrão `claude-opus-5-5`, com esforço `high`. O raciocínio fica no modo
   adaptativo do modelo.
+- **Um modelo por tarefa (decisão D28, 20/11/2026):**
+  - **executor:** `claude-opus-5-5` (`OBEDIENT_MODELO`). É quem lê conteúdo de terceiros e decide o que
+    chamar;
+  - **planejador:** `claude-sonnet-5-5` (`OBEDIENT_MODELO_PLANEJADOR`), metade do preço. Ele só propõe o
+    plano, sem ferramenta para agir; o código confere o plano e a pessoa o aprova antes de tudo;
+  - **verificador por modelo:** não existe; a conferência é por código (M3).
+  - O servidor não sobe com um modelo fora da tabela de preços, e mostra os dois ao subir.
 - **Fallback (`fallbacks: "default"`):** se os classificadores de segurança recusarem um pedido, a
   Anthropic o refaz no servidor num modelo indicado para aquela categoria. Vem ligado e pode ser
   desligado (`OBEDIENT_FALLBACK=desligado`).

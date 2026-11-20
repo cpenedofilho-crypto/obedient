@@ -85,6 +85,11 @@ export interface DepsExecutor {
   conexoes: Conexoes | null;
   /** Um modelo novo por tentativa (o gasto é contado por tentativa). */
   novoModelo(): ModeloComGasto;
+  /**
+   * O modelo do planejador (M5), se for outro: ele só propõe o plano, sem ferramenta para agir, e o
+   * código confere o plano antes de a pessoa aprovar. Ausente: o mesmo do executor.
+   */
+  novoModeloPlanejador?: () => ModeloComGasto;
   /** Quantos centavos de real vale um dólar, para o teto de custo. */
   centavosPorDolar: number;
   opcoesMotor?: OpcoesMotor;
@@ -391,7 +396,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
 
     // Planejar (M5): um modelo sem ferramenta nenhuma além de propor_plano. Nada é feito agora.
     if (missao.estado === "planning") {
-      const modelo = d.novoModelo();
+      const modelo = (d.novoModeloPlanejador ?? d.novoModelo)();
       const gasto = () => Math.ceil(modelo.gastoEmDolares * d.centavosPorDolar);
       let plano: TarefaDoPlano[] | null = null;
       let voltas = 0;

@@ -800,6 +800,20 @@ describe("executor das missões: planejar, aprovar o plano e executar tarefa a t
     assert.equal(nada.chamadas(), 0);
   });
 
+  it("o planejamento roda no modelo do planejador (D28) e a execução no do executor", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Organizar a semana", { planejar: true }));
+    const doPlanejador = roteiro(0, propor("p1", [tarefa("ler", "Ler a agenda da semana")]), encerrar);
+    const doExecutor = roteiro(0, marcar("m1", "ler"), concluir("feito", "Pronto."), encerrar);
+    const ex = executorDeMissoes({ db: banco.db, conexoes: c.conexoes, novoModelo: doExecutor.novo, novoModeloPlanejador: doPlanejador.novo, centavosPorDolar: 600, clock: c.clock, http: c.google.fetch });
+    const [proposta] = await processarMissoes(banco.db, u, ex, {}, c.clock);
+    assert.deepEqual([proposta!.estado, doPlanejador.chamadas(), doExecutor.chamadas()], ["waiting_approval", 2, 0]);
+    await c.missoes(u, (ms) => ms.aprovarPlano(u, proposta!.id, proposta!.plano!.hash));
+    const [fim] = await processarMissoes(banco.db, u, ex, {}, c.clock);
+    assert.deepEqual([fim!.estado, doPlanejador.chamadas(), doExecutor.chamadas()], ["completed", 2, 3]);
+  });
+
   it("aprovado, o agente recebe o plano como dado, marca as tarefas na ordem, e 'feito' só vale com todas feitas", async () => {
     const c = montar();
     const u = usuario();
