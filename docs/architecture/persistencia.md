@@ -146,6 +146,12 @@ Fixo depois da criação. Detalhes em `missoes.md`, seção do mandato.
 Evidência nova `pull_request`, sem critério. Detalhes em `executor.md`, seção "Espera por sistema
 externo".
 
+## Barramento de eventos (0017)
+
+`obedient.events` (só inserção, idempotente por pessoa, fonte e chave), `obedient.event_subscriptions` e
+`obedient.event_deliveries` (reivindicação com `SKIP LOCKED`, trava com prazo e dono). RLS por pessoa; o
+agendador só vê quem tem entrega devida. Detalhes em `barramento.md`.
+
 ## O que ainda não existe
 
 - **Políticas do usuário (`policiesFor`) no banco.** Hoje elas chegam por função; a tabela entra

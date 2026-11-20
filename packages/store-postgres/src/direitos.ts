@@ -89,6 +89,8 @@ export interface ResultadoApagar {
   evidencias: number;
   /** Tarefas dos planos das missões (0014). */
   tarefas: number;
+  /** Eventos do barramento (0017); as entregas vão junto. */
+  eventos: number;
 }
 
 /** "Apague o que você sabe sobre mim" (Art. 13), num passo. Ver obedient.apagar_meus_dados(). */

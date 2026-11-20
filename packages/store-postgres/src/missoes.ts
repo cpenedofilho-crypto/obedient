@@ -5,6 +5,8 @@
 
 import { type Clock, ObedientError, systemClock } from "@obedient/core";
 import type { EthicsEngine } from "@obedient/ethics-engine";
+import { VOCABULARIO_OBEDIENT } from "@obedient/event-bus";
+import { BarramentoPostgres } from "./barramento.ts";
 import { type Ambiente, type Criterio, type EstadoMissao, type Evidencia, type Missao, type MissionStore, Missoes, type PlanoDaMissao, type TipoDesfecho } from "@obedient/missions";
 import type { Executor } from "./db.ts";
 
@@ -163,8 +165,36 @@ export class PgMissionStore implements MissionStore {
   }
 }
 
+/** Evento da trilha → tipo no barramento (M7). O que não está aqui não vai para o barramento. */
+const NO_BARRAMENTO: Readonly<Record<string, string>> = {
+  "mission.created": "mission.created",
+  "mission.blocked": "mission.blocked",
+  "mission.feito": "mission.completed",
+  "mission.nao_sei": "mission.completed",
+  "mission.nao_consegui": "mission.failed",
+  "mission.cancelled": "mission.cancelled",
+  "mission.waiting_approval": "mission.waiting_approval",
+  "mission.plan_proposed": "mission.plan_proposed",
+  "mission.waiting_external": "mission.waiting_external",
+};
+
 export function missoesNaTransacao(tx: Executor, motor: EthicsEngine, clock: Clock = systemClock): Missoes {
-  return new Missoes(new PgMissionStore(tx), motor, clock);
+  // O evento entra na MESMA transação da missão (outbox): só existe se a mudança gravou. Só ids e
+  // estados; o objetivo, a explicação e o impedimento ficam na missão, que tem RLS.
+  const bus = new BarramentoPostgres(tx, VOCABULARIO_OBEDIENT, clock);
+  return new Missoes(new PgMissionStore(tx), motor, clock).aoRegistrar(async (m, evento) => {
+    const tipo = NO_BARRAMENTO[evento];
+    if (!tipo) return;
+    await bus.publicar({ organizationId: m.userId, source: "obedient", ator: { tipo: "system", id: "missoes" } }, [{
+      type: tipo,
+      entityType: "mission",
+      entityId: m.id,
+      correlationId: m.id,
+      // Uma por missão, versão e evento: reenviar o mesmo registro não duplica.
+      idempotencyKey: `${m.id}:${m.versao}:${evento}`,
+      payload: { estado: m.estado, ...(m.desfecho ? { desfecho: m.desfecho.tipo } : {}), tentativa: m.tentativas },
+    }]);
+  });
 }
 
 export const MAX_IDENTIFICACAO = 200;

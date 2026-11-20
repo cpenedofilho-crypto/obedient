@@ -768,7 +768,22 @@ export class Missoes {
     return ok;
   }
 
-  private registrar(m: Missao, event: string, outcome: "info" | "executed" | "failed" | "approval_required", reasons: string[]) {
+  private avisos: ((m: Missao, evento: string) => Promise<void>) | null = null;
+  /**
+   * Quem quer saber das mudanças da missão (M7: o barramento em Postgres, na mesma transação). Recebe a
+   * missão como ficou e o nome do evento da trilha; nunca muda nada da missão.
+   */
+  aoRegistrar(fn: (m: Missao, evento: string) => Promise<void>): this {
+    this.avisos = fn;
+    return this;
+  }
+
+  private async registrar(m: Missao, event: string, outcome: "info" | "executed" | "failed" | "approval_required", reasons: string[]) {
+    await this.registrarNaTrilha(m, event, outcome, reasons);
+    if (this.avisos) await this.avisos(m, event);
+  }
+
+  private registrarNaTrilha(m: Missao, event: string, outcome: "info" | "executed" | "failed" | "approval_required", reasons: string[]) {
     return this.motor.audit.record({
       userId: m.userId,
       actor: ["mission.created", "mission.retry", "mission.cancelled"].includes(event) ? `user:${m.userId}` : `agent:${m.agente}`,

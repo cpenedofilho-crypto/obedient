@@ -12,7 +12,8 @@
 
 import type { Clock } from "@obedient/core";
 import type { Executor as ExecutorDeMissao } from "@obedient/missions";
-import { type Database, type OpcoesMotor, comoOperador, pessoasComMissaoDevida } from "@obedient/store-postgres";
+import { type RegistroDeConsumidores, VOCABULARIO_OBEDIENT } from "@obedient/event-bus";
+import { type Database, type OpcoesMotor, comoOperador, despacharEventos, pessoasComEntregaDevida, pessoasComMissaoDevida } from "@obedient/store-postgres";
 import { processarMissoes } from "./processador.ts";
 
 export const INTERVALO_PADRAO_MS = 30_000;
@@ -31,6 +32,8 @@ export function agendarMissoes(o: {
   clock: Clock;
   intervaloMs?: number;
   log?: (evento: Record<string, unknown>) => void;
+  /** Consumidores do barramento (M7). Ausente: as entregas não são despachadas por este processo. */
+  eventos?: RegistroDeConsumidores;
 }): Agendador {
   const log = o.log ?? ((e) => console.log(JSON.stringify(e)));
   let rodando: Promise<number> | null = null;
@@ -48,6 +51,17 @@ export function agendarMissoes(o: {
         log({ evento: "agendador.processou", missoes: feitas.length, estados: feitas.map((m) => m.estado) });
       } catch (e) {
         log({ evento: "agendador.pessoa_falhou", erro: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    // Barramento (M7): as entregas devidas, pessoa por pessoa, na RLS dela.
+    if (o.eventos) {
+      try {
+        for (const u of await pessoasComEntregaDevida(o.db, o.clock.now(), PESSOAS_POR_VOLTA)) {
+          const r = await despacharEventos(o.db, u, o.eventos, { vocab: VOCABULARIO_OBEDIENT, clock: o.clock });
+          log({ evento: "agendador.eventos", reivindicadas: r.reivindicadas, processadas: r.processadas, falhas: r.falhas, mortas: r.mortas, travas_perdidas: r.travasPerdidas });
+        }
+      } catch (e) {
+        log({ evento: "agendador.eventos_falharam", erro: e instanceof Error ? e.message : String(e) });
       }
     }
     return pessoas.length;
