@@ -18,28 +18,39 @@ Enquanto faltarem, a produção não recebe dado de cliente.
 
 ## Publicar uma versão
 
-A ordem importa: **migrar antes de subir o código novo.** O código novo confere as migrations no `/ready`
-e não fica pronto sem elas. O código velho continua funcionando com o schema novo, porque as migrations
-só acrescentam.
+**O merge na `main` já é o deploy.** O Railway publica sozinho cada commit da `main` (os deploys
+aparecem no GitHub como `zealous-integrity / production`). Não existe um passo "publicar" separado.
+
+A ordem é: **migrar, e logo em seguida juntar.** O código novo confere as migrations no `/ready` e não
+funciona sem elas. O código velho também **não** funciona com todas as migrations novas: desde a 0009
+(M2), o banco exige que toda missão nasça `created`, e o código anterior ao #51 cria missões já como
+`running`. Conferido em 21/11/2026 rodando a suíte da `7921d1f` contra o banco migrado até a 0017: 50
+testes falham. Todos, menos um, por esse motivo; o outro é só do ambiente de teste (dono sem
+superusuário). Por isso há uma janela curta entre o `migrar` e o fim do deploy em
+que ninguém cria missão nova; o resto continua no ar. Faça os dois passos em seguida.
 
 1. Conferir o PR: CI verde e revisão de uma pessoa. CI verde sozinho não autoriza publicar.
-2. Fazer o merge na `main`. O merge é da pessoa.
-3. Aplicar as migrations com a conexão do dono do schema:
+2. Aplicar as migrations com a conexão do dono do schema, **a partir do código que vai entrar** (a
+   branch do PR):
    `OBEDIENT_OWNER_DATABASE_URL=… node --import tsx packages/server/src/cli.ts migrar`.
    A saída lista o que foi aplicado. Se nada mudou, a saída é "nada a aplicar".
-4. Publicar o serviço no Railway.
+3. Fazer o merge na `main`, logo depois. O merge é da pessoa, e ele dispara o deploy.
+4. Esperar o deploy terminar no Railway.
 5. Conferir de fora:
    - `GET /health` → `{"vivo":true,"versao":"<12 primeiros do commit>"}`. A versão tem de ser a do merge.
      Diferente: o deploy não chegou.
    - `GET /ready` → `{"pronto":true}`. Com `503 migrations`, a resposta diz o nome das pendentes ou
-     divergentes: volte ao passo 3. Com `503 banco`, o banco não responde.
+     divergentes: volte ao passo 2. Com `503 banco`, o banco não responde.
    - `GET /metrics` com o token das métricas: `obedient_alerta{tipo="parada_geral"} 0`.
 
 ## Voltar uma versão
 
-- **Código:** republicar no Railway o deploy anterior. Um rollback de código não desfaz migration.
-- **Migration:** não há "desaplicar". Migration nova só acrescenta (coluna, tabela, função), então o
-  código anterior continua funcionando com ela. Uma correção de schema é sempre uma migration nova.
+- **Código:** republicar no Railway um deploy anterior. Um rollback de código não desfaz migration.
+  **Nunca volte para antes do #51** (o Mission Executor M0 a M5): esse código não cria missão com a
+  0009 aplicada. Entre versões do #51 em diante, as migrations só acrescentaram.
+- **Migration:** não há "desaplicar". Uma correção de schema é sempre uma migration nova. Antes de
+  juntar uma migration que mude regra de estado ou CHECK, rode a suíte da versão no ar contra o banco
+  migrado (como no teste de 21/11), para saber se o código velho continua funcionando com ela.
 - **Missão no meio de uma tentativa:** a reserva vence em 15 minutos e outro processo a retoma. Passo de
   escrita sem desfecho vira `incerto` e a missão para, pedindo à pessoa que confira (M4). Nada se repete
   sozinho.
