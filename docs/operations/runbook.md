@@ -62,9 +62,12 @@ que ninguém cria missão nova; o resto continua no ar. Faça os dois passos em 
 - **O agente de todos:** tirar `OBEDIENT_AGENTE=ligado` e republicar. A API e as aprovações continuam
   no ar; nenhuma missão roda.
 - **Tudo:** parar o serviço no Railway.
-- **Parada geral do Ethics Engine:** quando ligada, o medidor `obedient_alerta{tipo="parada_geral"}`
-  acende, e só o operador libera (a pessoa não). **Ainda não há comando no servidor para ligá-la.**
-  Até existir, use os três meios acima.
+- **Parada geral do Ethics Engine:** nenhum agente chama ferramenta, para ninguém, em todos os
+  processos ao mesmo tempo (fica no banco). A API e o app continuam no ar.
+  - Ligar: `cli.ts parada ligar <motivo>` (o motivo é obrigatório e fica gravado com o operador).
+  - Ver: `cli.ts parada ver`. O medidor `obedient_alerta{tipo="parada_geral"}` acende.
+  - Liberar: `cli.ts parada liberar`. Só o operador libera; a pessoa e o agente, não.
+  - Usa `OBEDIENT_DATABASE_URL` (a conexão do servidor), não a do dono do schema.
 - **Uma integração:** tirar as variáveis dela (todas) e republicar. Ela some do catálogo; os grants
   continuam no banco e voltam a valer quando a integração voltar. Para tirar a autoridade de uma
   pessoa, use `cli.ts <integração> retirar <usuario>`.

@@ -10,6 +10,7 @@
 //   node --import tsx packages/server/src/cli.ts growth-os conceder|retirar <usuario>
 //   node --import tsx packages/server/src/cli.ts growth-os conceder-codigo|retirar-codigo <usuario>   (M6: pedir código, sempre com aprovação)
 //   node --import tsx packages/server/src/cli.ts mcp conceder|retirar <servidor> <usuario>
+//   node --import tsx packages/server/src/cli.ts parada ver | ligar <motivo> | liberar   (parada geral: nenhum agente chama ferramenta)
 //   node --import tsx packages/server/src/cli.ts deploys conceder|retirar <usuario>   (M7: ver deploys na Vercel, só leitura)
 //
 // Variáveis:
@@ -64,6 +65,7 @@ import { executorDeMissoes } from "./executor.ts";
 import { criarApi } from "./api.ts";
 import { servidorHttp } from "./http.ts";
 import { versaoDoAmbiente } from "./saude.ts";
+import { liberarParadaGeral, ligarParadaGeral, verParadaGeral } from "./parada.ts";
 import { Passkeys } from "./passkeys.ts";
 import { Cofre, Conexoes, lerChaves } from "@obedient/integrations";
 import { comoUsuario, motorNaTransacao } from "@obedient/store-postgres";
@@ -197,6 +199,14 @@ async function main(argv: string[]) {
     console.log(acao === "conceder" ? `${usuario}: o agente pode ler ${s.nome} por 30 dias (${s.ferramentas.length} ferramentas; aparece no app e pode ser tirado)` : `${usuario}: autoridade em ${s.nome} retirada`);
     return fechar();
   }
+  if (comando === "parada") {
+    const [acao, ...palavras] = resto;
+    if (acao !== "ver" && acao !== "ligar" && acao !== "liberar") throw new Error("uso: parada ver | parada ligar <motivo> | parada liberar");
+    const { db, fechar } = banco("OBEDIENT_DATABASE_URL");
+    const estado = acao === "ver" ? await verParadaGeral(db, systemClock) : acao === "ligar" ? await ligarParadaGeral(db, systemClock, operadorDaCli(), palavras.join(" ")) : await liberarParadaGeral(db, systemClock, operadorDaCli());
+    console.log(estado.ativa ? `PARADA GERAL LIGADA desde ${estado.desde}, por ${estado.por}: ${estado.motivo}. Nenhum agente chama ferramenta até: cli.ts parada liberar` : "parada geral desligada");
+    return fechar();
+  }
   if (comando === "deploys") {
     const [acao, usuario] = resto;
     if ((acao !== "conceder" && acao !== "retirar") || !usuario) throw new Error("uso: deploys conceder|retirar <usuario>");
@@ -236,7 +246,7 @@ async function main(argv: string[]) {
     servidorHttp(criarApi(db, { rpName: "OBEDIENT", rpId, origin, versao, ...(tokenMetricas ? { tokenMetricas } : {}), ...(google ? { google } : {}), ...(conexoesMcp ? { mcp: { conexoes: conexoesMcp, servidores: servidoresMcp } } : {}) })).listen(porta, () => console.log(`OBEDIENT em ${origin} (porta ${porta})`));
     return;
   }
-  throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | mcp conceder|retirar <servidor> <usuario> | deploys conceder|retirar <usuario> | servir");
+  throw new Error("comandos: migrar | convite <usuario> | chave | growth-os conceder|retirar <usuario> | mcp conceder|retirar <servidor> <usuario> | deploys conceder|retirar <usuario> | parada ver|ligar <motivo>|liberar | servir");
 }
 
 main(process.argv.slice(2)).catch((e) => {
