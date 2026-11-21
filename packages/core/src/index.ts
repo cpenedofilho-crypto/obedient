@@ -90,7 +90,8 @@ export type ErrorCode =
   | "AUDIT_TAMPERED"
   | "UNAUTHENTICATED"
   | "CONSENT_REQUIRED"
-  | "IDENTIFICATION_REQUIRED";
+  | "IDENTIFICATION_REQUIRED"
+  | "INVALID_TRANSITION";
 
 export class ObedientError extends Error {
   constructor(

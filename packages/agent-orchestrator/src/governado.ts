@@ -79,6 +79,7 @@ export function chamarComEthicsEmEtapas(abrir: AbrirMotor, quem: Quem, executor:
         try {
           const contexto = {
             category: item.categoria,
+            risk: item.risco,
             ...(item.dadosPessoais?.length ? { dataCategories: item.dadosPessoais } : {}),
             ...((item.finalidade ?? quem.finalidade) ? { purpose: item.finalidade ?? quem.finalidade } : {}),
           };

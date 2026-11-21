@@ -448,6 +448,65 @@ describe("missões e identificação pelo app (Arts. 5º, 7º e 9º)", () => {
     assert.match(p.atividade.map((a) => a.texto).join("\n"), /disse que não sabe responder/);
   });
 
+  it("critérios de conclusão (M3): inválidos são recusados na entrada; o painel mostra o que o verificador conferiu", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    const ruim = await api(post("/api/acoes", { opId: opId(), tipo: "criar_missao", objetivo: "x", criterios: [{ tipo: "o_agente_disse" }] }, token));
+    assert.equal(ruim.status, 400);
+    assert.match(JSON.stringify(corpo(ruim)), /critérios inválidos/);
+    assert.equal((await acao(token, { tipo: "criar_missao", objetivo: "Mandar o resumo", criterios: [{ tipo: "ferramenta_ok", ferramenta: "gmail/*" }] })).ok, true);
+    type V = { verificacao: { resumo: string; itens: { ok: boolean; detalhe: string }[] } | null; estado: string };
+    let [m] = corpo<{ missoes: V[] }>(await api(get("/api/painel", token))).missoes;
+    assert.equal(m!.verificacao, null, "nada verificado ainda");
+    // O executor diz "feito" sem prova: a missão confere (sem passos, não há gmail) e para.
+    await processar(u, async () => ({ tipo: "feito", explicacao: "Mandei.", custoCentavos: 1 }));
+    [m] = corpo<{ missoes: V[] }>(await api(get("/api/painel", token))).missoes;
+    assert.equal(m!.estado, "blocked");
+    assert.equal(m!.verificacao?.resumo, "Conferido: 0 de 1 critério(s)");
+    assert.deepEqual(m!.verificacao?.itens.map((i) => i.ok), [false]);
+  });
+
+  it("plano (M5): pedir com 'planejar', ver o plano, aprovar pelo hash (o errado é recusado) e ver as tarefas", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    const ruim = await api(post("/api/acoes", { opId: opId(), tipo: "criar_missao", objetivo: "x", planejar: "sim" }, token));
+    assert.equal(ruim.status, 400);
+    assert.equal((await acao(token, { tipo: "criar_missao", objetivo: "Resumir os e-mails", planejar: true })).ok, true);
+    const tarefas = [{ chave: "ler", titulo: "Ler os e-mails de hoje", dependeDe: [] }, { chave: "resumir", titulo: "Resumir para você", dependeDe: ["ler"] }];
+    await processar(u, async () => ({ tipo: "plano", tarefas, custoCentavos: 1 }));
+    type P = { id: string; situacao: string; plano: { hash: string; aprovado: boolean; esperandoVoce: boolean; tarefas: { chave: string; titulo: string; feita: boolean }[] } | null };
+    const ver = async () => corpo<{ missoes: P[] }>(await api(get("/api/painel", token))).missoes[0]!;
+    let m = await ver();
+    assert.equal(m.situacao, "Esperando você aprovar o plano");
+    assert.deepEqual([m.plano?.esperandoVoce, m.plano?.aprovado, m.plano?.tarefas.map((t) => t.titulo)], [true, false, ["Ler os e-mails de hoje", "Resumir para você"]]);
+    const errado = await acao(token, { tipo: "aprovar_plano", missaoId: m.id, hash: "f".repeat(64) });
+    assert.deepEqual([errado.ok, errado.mensagem], [false, "O plano mudou desde que você o viu. Confira de novo."]);
+    assert.equal((await acao(token, { tipo: "aprovar_plano", missaoId: m.id, hash: m.plano!.hash })).ok, true);
+    m = await ver();
+    assert.deepEqual([m.plano?.esperandoVoce, m.plano?.aprovado], [false, true]);
+    const outra = await acao(token, { tipo: "recusar_plano", missaoId: m.id });
+    assert.deepEqual([outra.ok, outra.mensagem], [false, "Esse plano não está mais esperando você."]);
+  });
+
+  it("mandato (M4): forma inválida é recusada na entrada, prazo no passado vira recusa da missão, e o painel mostra mandato e gasto do mês", async () => {
+    const u = usuario("ana");
+    const { token } = await cadastrar(u);
+    for (const mandato of [{ ferramentas: ["*"] }, { ferramentas: "gmail/*" }, { prazoFinalEm: "amanhã" }, { outra: 1 }]) {
+      const ruim = await api(post("/api/acoes", { opId: opId(), tipo: "criar_missao", objetivo: "x", mandato }, token));
+      assert.equal(ruim.status, 400, JSON.stringify(mandato));
+      assert.match(JSON.stringify(corpo(ruim)), /mandato inválido/);
+    }
+    const passado = await acao(token, { tipo: "criar_missao", objetivo: "x", mandato: { prazoFinalEm: "2020-01-01T00:00:00Z" } });
+    assert.equal(passado.ok, false);
+    const prazo = new Date(clock.now().getTime() + 2 * 24 * 3_600_000).toISOString();
+    assert.equal((await acao(token, { tipo: "criar_missao", objetivo: "Ver a agenda", mandato: { ferramentas: ["google_agenda/*"], prazoFinalEm: prazo } })).ok, true);
+    type V = { ferramentas: string[] | null; prazoFinalEm: string | null };
+    const p = corpo<{ missoes: V[]; gastoDoMes: { centavos: number; tetoCentavos: number; aviso: boolean; esgotado: boolean; teto: string } }>(await api(get("/api/painel", token)));
+    assert.deepEqual([p.missoes[0]!.ferramentas, p.missoes[0]!.prazoFinalEm], [["google_agenda/*"], prazo]);
+    assert.deepEqual([p.gastoDoMes.centavos, p.gastoDoMes.tetoCentavos, p.gastoDoMes.aviso, p.gastoDoMes.esgotado], [0, 30_000, false, false]);
+    assert.match(p.gastoDoMes.teto, /300,00/);
+  });
+
   it("falhou até o teto: impedimento explicado; a pessoa manda tentar de novo ou cancela", async () => {
     const u = usuario("ana");
     const { token } = await cadastrar(u);
@@ -462,7 +521,7 @@ describe("missões e identificação pelo app (Arts. 5º, 7º e 9º)", () => {
     assert.match(m!.impedimento!, /Tentou 3 vez\(es\).*o site do restaurante não abriu/);
     assert.equal((await acao(token, { tipo: "tentar_de_novo", missaoId: m!.id })).ok, true);
     [m] = (await missoesDoPainel(token)).missoes;
-    assert.equal(m!.situacao, "Trabalhando nisso");
+    assert.equal(m!.situacao, "Vai tentar de novo em breve");
     assert.equal((await acao(token, { tipo: "cancelar_missao", missaoId: m!.id })).ok, true);
     const outra = await acao(token, { tipo: "cancelar_missao", missaoId: m!.id });
     assert.equal(outra.mensagem, "Essa missão já tinha terminado.");

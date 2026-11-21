@@ -51,5 +51,5 @@ export const LIMITES_PADRAO = {
 export type Limites = typeof LIMITES_PADRAO;
 
 /** Ações que só tiram poder do agente: nunca limitadas. */
-export const ACOES_SEM_LIMITE: ReadonlySet<string> = new Set(["parar", "revogar", "desconectar", "apagar_tudo", "esquecer", "desligar_aprendizado", "cancelar_missao", "recusar"]);
-export const ACOES_QUE_GASTAM: ReadonlySet<string> = new Set(["criar_missao", "tentar_de_novo"]);
+export const ACOES_SEM_LIMITE: ReadonlySet<string> = new Set(["parar", "revogar", "desconectar", "apagar_tudo", "esquecer", "desligar_aprendizado", "cancelar_missao", "recusar", "recusar_plano"]);
+export const ACOES_QUE_GASTAM: ReadonlySet<string> = new Set(["criar_missao", "tentar_de_novo", "aprovar_plano"]);

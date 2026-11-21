@@ -134,11 +134,26 @@
             <label for="m-teto">Gastar no máximo</label>
             <select id="m-teto">
               <option value="100">R$ 1,00</option>
-              <option value="500" selected>R$ 5,00</option>
+              <option value="500">R$ 5,00</option>
+              <option value="1500" selected>R$ 15,00</option>
               <option value="2000">R$ 20,00</option>
+            </select>
+            <label for="m-usar">Pode usar</label>
+            <select id="m-usar">
+              <option value="" selected>Tudo o que está conectado</option>
+            </select>
+            <label class="opcao"><input type="checkbox" id="m-conferir" /> Só dar por feito se ele usar esse sistema</label>
+            <label class="opcao"><input type="checkbox" id="m-planejar" /> Planejar antes e me mostrar o plano</label>
+            <label for="m-prazo">Até quando</label>
+            <select id="m-prazo">
+              <option value="" selected>Sem prazo</option>
+              <option value="1">Até amanhã</option>
+              <option value="7">Em 7 dias</option>
+              <option value="29">Em 29 dias</option>
             </select>
             <button class="botao principal" type="submit">Pedir ao agente</button>
           </form>
+          <p id="gasto-mes" class="meta" role="status"></p>
           <ul id="missoes" class="lista"></ul>
         </section>
 

@@ -93,13 +93,17 @@ describe("missões no banco (Art. 7º)", () => {
   it("o banco recusa limite fora do Art. 7º mesmo se o código errar", async () => {
     const ana = usuario("ana");
     const m = await missoes(ana, (ms) => ms.criar(ana, "obedient", "x"));
+    // Reservada (running): daqui, blocked e completed são transições permitidas, e quem recusa é o CHECK.
+    assert.equal((await missoes(ana, (ms) => ms.reservar(m.id))).reservada, true);
     for (const sql of [
       "update obedient.missions set tentativas = 9 where id = $1",
       "update obedient.missions set teto_custo_centavos = 999999 where id = $1",
       "update obedient.missions set estado = 'blocked', impedimento = null where id = $1",
-      "update obedient.missions set estado = 'completed' where id = $1",
     ])
       await assert.rejects(missoes(ana, (_ms, _m, tx) => tx.query(sql, [m.id])), /check constraint/, sql);
+    // Terminar passa por verifying (M3); de lá, completed sem desfecho é o CHECK que recusa.
+    await missoes(ana, (_ms, _m, tx) => tx.query("update obedient.missions set estado = 'verifying' where id = $1", [m.id]));
+    await assert.rejects(missoes(ana, (_ms, _m, tx) => tx.query("update obedient.missions set estado = 'completed' where id = $1", [m.id])), /check constraint/);
     await assert.rejects(missoes(ana, (_ms, _m, tx) => tx.query("update obedient.missions set objetivo = 'outro' where id = $1", [m.id])), /permission denied/);
   });
 
@@ -110,7 +114,7 @@ describe("missões no banco (Art. 7º)", () => {
     assert.equal(await missoes(bia, (ms) => ms.get(m.id)), undefined);
     await assert.rejects(missoes(bia, (ms) => ms.cancelarPelaPessoa(bia, m.id)));
     await assert.rejects(missoes(bia, (ms) => ms.reservar(m.id)));
-    assert.equal((await missoes(ana, (ms) => ms.get(m.id)))?.estado, "running");
+    assert.equal((await missoes(ana, (ms) => ms.get(m.id)))?.estado, "created");
   });
 
   it("parar cancela as missões no mesmo commit", async () => {

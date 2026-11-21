@@ -136,6 +136,10 @@ describe("MCP genérico: configuração", () => {
     assert.throws(com({ cabecalhos: { "x-api-token": "abc" } }), /não permitido/);
     assert.throws(com({ cabecalhos: { "x-recupera-escola-id": "tem espaço" } }), /inválido/);
     assert.deepEqual(com({ cabecalhos: { "x-recupera-escola-id": "11111111-2222-3333-4444-555555555555" } })()[0]!.cabecalhos, { "x-recupera-escola-id": "11111111-2222-3333-4444-555555555555" });
+    // Ambiente (M5): só da lista fechada; sem declarar, fica sem (produção para o mandato).
+    assert.throws(com({ ambiente: "prod" }), /ambiente/);
+    assert.equal(com({ ambiente: "homologacao" })()[0]!.ambiente, "homologacao");
+    assert.equal(com({})()[0]!.ambiente, undefined);
     const [s] = servidoresMcpDoAmbiente(ENV);
     assert.equal(s!.tokenEnv, "OBEDIENT_MCP_MOTOR_TOKEN");
     assert.doesNotMatch(JSON.stringify({ ...s, usuarios: [...s!.usuarios] }), new RegExp(TOKEN), "o token não fica na configuração");
@@ -167,6 +171,24 @@ describe("MCP genérico: ferramentas das missões", () => {
     assert.equal(fim!.estado, "completed");
     assert.deepEqual(c.srv.chamadas, [{ ferramenta: "listar_leads_quentes", args: { limite: 5 }, auth: `Bearer ${TOKEN}` }]);
     assert.doesNotMatch(JSON.stringify(r.pedidos), new RegExp(TOKEN), "o token não entra na conversa");
+  });
+
+  it("ambiente (M5): servidor de homologação aparece na missão limitada a homologação e some na limitada a produção", async () => {
+    const config = JSON.stringify((JSON.parse(ENV.OBEDIENT_MCP_SERVIDORES!) as Record<string, unknown>[]).map((x) => ({ ...x, ambiente: "homologacao" })));
+    const c = montar({ config });
+    const u = "ana-mcp";
+    await c.motor(u, (m) => concederMcp(m, c.servidores[0]!, u, T0));
+    const criar = (ambientes: string[]) => comoUsuario(banco.db, u, (tx) => missoesNaTransacao(tx, motorNaTransacao(tx, { clock: c.clock }), c.clock).criar(u, "obedient", "Leads quentes?", { mandato: { ambientes } }));
+    const ferramentas: string[][] = [];
+    const olhar = (p: PedidoModelo) => {
+      ferramentas.push(p.tools.map((t) => t.name).filter((n) => n.startsWith("motor_iga__")));
+      return usar("fim", CONCLUIR, { tipo: "nao_sei", explicacao: "ok" })();
+    };
+    await criar(["homologacao"]);
+    await c.processar(u, roteiro(olhar, encerrar));
+    await criar(["producao"]);
+    await c.processar(u, roteiro(olhar, encerrar));
+    assert.deepEqual(ferramentas, [["motor_iga__listar_leads_quentes"], []]);
   });
 
   it("chamar uma ferramenta fora da lista (pelo nome que o servidor usa) é recusado antes da rede", async () => {

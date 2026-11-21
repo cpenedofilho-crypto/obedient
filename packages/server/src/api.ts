@@ -23,6 +23,7 @@ import { exportarDados } from "./exportar.ts";
 import { aplicarAcao, lerAcao } from "./acoes.ts";
 import { montarPainel } from "./painel.ts";
 import { type ConfigPasskey, Passkeys } from "./passkeys.ts";
+import { rotaDeSaude } from "./saude.ts";
 import { ACOES_QUE_GASTAM, ACOES_SEM_LIMITE, LIMITES_PADRAO, LimiteDeTaxa, type Limites } from "./limite.ts";
 
 export const COOKIE = "__Host-obedient";
@@ -49,6 +50,8 @@ export interface ConfigApi extends ConfigPasskey {
   mcp?: { conexoes: ConexoesMcp; servidores: readonly ServidorMcp[] };
   /** Limites de taxa (limite.ts). Ausente: os padrões. */
   limites?: Partial<Limites>;
+  /** Token da rota /metrics (saude.ts). Ausente: a rota não existe. */
+  tokenMetricas?: string;
 }
 
 export const COOKIE_OAUTH = "__Host-obedient-oauth";
@@ -112,6 +115,9 @@ export function criarApi(db: Database, cfg: ConfigApi, clock: Clock = systemCloc
 
   async function rota(p: Pedido): Promise<Resposta> {
     const [caminho] = p.path.split("?");
+    // Saúde, prontidão e métricas (M5): sem sessão; as métricas têm token próprio.
+    const saude = await rotaDeSaude(db, { ...(cfg.tokenMetricas ? { tokenMetricas: cfg.tokenMetricas } : {}) }, clock, p.method, caminho ?? "", p.headers.authorization);
+    if (saude) return saude;
     if (p.method === "POST" && !origemOk(p)) return erro(403, "origem", "pedido fora do app");
     if (p.method === "POST" && ROTAS_DE_ENTRADA.has(caminho ?? "")) {
       const l = limite.tentar("entrada", limites.entrada);

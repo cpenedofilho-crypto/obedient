@@ -26,6 +26,7 @@ import type { EthicsEngine } from "@obedient/ethics-engine";
 import { RISK_LEVELS, type RiskLevel, type ToolCategory, riskRank } from "@obedient/core";
 import { classificar, classificarCategoria, fetchSeguro, type FerramentaDescoberta } from "@obedient/integration-gateway";
 import { AGENTE, PRAZO_DO_GRANT_MS } from "@obedient/integrations";
+import { AMBIENTES, type Ambiente } from "@obedient/missions";
 
 export interface ServidorMcp {
   id: string;
@@ -44,6 +45,8 @@ export interface ServidorMcp {
   ferramentas: readonly string[];
   /** O que o dono endurece por ferramenta (só sobe: classificarFerramentaMcp). */
   endurecer?: Readonly<Record<string, Endurecimento>>;
+  /** Ambiente do servidor (M5), para o mandato da missão. Não declarado: produção. */
+  ambiente?: Ambiente;
 }
 
 /** Endurecimento do dono para uma ferramenta: risco mínimo e/ou "é escrita". Nunca rebaixa. */
@@ -128,7 +131,9 @@ export function servidoresMcpDoAmbiente(env: Record<string, string | undefined> 
       }
       cabecalhos = Object.fromEntries(pares as [string, string][]);
     }
-    return { id, nome, url: u.toString(), ...(cabecalhos ? { cabecalhos } : {}), ...(tokenEnv ? { tokenEnv } : {}), ...(oauth ? { oauth } : {}), usuarios: new Set(usuarios), ferramentas: [...new Set(ferramentas)], ...(Object.keys(endurecer).length ? { endurecer } : {}) };
+    if (o.ambiente !== undefined && !AMBIENTES.includes(o.ambiente as Ambiente)) throw new Error(`${onde}: ambiente precisa ser ${AMBIENTES.join(", ")}`);
+    const ambiente = o.ambiente as Ambiente | undefined;
+    return { id, nome, url: u.toString(), ...(ambiente ? { ambiente } : {}), ...(cabecalhos ? { cabecalhos } : {}), ...(tokenEnv ? { tokenEnv } : {}), ...(oauth ? { oauth } : {}), usuarios: new Set(usuarios), ferramentas: [...new Set(ferramentas)], ...(Object.keys(endurecer).length ? { endurecer } : {}) };
   });
 }
 

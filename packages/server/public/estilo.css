@@ -265,6 +265,31 @@ a:focus-visible {
   color: var(--texto);
   font: inherit;
 }
+.formulario .opcao {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+}
+/* Caixa de marcar com alvo de toque de 48 px, como todo controle do app. */
+.formulario .opcao input {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+  margin: 0;
+  padding: 0;
+}
+.plano {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+.plano li {
+  margin: 2px 0;
+}
+.plano li.feita {
+  color: var(--suave);
+}
 #c-codigo {
   letter-spacing: 0.1em;
   text-transform: uppercase;

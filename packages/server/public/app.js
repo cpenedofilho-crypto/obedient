@@ -179,18 +179,40 @@ function lerVoltaDoGoogle() {
 function renderMissoes(ops) {
   const pendentes = ops.filter((o) => o.estado === "pendente");
   const novas = pendentes.filter((o) => o.acao.tipo === "criar_missao").map((o) => /** @type {any} */ (o.acao));
-  const mexendo = new Set(pendentes.filter((o) => o.acao.tipo === "cancelar_missao" || o.acao.tipo === "tentar_de_novo").map((o) => /** @type {any} */ (o.acao).missaoId));
+  const mexendo = new Set(pendentes.filter((o) => ["cancelar_missao", "tentar_de_novo", "aprovar_plano", "recusar_plano"].includes(o.acao.tipo)).map((o) => /** @type {any} */ (o.acao).missaoId));
   /** @type {Node[]} */
   const itens = novas.map((a) => el("li", { classe: "autorizacao" }, [el("p", { texto: a.objetivo }), el("p", { classe: "estado", texto: "Pedido. Enviando…" })]));
   for (const m of painel.missoes) {
     /** @type {Node[]} */
     const filhos = [el("p", { texto: m.objetivo }), el("p", { classe: "meta", texto: `${m.situacao} · gastou ${m.custo} de ${m.teto}` })];
+    const limites = [];
+    if (m.ferramentas) limites.push(`só pode usar: ${m.ferramentas.map((/** @type {string} */ f) => f.replace(/\/\*$/, "")).join(", ")}`);
+    if (m.ambientes) limites.push(`só em: ${m.ambientes.map((/** @type {string} */ a) => ({ producao: "produção", homologacao: "homologação", teste: "teste" })[a] ?? a).join(", ")}`);
+    if (m.prazoFinalEm) limites.push(`até ${new Date(m.prazoFinalEm).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}`);
+    if (limites.length) filhos.push(el("p", { classe: "meta", texto: limites.join(" · ") }));
     if (m.impedimento) filhos.push(el("p", { classe: "impedimento", texto: m.impedimento }));
+    // Plano (M5): o texto das tarefas é do planejador; vai como texto, nunca como HTML.
+    if (m.plano) {
+      const feitas = m.plano.tarefas.filter((/** @type {any} */ t) => t.feita).length;
+      filhos.push(el("p", { classe: "meta", texto: m.plano.aprovado ? `Plano: ${feitas} de ${m.plano.tarefas.length} tarefa(s) feita(s)` : "O plano que o agente propôs:" }));
+      filhos.push(
+        el(
+          "ol",
+          { classe: "plano" },
+          m.plano.tarefas.map((/** @type {any} */ t) => el("li", { classe: t.feita ? "feita" : "", texto: `${t.feita ? "✓ " : ""}${t.titulo}${t.dependeDe.length ? ` (depois de: ${t.dependeDe.join(", ")})` : ""}` })),
+        ),
+      );
+    }
+    if (m.verificacao) filhos.push(el("p", { classe: "meta", texto: m.verificacao.resumo }));
     if (m.desfecho) filhos.push(el("p", { classe: m.desfecho.tipo === "feito" ? "estado bom" : "estado", texto: m.desfecho.explicacao }));
     if (mexendo.has(m.id)) filhos.push(el("p", { classe: "estado", texto: "Enviando…" }));
-    else if (["running", "waiting_approval", "blocked"].includes(m.estado)) {
+    else if (!["completed", "failed", "cancelled"].includes(m.estado)) {
       /** @type {Node[]} */
       const acoes = [];
+      if (m.plano?.esperandoVoce) {
+        acoes.push(botao("Aprovar o plano", () => agir({ tipo: "aprovar_plano", missaoId: m.id, hash: m.plano.hash }), "botao principal", `Aprovar o plano: ${m.objetivo}`));
+        acoes.push(botao("Recusar o plano", () => agir({ tipo: "recusar_plano", missaoId: m.id }), "botao", `Recusar o plano: ${m.objetivo}`));
+      }
       if (m.estado === "blocked") {
         const teto = /teto de custo/.test(m.impedimento ?? "");
         const novo = Math.min(m.tetoCentavos * 2, 10000);
@@ -208,6 +230,25 @@ function renderMissoes(ops) {
     itens.push(el("li", { classe: `autorizacao${m.estado === "blocked" ? " sensivel" : ""}` }, filhos));
   }
   $("missoes").replaceChildren(...itens);
+
+  // Gasto do mês (D21): o teto vale para todas as missões juntas.
+  const g = painel.gastoDoMes;
+  const gasto = $("gasto-mes");
+  if (g) {
+    gasto.textContent = g.esgotado
+      ? `As missões já gastaram ${g.valor} este mês, o teto de ${g.teto}. Nenhuma tentativa nova começa até o mês virar.`
+      : `Missões este mês: ${g.valor} de ${g.teto}.${g.aviso ? " Passou de 80% do teto do mês." : ""}`;
+    gasto.className = g.aviso ? "impedimento" : "meta";
+  }
+  // "Pode usar": só os sistemas conectados (o mandato estreita, nunca amplia).
+  const usar = /** @type {HTMLSelectElement} */ ($("m-usar"));
+  const escolhido = usar.value;
+  usar.replaceChildren(
+    el("option", { texto: "Tudo o que está conectado", atributos: { value: "" } }),
+    ...(painel.conexoes ?? []).filter((/** @type {any} */ c) => c.conectada).map((/** @type {any} */ c) => el("option", { texto: `Só ${c.nome}`, atributos: { value: c.id } })),
+  );
+  if ([...usar.options].some((o) => o.value === escolhido)) usar.value = escolhido;
+  /** @type {HTMLInputElement} */ ($("m-conferir")).disabled = !usar.value;
 
   const campo = /** @type {HTMLInputElement} */ ($("i-texto"));
   if (document.activeElement !== campo) campo.value = painel.identificacao ?? "";
@@ -518,8 +559,29 @@ $("f-missao").addEventListener("submit", (ev) => {
   const objetivo = campo.value.trim();
   if (!objetivo) return;
   const teto = Number(/** @type {HTMLSelectElement} */ ($("m-teto")).value);
+  const usar = /** @type {HTMLSelectElement} */ ($("m-usar")).value;
+  const dias = Number(/** @type {HTMLSelectElement} */ ($("m-prazo")).value);
+  /** @type {{ ferramentas?: string[]; prazoFinalEm?: string }} */
+  const mandato = {};
+  if (usar) mandato.ferramentas = [`${usar}/*`];
+  if (dias) mandato.prazoFinalEm = new Date(Date.now() + dias * 24 * 3_600_000).toISOString();
+  // Critério de conclusão (M3): conferido pelo registro de passos, não pelo que o agente disser.
+  const conferir = usar && /** @type {HTMLInputElement} */ ($("m-conferir")).checked;
+  const planejar = /** @type {HTMLInputElement} */ ($("m-planejar")).checked;
   campo.value = "";
-  void agir({ tipo: "criar_missao", objetivo, tetoCentavos: teto });
+  void agir({
+    tipo: "criar_missao",
+    objetivo,
+    tetoCentavos: teto,
+    ...(usar || dias ? { mandato } : {}),
+    ...(conferir ? { criterios: [{ tipo: "ferramenta_ok", ferramenta: `${usar}/*` }] } : {}),
+    ...(planejar ? { planejar: true } : {}),
+  });
+});
+$("m-usar").addEventListener("change", () => {
+  const conferir = /** @type {HTMLInputElement} */ ($("m-conferir"));
+  conferir.disabled = !(/** @type {HTMLSelectElement} */ ($("m-usar")).value);
+  if (conferir.disabled) conferir.checked = false;
 });
 $("f-identificacao").addEventListener("submit", (ev) => {
   ev.preventDefault();

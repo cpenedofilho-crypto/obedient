@@ -169,3 +169,77 @@ Até 09/11 o executor só **lia** as lições: nenhuma missão gravava nada, e "
 - **Quando aparece:** só se a pessoa ligou ao menos uma categoria, e só com as categorias ligadas. A recusa por categoria desligada continua no `Memoria.lembrar`, com consentimento e registro na trilha.
 - **O que guarda:** o que a própria pessoa disse no pedido da missão, numa frase curta. A lição aparece no app e pode ser apagada.
 - **A trava:** depois que a conversa recebe resultado de outro sistema (e-mail, documento, resumo do Growth OS), `lembrar` é recusada naquela tentativa, e a conversa guardada carrega isso. Assim, um texto de fora não vira "preferência da pessoa" nem volta nas próximas missões como contexto confiável.
+
+## Registro de passos (decisão D20, marco M1, 19/11/2026)
+
+Até aqui, uma tentativa só deixava rastro no fim: a conversa salva (`missions.rodada`) e a trilha de
+auditoria. Se o processo caísse no meio, a tentativa inteira se perdia, e uma ferramenta chamada
+nesse trecho podia rodar de novo na tentativa seguinte. A D20 reabre a D16 só para isto, pela
+condição que ela própria pôs: o gancho por passo do `agent-orchestrator` (`aoPasso`) ligado, e testes
+que comparam o que fica gravado.
+
+- **Uma linha por passo** em `obedient.mission_steps` (migration `0008_passos.sql`): chamada ao
+  modelo, chamada de ferramenta, ferramenta recusada e retomada depois de aprovação, com status,
+  decisão, ferramenta, hash dos argumentos e tokens. Nunca os argumentos nem o resultado.
+- **Início antes da chamada.** Antes de chamar uma ferramenta governada, o executor grava um `inicio`
+  com a categoria da ferramenta e a chave de idempotência do passo (`missão:tentativa:passo`, gerada
+  pelo banco). Se o início não for gravado, a chamada não sai. O fim do passo aponta para o início.
+- **Início sem fim = incerto.** Na tentativa seguinte, antes de chamar o modelo, cada início sem fim é
+  fechado por uma linha `incerto`. Se a ferramenta é de leitura (`READ`), a missão segue. Se é de
+  qualquer outra categoria, a missão para (`blocked`) com o motivo, pedindo à pessoa que confira se a
+  ação aconteceu. Nada é repetido sozinho. Uma ação aprovada continua protegida também pela execução
+  única do Ethics Engine.
+- **Só inserção e só da pessoa.** RLS por pessoa; o app só lê e insere; "apagar o que o OBEDIENT
+  sabe" apaga os passos.
+- **Mudança de comportamento:** antes, quando o processo caía no meio de uma ação aprovada, a tentativa
+  seguinte devolvia ao modelo `aprovacao_usada_sem_registro` e o agente concluía "não sei". Agora a
+  missão para antes de chamar o modelo, com o mesmo efeito para a ação (não se repete) e o motivo
+  escrito para a pessoa.
+- **Chave repassada ao destino (M5), onde ele aceita uma:**
+  - **Google Agenda, criar compromisso:** o id do compromisso é derivado da pessoa, da missão, da
+    ferramenta e do hash dos argumentos (base32hex, o formato que o Google exige). Repetir a mesma
+    criação na mesma missão esbarra no id já usado (409) e volta como `ja_existia`, sem um segundo
+    compromisso. Duas criações idênticas de propósito na mesma missão viram uma só.
+  - **Growth OS:** já tinha, desde antes: o `messageId` do A2A deriva da aprovação.
+  - **Apagar compromisso:** apagar de novo não muda nada (o destino já é idempotente).
+  - **Gmail (mandar e-mail):** a API não aceita chave de idempotência. A proteção continua sendo a
+    do M1 (escrita sem resultado confirmado para a missão e não se repete sozinha) e a execução única
+    da aprovação.
+  - **Servidores MCP:** a missão só lê neles (grant LOW), então não há escrita a proteger.
+
+## Mandato, teto do mês e tempo por chamada (decisão D20, marco M4, 19/11/2026)
+
+- **Catálogo pelo mandato.** Antes da rodada, o executor tira do catálogo toda ferramenta governada
+  que não cabe no mandato da missão. O modelo nem fica sabendo que ela existe.
+- **Teto da tentativa:** o menor entre o que resta do teto da missão e o que resta do teto do mês
+  (R$ 300, D21). O prazo da tentativa também não passa do prazo final da missão.
+- **Tempo por chamada:** cada chamada de ferramenta tem 60 s (`timeoutFerramentaMs` nas dependências,
+  para teste). Passado o tempo, o agente recebe `tempo_esgotado` com `resultado_incerto`. Se a
+  ferramenta é de leitura, a missão segue. Se é de qualquer outra categoria, a tentativa termina
+  `impedida` com o motivo, pedindo à pessoa que confira se a ação aconteceu: nada é repetido sozinho.
+  O temporizador não segura o processo vivo.
+- **Limites de AGORA na execução aprovada.** Ao executar uma ação aprovada, o Ethics Engine confere de
+  novo, além do grant vigente: o risco da ferramenta contra o risco máximo do grant, o valor contra o
+  valor máximo, e as políticas atuais (só uma regra `deny` barra; `require_approval` já foi atendida
+  pela aprovação). Um grant estreitado entre a aprovação e a execução barra a execução.
+
+## Saúde, prontidão e métricas (decisão D20, marco M5, 19/11/2026)
+
+O servidor real (`server/src/saude.ts`) responde três rotas sem sessão:
+
+- **`GET /health`:** o processo responde (`{"vivo":true}`). Não toca o banco.
+- **`GET /ready`:** o banco responde e todas as migrations do código estão aplicadas com o mesmo
+  conteúdo. Senão, 503 com o motivo curto (`banco`, ou `migrations` com os nomes pendentes ou
+  divergentes); nunca a mensagem de erro do banco.
+- **`GET /metrics`:** texto do Prometheus. **Fecha por padrão:** sem `OBEDIENT_METRICAS_TOKEN`, 404; com
+  ele, exige `Authorization: Bearer <token>`, comparado em tempo constante.
+  - **Só números somados sobre todas as pessoas:** missões por estado, reservas vencidas, pedidos de
+    aprovação pendentes, passos das últimas 24 h por tipo (`recusada` é negação, `incerto` é
+    retomada), gasto do mês e pessoas no teto do mês. Nenhum id, objetivo, ferramenta ou texto.
+  - Saem de funções do banco (`0013_metricas.sql`) donas de um papel próprio, `obedient_metrics`, que
+    enxerga só as colunas das contas. O operador executa as funções e continua sem ler tabela nenhuma.
+  - **Alertas** são medidores 0/1 com limiares fixos: parada geral, reserva vencida, 10 ou mais missões
+    paradas esperando a pessoa, alguém no teto do mês. Quem avisa uma pessoa é a infraestrutura que lê
+    as métricas, que ainda não existe (decisão A4, marco M7).
+- **Ainda não:** tempo até concluir e custo por missão como histograma; ficam para quando houver onde
+  guardar série (M7).

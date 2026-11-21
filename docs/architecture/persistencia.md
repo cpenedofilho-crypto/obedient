@@ -99,6 +99,47 @@ O teste com quatro execuções simultâneas roda no PGlite e, no CI, num Postgre
 Sem `OBEDIENT_TEST_DATABASE_URL`, roda no PGlite (Postgres em WebAssembly, com papéis e RLS de
 verdade). Com ela, roda no Postgres indicado, que precisa ser local.
 
+## Registro de passos (0008)
+
+`obedient.mission_steps` guarda cada passo das tentativas (decisão D20, marco M1): só inserção, RLS
+por pessoa, chave primária `(mission_id, tentativa, seq)`, e CHECKs que exigem categoria e chave num
+início e o passo fechado numa linha `incerto`. Detalhes em `executor.md`, seção "Registro de passos".
+
+## Critérios e evidências (0010)
+
+`obedient.missions.criterios` guarda os critérios de conclusão (lista de até 10, fixa depois da criação)
+e `obedient.mission_evidence` o que o verificador conferiu: só inserção, RLS por pessoa, chave primária
+`(mission_id, seq)`. Detalhes em `missoes.md`, seção "Critérios de conclusão e verificação".
+
+## Mandato e gasto do mês (0011)
+
+`obedient.missions.mandato_ferramentas` (lista de 1 a 30, ou null) e `obedient.missions.prazo_final_em`
+guardam o mandato, fixo depois da criação. `obedient.mission_spend` guarda o gasto de cada tentativa:
+só inserção, RLS por pessoa, centavos positivos; a soma do mês é o teto da D21. "Apagar" esvazia o
+mandato e não apaga o gasto. Transição nova: `created → blocked`. Detalhes em `missoes.md`, seção
+"Mandato, prazo final e teto do mês".
+
+## Cerca da reserva (0012)
+
+`obedient.missions.cerca` (sobe a cada reserva, nunca desce) e `obedient.missions.reservada_por`
+(qual processo tem a reserva). `obedient.mission_steps.cerca` guarda a cerca de cada passo, e um
+gatilho recusa passo cuja cerca não seja a atual da missão. Detalhes em `missoes.md`, seção
+"Reservas com dono e cerca".
+
+## Plano da missão (0014)
+
+`obedient.missions.planejar` (fixo na criação), `plano_versao`, `plano_hash` e `plano_aprovado_em`.
+`obedient.mission_tasks` e `obedient.mission_task_deps` guardam as tarefas e dependências de cada versão
+do plano: só inserção, RLS por pessoa, o app só muda o estado de pendente para feita, e um gatilho
+recusa marcar feita com dependência pendente ou desfazer uma feita. Transições novas `planning →
+retrying` e `retrying → planning`; evidência nova `plano_completo`. Detalhes em `missoes.md`, seção
+"Plano em DAG e aprovação do plano".
+
+## Ambiente no mandato (0015)
+
+`obedient.missions.mandato_ambientes`: lista de 1 a 3 de `producao`, `homologacao`, `teste`, ou null.
+Fixo depois da criação. Detalhes em `missoes.md`, seção do mandato.
+
 ## O que ainda não existe
 
 - **Políticas do usuário (`policiesFor`) no banco.** Hoje elas chegam por função; a tabela entra

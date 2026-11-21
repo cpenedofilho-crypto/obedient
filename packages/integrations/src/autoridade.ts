@@ -13,6 +13,7 @@
 // O que roda é o executor: só depois de o Ethics Engine autorizar (ou a pessoa aprovar), com o
 // token da conexão da pessoa.
 
+import { payloadHash } from "@obedient/core";
 import type { EthicsEngine } from "@obedient/ethics-engine";
 import type { ItemGovernado } from "@obedient/agent-orchestrator";
 import { INTEGRACOES, integracao } from "./catalogo.ts";
@@ -74,5 +75,8 @@ export function itensGovernados(conectadas: readonly string[]): ItemGovernado[] 
 
 /** O executor que o Ethics Engine chama depois de autorizar: a ferramenta, com o token da pessoa. */
 export function executorGoogle(conexoes: Conexoes, userId: string, http: typeof fetch = fetch) {
-  return (_sistema: string, ferramenta: string, args: Record<string, unknown>) => executar(ferramenta, args, (id) => conexoes.tokenDeAcesso(userId, id), http);
+  // Chave de idempotência (M5): a mesma ação, com os mesmos argumentos, na mesma missão, tem sempre a
+  // mesma chave. A ferramenta usa quando o destino aceita (criar_evento: vira o id do compromisso).
+  return (_sistema: string, ferramenta: string, args: Record<string, unknown>, execucao?: { approvalId?: string; correlationId?: string }) =>
+    executar(ferramenta, args, (id) => conexoes.tokenDeAcesso(userId, id), http, execucao?.correlationId ? { chave: `${userId}\n${execucao.correlationId}\n${ferramenta}\n${payloadHash(args)}` } : undefined);
 }

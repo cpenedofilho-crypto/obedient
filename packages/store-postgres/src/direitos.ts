@@ -83,6 +83,12 @@ export interface ResultadoApagar {
   consentimentos_revogados: number;
   acoes_do_aparelho: number;
   missoes: number;
+  /** Passos das missões (registro de passos, 0008). */
+  passos: number;
+  /** Evidências da verificação das missões (0010). */
+  evidencias: number;
+  /** Tarefas dos planos das missões (0014). */
+  tarefas: number;
 }
 
 /** "Apague o que você sabe sobre mim" (Art. 13), num passo. Ver obedient.apagar_meus_dados(). */
