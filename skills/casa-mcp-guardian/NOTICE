@@ -1,0 +1,27 @@
+casa-mcp-guardian
+Copyright (C) 2026 Cláudio Penedo.
+
+This skill is free software: you can redistribute it and/or modify it under the terms of the
+GNU Affero General Public License, version 3 only (AGPL-3.0-only), as published by the Free
+Software Foundation. The full license text is in the LICENSE file next to this one.
+
+This skill is distributed WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the LICENSE file for details.
+
+Source code: the files in this folder are the complete source. They are maintained in
+https://github.com/cpenedofilho-crypto/obedient (folder skills/casa-mcp-guardian).
+
+Third-party components: none. The scripts use only Node.js built-in modules (node:fs,
+node:path, node:crypto, node:url, and homedir and userInfo from node:os) and bundle no third-party
+code.
+
+Origin: adapted by the same author from the OBEDIENT repository (packages/integration-gateway
+and packages/server), which is also AGPL-3.0-only. Rules tied to specific products were removed.
+
+Commercial licensing: terms are being drafted and are not available yet. Until they are, this
+skill is offered only under AGPL-3.0-only.
+
+---
+Português: Software livre sob a GNU AGPL-3.0-only, sem garantia. O texto da licença está no
+arquivo LICENSE. Os arquivos desta pasta são o código-fonte completo. Nenhum componente de
+terceiros. Licença comercial ainda não disponível.

@@ -55,6 +55,17 @@ Tipos de autoria usados abaixo:
 | `packages/ethics-engine/src/approvals.ts` | Desenho de `ronda-app/lib/assistente/acoes.ts` (proposta e cartão, prazo de 30 min) e de `recupera-os/docs/migrations/60_aprovacoes_limites_servidor.sql` (quem pede não decide, prazo ≤ 72 h, hash) | n/a | IA-R | Nenhuma linha copiada; só o desenho |
 | `packages/ethics-engine/src/audit.ts` | Desenho da imutabilidade de `interacoes` no Recupera OS | n/a | IA-R | Código novo |
 | `packages/dots-adapter/src/index.ts` | Nomes de ferramenta conferidos em `recupera-mcp/src/agentic/tools/*.ts` e o repositório do Motor de Triagem (`mcp/tools/*`) (todas READ/LOW) | n/a | IA-R | Nenhum código importado dos dois repositórios |
+| `skills/casa-mcp-guardian/scripts/lib/classify.mjs` | `packages/integration-gateway/src/risco.ts` (`classificar`, `classificarCategoria`) e `classificarFerramentaMcp` de `packages/server/src/mcp-servidores.ts`, deste repositório | `c5dd62e` | AD | Portado para JavaScript sem dependências. Retirado de propósito: a lista exata de ferramentas de uma plataforma de anúncios (`MIDIA_NO_AR`) e o verbo `quem_sou` de produto interno; `notific` virou `notif`. Paridade conferida em `tests/skills/casa-mcp-guardian-paridade.test.ts` |
+| `skills/casa-mcp-guardian/scripts/lib/endpoint.mjs` | `hostLocalOuPrivado` e `validarEndpoint` de `packages/integration-gateway/src/seguranca.ts` | `c5dd62e` | AD | De "lança erro" para achados; separa loopback, metadata e privado |
+| `skills/casa-mcp-guardian/scripts/lib/secrets.mjs`, `untrusted.mjs` | Ideia de `redigir`/`CHAVE_SENSIVEL` (`seguranca.ts`) e a limpeza de descrição de `mcp-servidores.ts` | `c5dd62e` | IA-R | Formatos de credencial e sinais de injeção são novos |
+| `skills/casa-mcp-guardian/LICENSE` | Texto da AGPL-3.0, variante antiga com URLs `http` (sha256 `57c8ff33…399d6`), a mesma de várias cópias em projetos AGPL | n/a | T | Igual ao texto SPDX da `LICENSE` da raiz depois de normalizar espaços. O oficial atual da GNU (ftp.gnu.org, 30/09/2017, sha256 `0d96a4ff…abcb0`) difere em 3 linhas, só `http`/`https`. Troca pendente de aprovação jurídica |
+| `skills/casa-mcp-guardian/CHANGELOG.md` | Novo, 17/11/2026 | n/a | IA-R | Versão `0.1.0 (unreleased)` |
+| `docs/skills/casa-mcp-guardian-release.md` | Novo, 17/11/2026 | n/a | IA-R | Roteiro da release open source (proposta) |
+| `docs/skills/casa-mcp-guardian-nota-revisores.md` | Novo, 17/11/2026 | n/a | IA-R | Nota aos revisores de marketplace; fora do pacote |
+| `tests/skills/casa-mcp-guardian-nota.test.ts`, `tests/skills/casa-mcp-guardian-release.test.ts` | Novos, 17/11/2026 | n/a | IA-R | Coerência da nota, da versão, da proveniência e do registro da licença |
+| `tsconfig.skills.json` | Novo, 17/11/2026 | n/a | IA-R | Typecheck estrito dos `.mjs` da skill (checkJs) |
+| `skills/casa-mcp-guardian/NOTICE` | Novo, 17/11/2026 | n/a | IA-R | Copyright, licença, fonte, terceiros; diz que a licença comercial ainda não está disponível |
+| `skills/casa-mcp-guardian/` (demais arquivos) e `tests/skills/casa-mcp-guardian-paridade.test.ts` | Novo, 17/11/2026 | n/a | IA-R | Skill `casa-mcp-guardian` (validação em `docs/skills/casa-mcp-guardian.md`). Sem código de terceiros nem dependências |
 | Todos os demais arquivos | Criados em 02/11/2026 com assistência de IA | n/a | IA-R | Revisão do fundador em andamento; publicado como pré-alfa por decisão D12 |
 
 ## O que NÃO veio para cá, de propósito

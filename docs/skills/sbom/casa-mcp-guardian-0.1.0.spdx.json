@@ -1,0 +1,444 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "casa-mcp-guardian-0.1.0",
+  "documentNamespace": "https://github.com/cpenedofilho-crypto/obedient/spdx/casa-mcp-guardian-0.1.0-d75f09e5d1ab56182acd04d6cf6b5056fc363d28",
+  "creationInfo": {
+    "created": "2026-11-18T01:03:31Z",
+    "creators": [
+      "Tool: casa-mcp-guardian-sbom-gen (stdlib Python)"
+    ],
+    "comment": "Release candidate. Not released, tagged, signed or published. Describes the package built from commit d75f09e5d1ab56182acd04d6cf6b5056fc363d28 with the reproducible recipe in docs/skills/casa-mcp-guardian-release.md section 5."
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-casa-mcp-guardian",
+      "name": "casa-mcp-guardian",
+      "versionInfo": "0.1.0",
+      "packageFileName": "casa-mcp-guardian-0.1.0.zip",
+      "supplier": "Person: Cláudio Penedo",
+      "originator": "Person: Cláudio Penedo",
+      "downloadLocation": "NOASSERTION",
+      "sourceInfo": "git+https://github.com/cpenedofilho-crypto/obedient@d75f09e5d1ab56182acd04d6cf6b5056fc363d28#skills/casa-mcp-guardian",
+      "filesAnalyzed": true,
+      "packageVerificationCode": {
+        "packageVerificationCodeValue": "9c9efe8de91726cd7365cc88569d42cd18b60b0f"
+      },
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "9cdfba99f8d0c674ff3927916f4d2cac5ec42788b14daf2acfb6f5ab898e0cc4"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "AGPL-3.0-only",
+      "licenseInfoFromFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "Copyright (C) 2026 Cláudio Penedo.",
+      "primaryPackagePurpose": "APPLICATION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:github/cpenedofilho-crypto/obedient@d75f09e5d1ab56182acd04d6cf6b5056fc363d28#skills/casa-mcp-guardian"
+        }
+      ],
+      "comment": "Release candidate. Not released, tagged, signed or published. Describes the package built from commit d75f09e5d1ab56182acd04d6cf6b5056fc363d28 with the reproducible recipe in docs/skills/casa-mcp-guardian-release.md section 5. No third-party components: only Node.js built-in modules (Node.js 22+ is a runtime requirement, not bundled). licenseConcluded is NOASSERTION because the legal review is pending."
+    }
+  ],
+  "files": [
+    {
+      "SPDXID": "SPDXRef-File-CHANGELOG-md",
+      "fileName": "./CHANGELOG.md",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "c834d387e7c7d4247782c7166b91dddefb5541c3"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "1a55dcbedec3b1bdc1d56ca0fb0077a37666f462081d44a066fcb9228c34b623"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "NOASSERTION"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-LICENSE",
+      "fileName": "./LICENSE",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "78e50e186b04c8fe1defaa098f1c192181b3d837"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "57c8ff33c9c0cfc3ef00e650a1cc910d7ee479a8bc509f6c9209a7c2a11399d6"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "NOASSERTION"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-NOTICE",
+      "fileName": "./NOTICE",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "f643c59397e8a634f0d75e55ff0d294083aa4a64"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "1590e4682e46f130f72dff46f150d61707d385ee82dc5133a1a75cdd838e8a54"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "NOASSERTION"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-README-md",
+      "fileName": "./README.md",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "895de7412b3b5c4061b69c15745d6cb69350a77f"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "d3f6e3431b3cba24c6938cf34ccc6d451fc55fb25c83c4f4e1875e157df703e1"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "NOASSERTION"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-README-pt-BR-md",
+      "fileName": "./README.pt-BR.md",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "2eb204598b0c5d3d1f63bb1923ad6b1eefaa7d2c"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "4b708e289b5dca15a65b6cb8b3d89a90ea933717f92da0965cfbdc945cb9f7cc"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "NOASSERTION"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-SKILL-md",
+      "fileName": "./SKILL.md",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "187c66bd89940a47a8cfb38b6c47163a40f41b4d"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "62d8a13fcf518ad137faf67e8baf5923d89429ecbb8c73b7b5312f8fea703335"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "NOASSERTION"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-references-checks-md",
+      "fileName": "./references/checks.md",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "fa7faf7682ccd7adf3b92873373a784ad262e383"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "0cab8d8465617c85e51dc563b051d73e38d8509d295d7a97581cf46de2032e65"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "NOASSERTION"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-lib-audit-mjs",
+      "fileName": "./scripts/lib/audit.mjs",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "4c4de8de8956e5f214a1f3a3a7d631259f928062"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f1a392055835673c2ee9821932e55ab0cfc6768223c60698529bd0c6a77f2d53"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-lib-classify-mjs",
+      "fileName": "./scripts/lib/classify.mjs",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "e5f790c1b96636ca02abd0b94e4e259087350e7a"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "7f1737b93fb503895203f792c0a903a1c4e6fe411a194af90638f6dd078e846f"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-lib-endpoint-mjs",
+      "fileName": "./scripts/lib/endpoint.mjs",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "1511da7fa305ce96b542e92606f7f43ed63e449e"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "352f8b40eae918dd8f2f884bd3a152cbb64743088f4416311a60644f32db1b2d"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-lib-messages-mjs",
+      "fileName": "./scripts/lib/messages.mjs",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "09c7d2b62c883c32f28c7df358125b46dab5c507"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "2dafa88fbb6122b93d2e86799a196525c6461a66aea05941b6213be1c581e8ea"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-lib-present-mjs",
+      "fileName": "./scripts/lib/present.mjs",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "c94bcf46d1ff60677f9759484d6e409a3d68dd72"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "043589d51bbf873bed1c42d48a959002ec477385aa15cca09a8cc077c546a269"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-lib-report-mjs",
+      "fileName": "./scripts/lib/report.mjs",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "9c16e35f0c10546cad1483115cf19872500efa28"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "f0918dc7b922264a42f42144f9e52aee7832a696d9dca0c041fdaedb78b23181"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-lib-secrets-mjs",
+      "fileName": "./scripts/lib/secrets.mjs",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "c6ba795ce31ff909640bf5db9a3f8c216b7645e5"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "eae216f6d9e79d433cac24e1c0b40849f88c84cad54e7e40c2964c9a92977ce9"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-lib-untrusted-mjs",
+      "fileName": "./scripts/lib/untrusted.mjs",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "99aaef546b58c27d7cb3b11530e8caa1e7f1b436"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "8395e1a18c9d5ab4235af6b2ab74fe9c2ccda989b7ec515d3c86a1e14cb1397a"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "NOASSERTION"
+    },
+    {
+      "SPDXID": "SPDXRef-File-scripts-mcp-guardian-mjs",
+      "fileName": "./scripts/mcp-guardian.mjs",
+      "checksums": [
+        {
+          "algorithm": "SHA1",
+          "checksumValue": "f123c72fe250cb097c8c1e6e8b561f1a032d642b"
+        },
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "da4b6cc9c7b26a2d710422bd7ef2c3408125450ba3776a4ad399b0ef88c4447e"
+        }
+      ],
+      "licenseConcluded": "NOASSERTION",
+      "licenseInfoInFiles": [
+        "AGPL-3.0-only"
+      ],
+      "copyrightText": "NOASSERTION"
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-casa-mcp-guardian"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-CHANGELOG-md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-LICENSE"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-NOTICE"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-README-md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-README-pt-BR-md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-SKILL-md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-references-checks-md"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-lib-audit-mjs"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-lib-classify-mjs"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-lib-endpoint-mjs"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-lib-messages-mjs"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-lib-present-mjs"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-lib-report-mjs"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-lib-secrets-mjs"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-lib-untrusted-mjs"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-casa-mcp-guardian",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-File-scripts-mcp-guardian-mjs"
+    }
+  ]
+}
