@@ -21,6 +21,12 @@ export const VOCABULARIO_OBEDIENT = criarVocabulario({
     { tipo: "mission.created", entidades: ["mission"], fontes: ["obedient"], descricao: "Missão nova, a partir de um pedido do usuário." },
     { tipo: "mission.blocked", entidades: ["mission"], fontes: ["obedient"], descricao: "Missão parada em impedimento explicado ao usuário (Art. 7º)." },
     { tipo: "mission.completed", entidades: ["mission"], fontes: ["obedient"], descricao: "Missão concluída." },
+    // M7: o resto da vida da missão, para quem acompanha sem sondar. Só ids e estados, nunca o objetivo.
+    { tipo: "mission.failed", entidades: ["mission"], fontes: ["obedient"], descricao: "Missão terminou como 'não conseguiu'." },
+    { tipo: "mission.cancelled", entidades: ["mission"], fontes: ["obedient"], descricao: "Missão cancelada (pela pessoa ou pela parada de emergência)." },
+    { tipo: "mission.waiting_approval", entidades: ["mission"], fontes: ["obedient"], descricao: "Missão esperando a pessoa decidir um pedido." },
+    { tipo: "mission.plan_proposed", entidades: ["mission"], fontes: ["obedient"], descricao: "O planejador propôs o plano; espera a pessoa." },
+    { tipo: "mission.waiting_external", entidades: ["mission"], fontes: ["obedient"], descricao: "Missão esperando outro sistema, sem gastar tentativa." },
 
     // Aprovação humana (Arts. 1º e 12): só ids, hash e desfecho; nunca o conteúdo.
     { tipo: "proposal.created", entidades: ["proposal"], fontes: ["obedient"], descricao: "Ação sensível virou proposta à espera do usuário." },

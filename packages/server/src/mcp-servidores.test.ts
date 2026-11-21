@@ -206,12 +206,13 @@ describe("MCP genérico: ferramentas das missões", () => {
   it("sem grant, com grant retirado ou fora da lista de pessoas: nada oferecido nem chamado", async () => {
     const c = montar();
     const so = () => roteiro((p) => { assert.ok(!p.tools.some((t) => t.name.startsWith("motor_iga__"))); return concluir("ok")(); }, encerrar);
+    // O assert do roteiro, se falhar, vira erro de modelo e a tentativa o engole: confere o desfecho.
     await c.missao("bia-mcp", "Leads?");
-    await c.processar("bia-mcp", so());
+    assert.equal((await c.processar("bia-mcp", so()))[0]!.desfecho?.tipo, "feito");
     await c.motor("bia-mcp", (m) => concederMcp(m, c.servidores[0]!, "bia-mcp", T0));
     await c.motor("bia-mcp", (m) => retirarMcp(m, "motor_iga", "bia-mcp"));
     await c.missao("bia-mcp", "Leads de novo?");
-    await c.processar("bia-mcp", so());
+    assert.equal((await c.processar("bia-mcp", so()))[0]!.desfecho?.tipo, "feito");
     await assert.rejects(c.motor("caio-fora", (m) => concederMcp(m, c.servidores[0]!, "caio-fora", T0)), /não está em usuarios/);
     assert.equal(c.srv.chamadas.length, 0);
   });

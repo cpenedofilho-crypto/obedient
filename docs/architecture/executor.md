@@ -108,6 +108,8 @@ tamanho no banco. Some quando a missão termina, é cancelada, fica impedida ou 
 - **Voltas não se sobrepõem.** Se uma pessoa falha, as outras seguem.
 - **O log diz o que aconteceu, nunca o conteúdo.**
 - **Uma pessoa de cada vez:** uma missão longa segura a volta. Para uso pessoal, basta.
+- **Eventos (M7):** depois das missões, a mesma volta despacha as entregas devidas do barramento
+  (`docs/architecture/barramento.md`), pessoa por pessoa, quando o servidor registra consumidores.
 
 ## Dado de terceiros
 
@@ -234,7 +236,10 @@ que comparam o que fica gravado.
 
 O servidor real (`server/src/saude.ts`) responde três rotas sem sessão:
 
-- **`GET /health`:** o processo responde (`{"vivo":true}`). Não toca o banco.
+- **`GET /health`:** o processo responde (`{"vivo":true,"versao":"…"}`). Não toca o banco. A versão
+  (M7) é o commit do deploy, `OBEDIENT_VERSAO` ou `RAILWAY_GIT_COMMIT_SHA`. Só vale hexadecimal, cortado
+  em 12; sem ela, o campo não aparece. Serve para conferir de fora que o deploy chegou
+  (`docs/operations/runbook.md`).
 - **`GET /ready`:** o banco responde e todas as migrations do código estão aplicadas com o mesmo
   conteúdo. Senão, 503 com o motivo curto (`banco`, ou `migrations` com os nomes pendentes ou
   divergentes); nunca a mensagem de erro do banco.

@@ -182,13 +182,14 @@ describe("Growth OS: ferramenta das missões", () => {
       return concluir("Sem acesso ao Growth OS.")();
     }, encerrar);
 
+    // O assert do roteiro, se falhar, vira erro de modelo e a tentativa o engole: confere o desfecho.
     await c.missao("bia-growth", "Resumo da operação");
-    await c.processar("bia-growth", so());
+    assert.equal((await c.processar("bia-growth", so()))[0]!.desfecho?.tipo, "feito");
 
     await c.motor("bia-growth", (m) => concederGrowthOs(m, c.cfg, "bia-growth", T0));
     await c.motor("bia-growth", (m) => retirarGrowthOs(m, "bia-growth"));
     await c.missao("bia-growth", "Resumo da operação de novo");
-    await c.processar("bia-growth", so());
+    assert.equal((await c.processar("bia-growth", so()))[0]!.desfecho?.tipo, "feito");
 
     await assert.rejects(c.motor("caio-fora", (m) => concederGrowthOs(m, c.cfg, "caio-fora", T0)), /OBEDIENT_GROWTH_OS_USUARIOS/);
     assert.equal(c.g.recebidos.length, 0, "nada chegou ao Growth OS");
@@ -451,7 +452,8 @@ describe("Growth OS: pedir código (M6), com aprovação, espera e evidência do
       assert.ok(!p.tools.some((t) => t.name === ABRIR || t.name === STATUS || t.name === AGUARDAR));
       return usar("fim", CONCLUIR, { tipo: "nao_consegui", explicacao: "Não posso pedir código." })();
     }, encerrar);
-    await c.processar("ana-growth", r);
+    // O assert do roteiro, se falhar, vira erro de modelo e a tentativa o engole: confere o desfecho.
+    assert.equal((await c.processar("ana-growth", r))[0]!.desfecho?.tipo, "nao_consegui");
   });
 
   it("o grant de código: só a situação é autônoma; abrir é HIGH e sempre pede aprovação", async () => {
