@@ -1,11 +1,14 @@
 # Runbook de operação do OBEDIENT (M7, 20/11/2026)
 
-Para quem opera o servidor. Cada passo de produção é feito por uma pessoa. O agente não faz nenhum:
-deploy de produção, migration em produção e segredo estão na lista do que não se delega (CONSTITUTION).
+Para quem opera o servidor. Cada passo de produção é feito por uma pessoa. O agente do OBEDIENT não faz
+nenhum: deploy de produção, migration em produção e segredo estão na lista do que não se delega
+(CONSTITUTION). A única vez em que uma sessão de assistente de código aplicou migrations e juntou PRs foi
+em 21/11/2026, por ordem expressa do responsável (D30); está descrita no fim deste documento.
 
-**Estado:** a produção roda no Railway, em `obedient-production.up.railway.app` (D25). Ainda faltam
-da A4: homologação, guarda das chaves (Anthropic, cofre), backup testado e destino dos alertas.
-Enquanto faltarem, a produção não recebe dado de cliente.
+**Estado (21/11/2026):** a produção roda no Railway, em `obedient-production.up.railway.app` (D25), com
+o código do M7 (`f2acf13`) e o banco na migration 0017. Ainda faltam da A4: homologação, guarda das
+chaves (Anthropic, cofre), o primeiro backup da produção e ligar o vigia. Enquanto faltarem, a produção
+não recebe dado de cliente.
 
 ## O que roda
 
@@ -14,7 +17,11 @@ Enquanto faltarem, a produção não recebe dado de cliente.
 | API e app (passkeys, missões, aprovações) | serviço do Railway | `node --import tsx packages/server/src/cli.ts servir` |
 | Executor das missões e agendador | o mesmo processo, com `OBEDIENT_AGENTE=ligado` | idem |
 | Barramento de eventos | o mesmo processo (agendador), tabelas `obedient.events*` | idem |
-| Banco | Postgres gerenciado, sem porta pública | só migrations versionadas (`packages/store-postgres/sql/`) |
+| Banco | **Supabase**, projeto `obedient` (us-east-1, Postgres 17). Não está no Railway | só migrations versionadas (`packages/store-postgres/sql/`) |
+
+O projeto `zealous-integrity` do Railway tem só três serviços (`obedient`, `motor-http` e
+`motor-triagem-iga`) e nenhum Postgres. Do banco, o serviço `obedient` só guarda a conexão
+(`OBEDIENT_DATABASE_URL`), com o papel de login `obedient_server`, que não é dono do schema.
 
 ## Publicar uma versão
 
@@ -34,6 +41,11 @@ que ninguém cria missão nova; o resto continua no ar. Faça os dois passos em 
    branch do PR):
    `OBEDIENT_OWNER_DATABASE_URL=… node --import tsx packages/server/src/cli.ts migrar`.
    A saída lista o que foi aplicado. Se nada mudou, a saída é "nada a aplicar".
+   - **A conexão do dono** é a do usuário `postgres` do Supabase: painel do Supabase → projeto
+     `obedient` → **Connect** → *Session pooler*. A senha é a do banco (Settings → Database). Não é a
+     conexão que está no Railway.
+   - O `postgres` do Supabase não é superusuário (tem CREATEROLE e BYPASSRLS). O `migrar` já conta com
+     isso: dá e tira o CREATE dos papéis donos de função dentro de cada transação.
 3. Fazer o merge na `main`, logo depois. O merge é da pessoa, e ele dispara o deploy.
 4. Esperar o deploy terminar no Railway.
 5. Conferir de fora:
@@ -148,15 +160,18 @@ eventos delas. Nenhum dado de produção foi usado.
 **Fazer o backup:**
 
 ```
-OBEDIENT_BACKUP_URL=<administrador do Postgres, ou papel com BYPASSRLS> \
+OBEDIENT_BACKUP_URL=<conexão do usuário postgres do Supabase (Connect → Session pooler)> \
 OBEDIENT_BACKUP_SENHA=<senha do arquivo, 20+ caracteres> \
 scripts/backup/backup.sh <pasta>
 ```
 
 - Gera o dump cifrado (AES-256, PBKDF2), a contagem de linhas por tabela (só números) e o hash dos
   dois.
-- As tabelas têm RLS forçada. Por isso, com o dono do schema o `pg_dump` recusa: é preciso o
-  administrador.
+- As tabelas têm RLS forçada, então o `pg_dump` precisa de um papel com BYPASSRLS. O `postgres` do
+  Supabase tem (conferido em 21/11/2026).
+- **O servidor é Postgres 17:** o `pg_dump` e o `pg_restore` da máquina têm de ser da versão 17 ou mais
+  nova. Com a 16, o `pg_dump` recusa o servidor. O Postgres isolado do teste de restauração também
+  tem de ser 17 ou mais novo.
 
 **Testar a restauração** num Postgres **isolado**, nunca o da produção:
 
@@ -194,3 +209,30 @@ criação é do responsável:
 2. variáveis próprias: outro `OBEDIENT_ORIGIN`, cofre com chaves novas e token de métricas novo;
 3. publicar a branch a homologar, rodar `migrar` e conferir `/ready`;
 4. só depois disso, juntar na `main` e publicar a produção.
+
+## Registro: migrations 0008 a 0017 e merges de 21/11/2026 (D30)
+
+O responsável mandou a sessão de assistente de código aplicar as migrations, juntar os PRs e publicar.
+A sessão não tinha a conexão do banco; tinha acesso de SQL ao projeto `obedient` pelo conector do
+Supabase, com o usuário `postgres`. O que foi feito, na ordem:
+
+1. **Conferência antes:** os hashes das migrations 0001 a 0007 no banco eram os do código; havia 11
+   missões de uma pessoa, todas encerradas, nenhuma em andamento.
+2. **Ensaio:** num Postgres local com dono sem superusuário (como o do Supabase), parado na 0007 e com
+   missões encerradas, os dez blocos (o mesmo que o `migrar` executa: preparo, a migration, limpeza e o
+   registro com o hash do arquivo) aplicaram, e o `migrar` de verdade respondeu "nada a aplicar".
+3. **Aplicação:** um bloco por migration, cada um numa transação (conferido antes que a ferramenta desfaz
+   tudo em caso de erro). Nenhum deu erro.
+4. **Conferência depois:** a impressão digital do catálogo (colunas, funções, restrições, políticas,
+   permissões de tabela e de coluna, gatilhos, índices, RLS, transições e migrations) ficou igual à do
+   ensaio nas 12 categorias. O SQL foi copiado pela sessão, não enviado como arquivo, e essa comparação
+   é o que garante que não houve erro de cópia.
+5. **Merges:** #51 → #54 → #55, sem squash. O Railway publicou os três; o último é o `f2acf13`.
+6. **Produção conferida:** `/health` com a versão `f2acf13dc8a2` e `/ready` com `{"pronto":true}`.
+
+Entre a 0009 e o fim do deploy, a criação de missão ficou indisponível por cerca de 15 minutos (o código
+anterior ao #51 não cria missão com a 0009). Com a conexão do dono e o `migrar`, a janela é de poucos
+minutos.
+
+**Isto não vira rotina.** O caminho normal continua o da seção "Publicar uma versão": uma pessoa roda o
+`migrar` e faz o merge.
