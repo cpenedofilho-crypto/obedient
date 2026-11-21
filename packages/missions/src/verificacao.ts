@@ -29,11 +29,12 @@ export type Criterio =
   | { tipo: "resultado_conforme"; esquema: Record<string, unknown> };
 
 // plano_completo (M5): todas as tarefas do plano aprovado foram feitas, conferido pelo que está gravado.
-export const TIPOS_EVIDENCIA = ["ferramenta_ok", "resultado_conforme", "sem_criterio", "nao_sei", "plano_completo"] as const;
+// pull_request (M6): o PR que o Growth OS abriu, com a CI do commit, lido na situação da tarefa de código.
+export const TIPOS_EVIDENCIA = ["ferramenta_ok", "resultado_conforme", "sem_criterio", "nao_sei", "plano_completo", "pull_request"] as const;
 export type TipoEvidencia = (typeof TIPOS_EVIDENCIA)[number];
 
 export interface Evidencia {
-  /** Índice do critério (null para sem_criterio, nao_sei e plano_completo). */
+  /** Índice do critério (null para sem_criterio, nao_sei, plano_completo e pull_request). */
   criterio: number | null;
   tipo: TipoEvidencia;
   ok: boolean;

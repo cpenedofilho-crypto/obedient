@@ -83,6 +83,13 @@ tamanho no banco. Some quando a missão termina, é cancelada, fica impedida ou 
 - **SDK:** o oficial, `@anthropic-ai/sdk` 1.3.0, Apache-2.0 (na allowlist de licenças).
 - **Modelo e esforço:** padrão `claude-opus-5-5`, com esforço `high`. O raciocínio fica no modo
   adaptativo do modelo.
+- **Um modelo por tarefa (decisão D28, 20/11/2026):**
+  - **executor:** `claude-opus-5-5` (`OBEDIENT_MODELO`). É quem lê conteúdo de terceiros e decide o que
+    chamar;
+  - **planejador:** `claude-sonnet-5-5` (`OBEDIENT_MODELO_PLANEJADOR`), metade do preço. Ele só propõe o
+    plano, sem ferramenta para agir; o código confere o plano e a pessoa o aprova antes de tudo;
+  - **verificador por modelo:** não existe; a conferência é por código (M3).
+  - O servidor não sobe com um modelo fora da tabela de preços, e mostra os dois ao subir.
 - **Fallback (`fallbacks: "default"`):** se os classificadores de segurança recusarem um pedido, a
   Anthropic o refaz no servidor num modelo indicado para aquela categoria. Vem ligado e pode ser
   desligado (`OBEDIENT_FALLBACK=desligado`).
@@ -243,3 +250,20 @@ O servidor real (`server/src/saude.ts`) responde três rotas sem sessão:
     as métricas, que ainda não existe (decisão A4, marco M7).
 - **Ainda não:** tempo até concluir e custo por missão como histograma; ficam para quando houver onde
   guardar série (M7).
+
+## Espera por sistema externo (decisão D20, marco M6, 20/11/2026)
+
+Uma tarefa de código no Growth OS leva horas e passa por pessoas lá. Antes, a missão só sabia tentar de
+novo, gastando tentativas.
+
+- **`aguardar_sistema`:** ferramenta interna, oferecida só quando a missão tem uma ferramenta de trabalho
+  longo em outro sistema (hoje, as de código do Growth OS). O agente diz em quantos minutos voltar e por
+  quê, e encerra a resposta.
+- **A tentativa termina como `aguardando_externo`:** a missão vai para `retrying` com a próxima tentativa
+  na hora pedida (entre 5 min e 6 h, nunca depois do prazo final), a conversa fica guardada e a espera
+  **não conta como tentativa**. Na volta, o agente recebe "A espera terminou" e confere a situação.
+- **Limite:** 30 esperas por missão (`missions.esperas`, migration `0016_esperas.sql`). Depois, a missão
+  para em `blocked`. "Tentar de novo" zera a contagem. Cada volta custa uma chamada ao modelo, então o
+  teto de custo da missão e o do mês também limitam a espera.
+- **Evidência `pull_request`:** quando a missão pediu código, o "feito" exige o PR aberto e a CI verde,
+  vistos na situação da tarefa na mesma tentativa (detalhe em `integracoes.md`).

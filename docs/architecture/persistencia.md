@@ -140,6 +140,12 @@ retrying` e `retrying → planning`; evidência nova `plano_completo`. Detalhes 
 `obedient.missions.mandato_ambientes`: lista de 1 a 3 de `producao`, `homologacao`, `teste`, ou null.
 Fixo depois da criação. Detalhes em `missoes.md`, seção do mandato.
 
+## Espera e evidência de PR (0016)
+
+`obedient.missions.esperas` conta as esperas por sistema externo (não negativo; o limite é do código).
+Evidência nova `pull_request`, sem critério. Detalhes em `executor.md`, seção "Espera por sistema
+externo".
+
 ## O que ainda não existe
 
 - **Políticas do usuário (`policiesFor`) no banco.** Hoje elas chegam por função; a tabela entra

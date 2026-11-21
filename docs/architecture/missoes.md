@@ -248,5 +248,5 @@ muda.
 - **Banco:** migration `0014_plano.sql` (`mission_tasks` e `mission_task_deps`, só inserção, RLS por
   pessoa; o app só muda o estado da tarefa). "Apagar o que o OBEDIENT sabe" apaga as tarefas e tira o
   plano. "Baixar meus dados" leva o plano junto com a missão.
-- **Ainda não:** tarefas da mesma camada rodando em paralelo, e um modelo diferente para o planejador
-  (hoje é o mesmo do executor; trocar é decisão A5).
+- **Modelo do planejador:** Sonnet 5.5 por padrão (decisão D28), separado do executor (Opus 5.5).
+- **Ainda não:** tarefas da mesma camada rodando em paralelo.

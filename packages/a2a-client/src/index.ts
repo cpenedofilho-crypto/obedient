@@ -178,7 +178,10 @@ export class ClienteA2A {
   async enviar(skill: string, o: { messageId?: string; retornarImediato?: boolean; dados?: Record<string, unknown>; correlationId?: string } = {}): Promise<Tarefa> {
     const { skills } = await this.card();
     if (!skills.includes(skill)) throw new ErroClienteA2A("skill_ausente_no_card", `o servidor não anuncia a skill ${skill}`);
-    const correlacao = correlacaoA2A(o.correlationId);
+    // Sem correlação de quem chama, ela sai do messageId: reenviar a mesma mensagem tem de ser a MESMA
+    // mensagem (o servidor confere o hash dela inteira, metadados incluídos). Correlação aleatória a cada
+    // envio fazia o reenvio cair como MESSAGE_ID_REUSADO.
+    const correlacao = correlacaoA2A(o.correlationId ?? (o.messageId ? `obedient-${o.messageId}` : undefined));
     const r = await this.rpc("SendMessage", {
       message: { messageId: o.messageId ?? randomUUID(), role: "ROLE_USER", parts: [{ data: { ...(o.dados ?? {}), skill }, mediaType: "application/json" }], metadata: { correlation_id: correlacao } },
       configuration: { acceptedOutputModes: ["application/json"], ...(o.retornarImediato ? { returnImmediately: true } : {}) },

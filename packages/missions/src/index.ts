@@ -91,6 +91,14 @@ export const MAX_EXPLICACAO = 2000;
  * para uma tentativa lenta, mas viva, não ser tomada por outro processo.
  */
 export const PRAZO_RESERVA_MS = 15 * 60_000;
+/**
+ * Espera por sistema externo (M6): a missão dorme sem gastar tentativa enquanto outro sistema trabalha
+ * (por exemplo, uma tarefa de código com portões humanos no Growth OS). Cada espera vai de 5 min a 6 h;
+ * depois de MAX_ESPERAS, a missão para e pede a pessoa. O teto de custo e o prazo final continuam valendo.
+ */
+export const ESPERA_MINIMA_MS = 5 * 60_000;
+export const ESPERA_MAXIMA_MS = 6 * 3_600_000;
+export const MAX_ESPERAS = 30;
 /** Dono da reserva quando quem reserva não se identifica (testes, uso em memória). */
 export const DONO_PADRAO = "processo";
 
@@ -111,6 +119,8 @@ export interface Missao {
   planoVersao: number;
   /** O plano em vigor (null: sem plano, ou o último foi recusado). */
   plano: PlanoDaMissao | null;
+  /** Quantas vezes a missão já esperou um sistema externo (M6). */
+  esperas: number;
   estado: EstadoMissao;
   /** Por que parou e o que a pessoa pode fazer (só quando blocked). */
   impedimento: string | null;
@@ -159,6 +169,8 @@ export type ResultadoTentativa = { custoCentavos: number } & (
   | { tipo: "impedida"; motivo: string }
   // O planejador (M5) entregou as tarefas; a missão espera a pessoa aprovar o plano.
   | { tipo: "plano"; tarefas: TarefaDoPlano[] }
+  // Outro sistema está trabalhando (M6): a missão volta em `ate` e continua a conversa, sem gastar tentativa.
+  | { tipo: "aguardando_externo"; ate: Date; motivo: string; rodada?: unknown }
 );
 
 export type Executor = (m: Missao) => Promise<ResultadoTentativa>;
@@ -277,6 +289,7 @@ export class Missoes {
       criterios: structuredClone(opts.criterios ?? []),
       mandato: lerMandato(opts.mandato),
       planejar: opts.planejar === true,
+      esperas: 0,
       planoVersao: 0,
       plano: null,
       estado: "created",
@@ -448,6 +461,7 @@ export class Missoes {
     if (m.estado === "planning" && (r.tipo === "feito" || r.tipo === "nao_sei" || r.tipo === "aguardando_aprovacao"))
       r = { tipo: "falha_temporaria", erro: "o planejador não entregou um plano", custoCentavos: r.custoCentavos };
     if (m.estado !== "planning" && r.tipo === "plano") r = { tipo: "falha_temporaria", erro: "plano fora da hora de planejar", custoCentavos: r.custoCentavos };
+    if (m.estado === "planning" && r.tipo === "aguardando_externo") r = { tipo: "falha_temporaria", erro: "o planejador não espera sistema externo", custoCentavos: r.custoCentavos };
 
     switch (r.tipo) {
       case "plano": {
@@ -526,6 +540,30 @@ export class Missoes {
         if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
         await this.registrar(m, "mission.waiting_approval", "approval_required", sobre);
         return m;
+      case "aguardando_externo": {
+        if (m.esperas >= MAX_ESPERAS) {
+          this.mudar(m, "blocked");
+          m.impedimento = `Esperou o outro sistema ${m.esperas} vezes e ele ainda não terminou. Confira lá; depois mande tentar de novo ou cancele.`;
+          m.rodada = null;
+          if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
+          await this.registrar(m, "mission.blocked", "info", [...sobre, "esperas esgotadas"]);
+          return m;
+        }
+        const agora = this.clock.now().getTime();
+        const pedido = r.ate instanceof Date && Number.isFinite(r.ate.getTime()) ? r.ate.getTime() : agora + ESPERA_MINIMA_MS;
+        let volta = Math.min(Math.max(pedido, agora + ESPERA_MINIMA_MS), agora + ESPERA_MAXIMA_MS);
+        // Não passa do prazo final: lá, a reserva seguinte encerra a missão como "não conseguiu".
+        if (m.mandato.prazoFinalEm) volta = Math.min(volta, m.mandato.prazoFinalEm.getTime());
+        this.mudar(m, "retrying");
+        m.esperas += 1;
+        // A espera não conta como tentativa: a próxima reserva conta de novo esta mesma.
+        m.tentativas = Math.max(0, m.tentativas - 1);
+        m.proximaTentativaEm = new Date(volta);
+        m.rodada = r.rodada ?? null;
+        if (!(await this.salvar(m))) return this.descartada(reservada, r.tipo);
+        await this.registrar(m, "mission.waiting_external", "info", [...sobre, `espera ${m.esperas} de ${MAX_ESPERAS}`, curto(String(r.motivo ?? ""), 200)]);
+        return m;
+      }
       case "impedida": {
         this.mudar(m, "blocked");
         m.impedimento = curto(String(r.motivo ?? "").trim() || "A missão precisa de você para continuar.", 500);
@@ -615,6 +653,7 @@ export class Missoes {
     this.mudar(m, "retrying");
     m.impedimento = null;
     m.tentativas = 0;
+    m.esperas = 0;
     m.propostaId = null;
     m.rodada = null;
     m.proximaTentativaEm = this.clock.now();
