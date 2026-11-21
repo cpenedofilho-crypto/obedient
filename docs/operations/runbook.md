@@ -6,9 +6,9 @@ nenhum: deploy de produção, migration em produção e segredo estão na lista 
 em 21/11/2026, por ordem expressa do responsável (D30); está descrita no fim deste documento.
 
 **Estado (21/11/2026):** a produção roda no Railway, em `obedient-production.up.railway.app` (D25), com
-o código do M7 (`f2acf13`) e o banco na migration 0017. Ainda faltam da A4: homologação, guarda das
-chaves (Anthropic, cofre), o primeiro backup da produção e ligar o vigia. Enquanto faltarem, a produção
-não recebe dado de cliente.
+o banco na migration 0017. O vigia está ligado e o backup diário do Supabase passou no teste de
+restauração (seção "Backup"). Ainda faltam da A4: homologação e guarda das chaves (Anthropic, cofre).
+Enquanto faltarem, a produção não recebe dado de cliente.
 
 ## O que roda
 
@@ -154,7 +154,28 @@ do app e o vigia acusaria):
 
 ## Backup (A4)
 
-Scripts em `scripts/backup/`, testados em 21/11/2026 num Postgres 16 local, com duas missões e os
+**O backup principal é o do Supabase.** A organização está no plano Pro: o Supabase faz um backup
+físico do projeto `obedient` por dia, por volta das 10h UTC, e guarda 7 dias (em 21/11/2026 havia 8,
+de 14/11 a 21/11, sem falha). O OBEDIENT não usa o Storage do Supabase (nenhum bucket, nenhum
+arquivo), então tudo o que ele guarda está nas tabelas e entra no backup.
+
+**Teste de restauração de 21/11/2026:** o backup das 09:55 UTC foi restaurado num projeto novo
+(*Restore to new project*, `obedient-restauro-teste`), sem tocar na produção, e comparado com ela só
+lendo:
+- estrutura (colunas, funções, permissões, políticas, gatilhos, índices, transições e migrations): igual
+  nas 12 categorias da impressão digital;
+- trilha de auditoria: os 37 registros do backup idênticos, hash por hash, aos 37 primeiros da produção;
+- dados: em cada tabela, o backup tinha exatamente as linhas que a produção tinha antes das 09:55; as
+  que faltavam foram todas criadas depois (a missão de teste de deploys, a autorização do Juca, uma
+  sessão). Nenhuma diferença sem explicação.
+
+O projeto de teste foi apagado depois da comparação. Para restaurar de verdade: Supabase → projeto
+`obedient` → Database → Backups. **Os botões "Restore" ao lado de cada data restauram por cima da
+produção**; para testar, use sempre a aba *Restore to new project*. Repita o teste a cada três meses, ou
+depois de uma migration grande.
+
+**Cópia fora do Supabase (opcional, ainda não feita).** Os scripts abaixo fazem um backup cifrado que
+fica com o responsável, fora do provedor. Scripts em `scripts/backup/`, testados em 21/11/2026 num Postgres 16 local, com duas missões e os
 eventos delas. Nenhum dado de produção foi usado.
 
 **Fazer o backup:**
@@ -196,10 +217,9 @@ scripts/backup/restaurar-teste.sh <pasta>/obedient-<data>.dump.enc [--manter]
   gerenciador e nas variáveis do Railway. Sem as chaves do cofre, as credenciais das pessoas no backup
   não se abrem, e isso é de propósito.
 
-**Ainda falta** (responsável):
-1. escolher onde o backup fica, fora do Railway;
-2. rodar o primeiro backup da produção e o teste de restauração;
-3. definir a frequência (sugestão: diária, guardando 14).
+**Para a cópia fora do Supabase, ainda falta** (responsável): instalar o Postgres 17 na máquina que vai
+rodar os scripts, escolher onde o arquivo cifrado fica guardado e a frequência (sugestão: semanal).
+O repositório é público: o backup nunca vai para artefato do GitHub Actions, mesmo cifrado.
 
 ## Homologação (A4, pendente)
 
