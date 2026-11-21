@@ -83,20 +83,41 @@ qual falta. Assim um erro de configuração aparece na subida, não no meio de u
 
 ### O token da Vercel (A8)
 
-1. No painel da Vercel, criar um token com o escopo mais restrito que ela permitir (só o time dos
-   projetos, com prazo).
-2. Pôr em `OBEDIENT_VERCEL_TOKEN`, nas variáveis do serviço no Railway. Nunca no chat nem num arquivo.
-3. Listar os projetos em `OBEDIENT_DEPLOYS_PROJETOS` e as pessoas em `OBEDIENT_DEPLOYS_USUARIOS`.
-4. Republicar e conceder a autoridade: `cli.ts deploys conceder <usuario>` (vale 30 dias).
+1. No painel da Vercel (Account Settings → Tokens), criar um token com o escopo mais restrito que ela
+   permitir: só o time `cpenedofilho-crypto's projects` e com prazo de validade.
+2. Nas variáveis do serviço no Railway, pôr as quatro juntas. Com só parte delas, o servidor não sobe:
+
+   ```
+   OBEDIENT_VERCEL_TOKEN=<o token; nunca no chat nem num arquivo>
+   OBEDIENT_VERCEL_TIME=team_9zADhEpEXuR5nYuXflQQijYW
+   OBEDIENT_DEPLOYS_USUARIOS=<o seu id no OBEDIENT, o mesmo do convite>
+   OBEDIENT_DEPLOYS_PROJETOS=[{"id":"motor_iga","nome":"Motor de Triagem IGA","projeto":"prj_tKUIOOvvxMCJSpknbUNNC6HWe7El","saude":"https://motor-triagem-iga.vercel.app/api/health"}, {"id":"recupera_os","nome":"Recupera OS","projeto":"prj_yG3xhm1gMNZMrjgZ9bgBehSOiMI8"}, {"id":"casa_de_ia","nome":"Growth OS (casa-de-ia)","projeto":"prj_yc5V3hq0vMQXWg66i7hXIZhbpGZ2"}, {"id":"casa_de_ia_site","nome":"Site da Casa de IA","projeto":"prj_V2T8NvZgvDnSDmq2kNOhGcZfGTeT"}, {"id":"ronda","nome":"Ronda","projeto":"prj_8LCNpK8w8wvtqCZfsjdhnRE9ZVOX"}, {"id":"repique","nome":"Repique","projeto":"prj_SGGCh13tROcHYJilAc5XdxSSwEV0"}, {"id":"lean_vision","nome":"Lean Vision","projeto":"prj_2PvPy6fjhzPiAsc84ek4Elz5A612"}]
+   ```
+
+   Os sete projetos são os do time em 21/11/2026 (D29). Só o Motor tem rota de saúde
+   (`/api/health`, 200 em 21/11); os outros entram sem `saude` até terem uma.
+3. Republicar e conceder a autoridade: `cli.ts deploys conceder <o seu id>` (vale 30 dias; renove com o
+   mesmo comando).
 
 O OBEDIENT só lê. Mesmo que a Vercel não ofereça token de leitura, o código não tem chamada de escrita
 (`packages/server/src/deploys.ts`).
 
 ## Alertas
 
-Os alertas são medidores 0/1 em `/metrics`. Quem avisa alguém é a infraestrutura que lê as métricas;
-o destino ainda está pendente na A4. Até ele existir, quem opera confere `/metrics` à mão depois de
-cada publicação.
+Os alertas são medidores 0/1 em `/metrics`. Quem avisa é o **vigia** (`.github/workflows/vigia.yml`,
+D29): a cada 15 minutos ele confere `/health`, `/ready` e os medidores, e abre um issue com o rótulo
+`vigia` atribuído ao dono do repositório. O GitHub avisa por e-mail e no celular. O mesmo problema não
+gera aviso novo a cada volta: ele só comenta quando o relatório muda. Quando tudo volta ao normal, o
+vigia comenta e fecha o issue.
+
+Para ligar, **depois de publicar a versão com `/health`** (antes disso, a produção responde a página
+do app e o vigia acusaria):
+
+1. Em Settings → Secrets and variables → Actions do repositório:
+   - segredo `OBEDIENT_METRICAS_TOKEN`: o mesmo valor da variável do Railway;
+   - variável `OBEDIENT_VIGIA` = `ligado`;
+   - variável `OBEDIENT_URL`, só se o endereço não for `https://obedient-production.up.railway.app`.
+2. Rodar uma vez à mão (Actions → vigia → Run workflow) e conferir o relatório.
 
 | Medidor | Aceso quando | O que fazer |
 |---|---|---|
@@ -105,12 +126,57 @@ cada publicação.
 | `bloqueadas_acumuladas` | 10 ou mais missões esperando a pessoa | avisar as pessoas, ou procurar uma ferramenta quebrada |
 | `teto_do_mes` | alguém atingiu o teto mensal (D21) | decisão da pessoa; nada a fazer no servidor |
 
-## Backup (pendente, A4)
+## Backup (A4)
 
-Ainda não existe backup testado. Antes de qualquer dado de cliente:
+Scripts em `scripts/backup/`, testados em 21/11/2026 num Postgres 16 local, com duas missões e os
+eventos delas. Nenhum dado de produção foi usado.
 
-- backup cifrado do Postgres, guardado longe das chaves do cofre;
-- restauração testada num banco isolado, com o `/ready` verde e uma missão de teste aberta do começo
-  ao fim;
-- as chaves do cofre (`OBEDIENT_CHAVES_COFRE`) guardadas à parte. Sem elas, as credenciais das pessoas
-  no backup não se abrem, e isso é de propósito.
+**Fazer o backup:**
+
+```
+OBEDIENT_BACKUP_URL=<administrador do Postgres, ou papel com BYPASSRLS> \
+OBEDIENT_BACKUP_SENHA=<senha do arquivo, 20+ caracteres> \
+scripts/backup/backup.sh <pasta>
+```
+
+- Gera o dump cifrado (AES-256, PBKDF2), a contagem de linhas por tabela (só números) e o hash dos
+  dois.
+- As tabelas têm RLS forçada. Por isso, com o dono do schema o `pg_dump` recusa: é preciso o
+  administrador.
+
+**Testar a restauração** num Postgres **isolado**, nunca o da produção:
+
+```
+OBEDIENT_RESTAURO_URL=<administrador do Postgres isolado, banco postgres> \
+OBEDIENT_BACKUP_SENHA=… OBEDIENT_RESTAURO_ISOLADO=sim \
+scripts/backup/restaurar-teste.sh <pasta>/obedient-<data>.dump.enc [--manter]
+```
+
+- Confere o hash, abre o arquivo e cria os papéis pelas migrations.
+- Restaura num banco novo sem `--no-owner`: as funções restritas voltam com o dono delas, nunca como
+  do administrador.
+- Confere as linhas de cada tabela contra a contagem do backup e as migrations, que é o mesmo que o
+  `/ready` confere.
+- Com `--manter`, o banco fica, para abrir o servidor contra ele e levar uma missão de teste até o fim.
+- Recusa sem a confirmação de isolado, ou se a URL for a do servidor. Senha errada, arquivo trocado e
+  contagem que não bate também falham, e foram testados.
+
+**Guarda:**
+- a senha do backup num gerenciador de senhas, longe do backup;
+- as chaves do cofre (`OBEDIENT_CHAVES_COFRE`) e a chave da Anthropic guardadas à parte, no
+  gerenciador e nas variáveis do Railway. Sem as chaves do cofre, as credenciais das pessoas no backup
+  não se abrem, e isso é de propósito.
+
+**Ainda falta** (responsável):
+1. escolher onde o backup fica, fora do Railway;
+2. rodar o primeiro backup da produção e o teste de restauração;
+3. definir a frequência (sugestão: diária, guardando 14).
+
+## Homologação (A4, pendente)
+
+Um segundo ambiente no Railway, com banco próprio e só dados fictícios. Ele cobra à parte, por isso a
+criação é do responsável:
+1. criar o ambiente `homologacao` no projeto do Railway, com Postgres próprio;
+2. variáveis próprias: outro `OBEDIENT_ORIGIN`, cofre com chaves novas e token de métricas novo;
+3. publicar a branch a homologar, rodar `migrar` e conferir `/ready`;
+4. só depois disso, juntar na `main` e publicar a produção.

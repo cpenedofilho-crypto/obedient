@@ -1,0 +1,65 @@
+# Vigia da produção (A4, destino dos alertas). A cada 15 minutos confere /health, /ready e os
+# alertas do /metrics (scripts/vigia/vigia.ts). Se algo pede atenção, abre um issue com o rótulo
+# "vigia", atribuído ao dono do repositório (o GitHub avisa por e-mail e no celular); se já há um
+# aberto, comenta nele. Quando volta ao normal, comenta e fecha.
+#
+# Desligado até a variável do repositório OBEDIENT_VIGIA=ligado (ligue depois de publicar a versão
+# com /health). Endereço: variável OBEDIENT_URL (padrão: a produção no Railway). Token das métricas:
+# segredo OBEDIENT_METRICAS_TOKEN (sem ele, só /health e /ready).
+name: vigia
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: vigia
+  cancel-in-progress: false
+jobs:
+  vigiar:
+    if: vars.OBEDIENT_VIGIA == 'ligado' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: conferir o servidor
+        id: vigia
+        env:
+          OBEDIENT_URL: ${{ vars.OBEDIENT_URL || 'https://obedient-production.up.railway.app' }}
+          OBEDIENT_METRICAS_TOKEN: ${{ secrets.OBEDIENT_METRICAS_TOKEN }}
+        run: |
+          set +e
+          node scripts/vigia/vigia.ts > relatorio.md
+          echo "saida=$?" >> "$GITHUB_OUTPUT"
+          cat relatorio.md
+      - name: avisar ou encerrar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SAIDA: ${{ steps.vigia.outputs.saida }}
+          DONO: ${{ github.repository_owner }}
+        run: |
+          gh label create vigia --color B60205 --description "Alerta do vigia da produção" --force >/dev/null
+          aberto=$(gh issue list --label vigia --state open --limit 1 --json number --jq '.[0].number // empty')
+          quando=$(date -u '+%d/%m/%Y %H:%M UTC')
+          if [ "$SAIDA" = "0" ]; then
+            if [ -n "$aberto" ]; then
+              printf 'Voltou ao normal em %s.\n\n%s\n' "$quando" "$(cat relatorio.md)" | gh issue comment "$aberto" --body-file -
+              gh issue close "$aberto"
+            fi
+            exit 0
+          fi
+          # Só avisa de novo quando o relatório muda: o mesmo problema não vira uma notificação a cada 15 min.
+          marca="vigia:$(grep -v '^- /health ok' relatorio.md | sha256sum | cut -c1-16)"
+          corpo=$(printf 'O vigia achou um problema em %s.\n\n%s\n\nO que fazer: docs/operations/runbook.md.\n\n<!-- %s -->\n' "$quando" "$(cat relatorio.md)" "$marca")
+          if [ -n "$aberto" ]; then
+            ultimo=$(gh issue view "$aberto" --json body,comments --jq '([.body] + [.comments[].body]) | last')
+            if printf '%s' "$ultimo" | grep -q "$marca"; then echo "mesmo problema, já avisado"; exit 0; fi
+            printf '%s' "$corpo" | gh issue comment "$aberto" --body-file -
+          else
+            printf '%s' "$corpo" | gh issue create --title "Vigia: a produção do OBEDIENT pede atenção" --label vigia --assignee "$DONO" --body-file -
+          fi
