@@ -1,0 +1,9 @@
+{
+  "name": "@obedient/music-contracts",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Contratos do Music Intelligence Engine (decisão D31): sinais, contexto, preferências, catálogo, decisão e reprodução. Sem dependências.",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}

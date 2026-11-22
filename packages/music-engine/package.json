@@ -1,0 +1,9 @@
+{
+  "name": "@obedient/music-engine",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Music Intelligence Engine (decisão D31): núcleo sem I/O que escolhe música do catálogo próprio a partir de sinais locais, com consentimento e controle manual.",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}
