@@ -46,6 +46,8 @@ export interface Portas {
   intervalo: (ms: number, f: () => void) => () => void;
   novoId: () => string;
   api?: ClienteGrowthOs;
+  /** Apaga o que mais o app guardou fora do Kv (arquivos baixados do catálogo). */
+  apagarArquivos?: () => Promise<unknown>;
 }
 
 export type ErroInicio = "sem_consentimento" | "sem_parametros" | "ja_em_treino" | "catalogo_vazio";
@@ -261,6 +263,7 @@ export class ControladorDoTreino {
     let servidor: "apagado" | "sem_login" | "falhou" = "sem_login";
     if (this.p.api && (await this.p.api.logado())) servidor = (await this.p.api.apagarMeusDados(VERSAO_TEXTO)).ok ? "apagado" : "falhou";
     this.trilha.apagarTudo();
+    await this.p.apagarArquivos?.();
     await apagarTudo(this.p.kv);
     this.ajustes = AJUSTES_PADRAO;
     this.sinal = false;

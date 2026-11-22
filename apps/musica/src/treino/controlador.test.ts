@@ -34,11 +34,13 @@ function montar(opts: { servidor?: (url: string, init: RequestInit) => Response;
   }) as unknown as typeof fetch;
   const api = new ClienteGrowthOs("https://growth.exemplo.test", { token: async () => (opts.login === false ? null : "tok"), organizacao: async () => null }, f);
   let n = 0;
+  const arquivosApagados = { vezes: 0 };
   const c = new ControladorDoTreino({
     kv, clock, relogio: () => 0, player, catalogo: () => CATALOGO_DEMO.map((d) => d.faixa),
     intervalo: () => () => undefined, novoId: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`, api,
+    apagarArquivos: async () => { arquivosApagados.vezes++; },
   });
-  return { c, kv, player, pedidos };
+  return { c, kv, player, pedidos, arquivosApagados };
 }
 
 const AJUSTES = { ...AJUSTES_PADRAO, fcRepouso: 60, fcMaxima: 190 };
@@ -110,12 +112,13 @@ describe("ControladorDoTreino", () => {
   });
 
   it("delete-my-data revokes, stops, wipes the device and asks the server", async () => {
-    const { c, kv, pedidos } = montar();
+    const { c, kv, pedidos, arquivosApagados } = montar();
     await c.carregar();
     await c.salvarAjustes(AJUSTES);
     await c.consentirSinal(true);
     const r = await c.apagarMeusDados();
     assert.deepEqual(r, { servidor: "apagado" });
+    assert.equal(arquivosApagados.vezes, 1);
     assert.ok(pedidos.some((p) => p.metodo === "DELETE" && p.url.endsWith("/meus-dados")));
     assert.equal([...kv.dados.keys()].filter((k) => k.startsWith(PREFIXO)).length, 0);
     assert.equal(c.visao().sinalPermitido, false);
