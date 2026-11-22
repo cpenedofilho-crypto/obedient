@@ -12,7 +12,8 @@ aparelho** com `@obedient/music-engine` e toca o catálogo próprio. Licença AG
 | Player (dois canais do expo-audio, crossfade só de volume) | Escrito e testado com canal falso |
 | Catálogo de demonstração | 10 faixas geradas no próprio aparelho (WAV sintético); nenhuma música de terceiros |
 | Consentimento destacado, ajustes, controles manuais, trilha, exportar e apagar | Telas prontas; lógica no controlador, testada no Node |
-| Growth OS (F2, casa-de-ia#214) | Cliente pronto e testado; **sem login ainda** (Supabase Auth no app é pendência), então o app não chama servidor |
+| Login | Link mágico por e-mail com PKCE no Supabase Auth do projeto growth-os (o mesmo do Repique), sem senha e só para contas existentes. Sessão no cofre seguro (Keychain/Keystore). Organização escolhida pelo `GET /api/eu`, só entre as que têm `musica:usar`. Sair apaga as músicas baixadas da organização |
+| Growth OS (F2/F4, casa-de-ia#214) | Com login: preferências, prova de consentimento, catálogo real com arquivos e resumos pendentes |
 | Build nativo (APK/IPA) | **Não feito**: o ambiente de desenvolvimento não tem Android SDK nem Xcode. O bundle JS de Android e iOS compila no CI |
 
 ## Comandos
@@ -27,6 +28,20 @@ npx expo export --platform android --output-dir dist-export/android
 
 Para rodar num celular (fora do CI): `npx expo prebuild` e `npx expo run:android` (ou `run:ios`), com
 Android Studio ou Xcode instalados. O BLE não funciona no Expo Go nem em simulador.
+
+## Configuração do build
+
+```
+EXPO_PUBLIC_SUPABASE_URL=https://<projeto growth-os>.supabase.co
+EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...   # pública por desenho
+EXPO_PUBLIC_GROWTH_OS_URL=https://<growth-os>
+EXPO_PUBLIC_SINAL_REAL=                                   # vazio até a decisão do piloto (D31)
+```
+
+No painel do Supabase (projeto growth-os), em **Authentication > URL Configuration > Redirect URLs**,
+acrescente `obedient-musica://auth/confirmar`. Sem isso, o link do e-mail não volta para o app. O SMTP
+padrão do Supabase só entrega para endereços da equipe; para o piloto, configure um SMTP próprio
+(`repique/docs/LOGIN.md`).
 
 ## Arquitetura
 
@@ -56,7 +71,7 @@ App.tsx ── portas do celular ──▶ src/treino/controlador.ts ──▶ @
 
 1. **Parecer da F0** (`docs/governance/music-engine-f0.md`), em especial AGPL × lojas, antes de qualquer
    distribuição e antes de ligar o sensor real.
-2. **Login (Supabase Auth)** para sincronizar com o Growth OS.
+2. **Login configurado de verdade:** redirect no Supabase, SMTP próprio, teste do link mágico num aparelho.
 3. **Catálogo real com arquivos** (F4). Hoje o app só toca a demonstração.
 4. **Build e teste em aparelho:**
    - Android com foreground service durante o treino;

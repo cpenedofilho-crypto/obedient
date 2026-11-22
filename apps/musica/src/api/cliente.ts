@@ -18,6 +18,8 @@ export interface Credenciais {
 
 export type Resposta<T> = { ok: true; dados: T } | { ok: false; status: number; codigo: string };
 
+export interface OrganizacaoDaPessoa { slug: string; nome: string; papel: string; permissoes: string[] }
+
 export interface ArquivoRemoto { sha256: string; bytes: number; formato: string }
 
 export interface FaixaRemota {
@@ -40,6 +42,9 @@ export class ClienteGrowthOs {
 
   async logado(): Promise<boolean> { return (await this.cred.token()) !== null; }
 
+  /** Quem é a pessoa e em quais organizações ela entra (GET /api/eu do Growth OS). */
+  eu() { return this.pedir<{ usuario: { id: string; email: string | null }; organizacoes: OrganizacaoDaPessoa[] }>("GET", "/api/eu"); }
+
   private async pedir<T>(metodo: string, caminho: string, corpo?: unknown): Promise<Resposta<T>> {
     const token = await this.cred.token();
     if (!token) return { ok: false, status: 401, codigo: "sem_login" };
@@ -47,7 +52,7 @@ export class ClienteGrowthOs {
     const ctrl = new AbortController();
     const prazo = setTimeout(() => ctrl.abort(), this.prazoMs);
     try {
-      const r = await this.f(`${this.base}/api/musica/${caminho}`, {
+      const r = await this.f(caminho.startsWith("/") ? `${this.base}${caminho}` : `${this.base}/api/musica/${caminho}`, {
         method: metodo,
         signal: ctrl.signal,
         headers: { authorization: `Bearer ${token}`, ...(org ? { "x-organizacao": org } : {}), ...(corpo === undefined ? {} : { "content-type": "application/json" }) },

@@ -13,7 +13,7 @@ condições da seção 1 estiverem cumpridas. Nada aqui autoriza recrutar ningu�
 | C2 | Posição sobre AGPL × lojas, e licença comercial e CLA revisados | Parecer e versões revisadas de `COMMERCIAL-LICENSE.md` e `CLA.md` | **Pendente** |
 | C3 | RIPD aprovado e texto de consentimento final (seção 4) | RIPD assinado; `VERSAO_TEXTO` do app trocada para a versão aprovada | **Pendente** |
 | C4 | Catálogo real: contrato-modelo, ≥ 60 faixas, cobertura ≥ 8 por faixa de energia, publicadas em homologação | Rascunho sem problemas e saída do `musica:ingerir` | **Pendente** (nenhuma faixa) |
-| C5 | Login no app (Supabase Auth) e sincronização com o Growth OS | PR mergeado com teste | **Pendente** (o app ainda não tem login) |
+| C5 | Login no app (Supabase Auth) e sincronização com o Growth OS | PR mergeado com teste; redirect `obedient-musica://auth/confirmar` no Supabase; SMTP próprio; link testado em aparelho | **Em parte:** código e testes prontos (PR do login); falta a configuração no Supabase e o teste em aparelho |
 | C6 | Build nativo e teste em aparelho: Android e iOS, BLE real com ao menos 3 sensores (cinta, relógio em broadcast, WHOOP), áudio e Bluetooth com a tela apagada, p95 < 50 ms por amostra, consumo < 5 %/h | Relatório de teste com modelos e versões | **Pendente** (sem Android SDK nem Xcode neste ambiente) |
 | C7 | Growth OS de homologação com as migrations `20261129_musica` e `20261130_musica_arquivos`, o bucket `musica` e a `SUPABASE_SERVICE_ROLE_KEY` | Registro no runbook | **Pendente** |
 | C8 | PRs obedient#61, #62, #63 e casa-de-ia#214 mergeados | Commits na `main` | **Pendente** (CI verde, esperando revisão) |

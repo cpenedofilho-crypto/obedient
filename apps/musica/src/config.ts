@@ -10,3 +10,10 @@ export const SINAL_REAL_LIBERADO = process.env.EXPO_PUBLIC_SINAL_REAL === "1";
 
 /** Growth OS (F2). Sem ela, o app não fala com servidor nenhum (modo demonstração, offline). */
 export const GROWTH_OS_URL = process.env.EXPO_PUBLIC_GROWTH_OS_URL ?? null;
+
+/**
+ * Login (Supabase Auth do projeto growth-os, o mesmo do Repique). A chave é a publishable, pública por
+ * desenho. Sem as duas, o app não tem login e fica no modo demonstração.
+ */
+export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? null;
+export const SUPABASE_PUBLISHABLE_KEY = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? null;
