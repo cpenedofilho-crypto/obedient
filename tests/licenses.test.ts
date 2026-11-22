@@ -25,6 +25,11 @@ describe("license gate", () => {
     for (const license of ["GPL-3.0-only", "AGPL-3.0-only", "FSL-1.1-MIT", "Remotion License", "SEE LICENSE IN LICENSE.md", undefined, "MIT AND GPL-2.0-only"])
       assert.equal(run({ x: { version: "1", ...(license ? { license } : {}) } }).status, 1, String(license));
   });
+  it("registered build tools pass even as production dependencies; the same licence elsewhere still blocks", () => {
+    assert.equal(run({ lightningcss: { version: "1", license: "MPL-2.0" }, "lightningcss-linux-x64-gnu": { version: "1", license: "MPL-2.0" } }).status, 0);
+    assert.equal(run({ lightningcss: { version: "1", license: "GPL-3.0-only" } }).status, 1);
+    assert.equal(run({ "outro-css": { version: "1", license: "MPL-2.0" } }).status, 1);
+  });
   it("LGPL and MPL need a registered exception", () => {
     assert.equal(run({ sharp: { version: "1", license: "LGPL-3.0-or-later" } }).status, 1);
     assert.equal(run({ mb: { version: "1", license: "MPL-2.0" } }).status, 1);

@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "OBEDIENT Música",
+    "slug": "obedient-musica",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "br.com.casadeia.obedient.musica",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Para ler a frequência cardíaca da sua cinta ou relógio durante o treino. O sinal fica só neste aparelho.",
+        "UIBackgroundModes": [
+          "audio",
+          "bluetooth-central"
+        ]
+      }
+    },
+    "android": {
+      "package": "br.com.casadeia.obedient.musica",
+      "permissions": [
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ],
+      "blockedPermissions": [
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "enableBackgroundPlayback": true
+        }
+      ],
+      "expo-status-bar",
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": true,
+          "modes": [
+            "central"
+          ],
+          "neverForLocation": true,
+          "bluetoothAlwaysPermission": "Para ler a frequência cardíaca da sua cinta ou relógio durante o treino. O sinal fica só neste aparelho."
+        }
+      ]
+    ]
+  }
+}

@@ -13,6 +13,13 @@ const EXCEPTIONS = new Map([
   ["axe-core@MPL-2.0", "só desenvolvimento: acessibilidade nos testes de ponta a ponta (e2e/), nunca distribuído"],
 ]);
 
+// Ferramenta de BUILD que o npm instala como dependência de produção de outra (não dá para marcar como
+// dev), mas que roda só na máquina que compila e não entra no que é distribuído. Cada linha também em
+// docs/licensing/excecoes.md. Nome exato ou prefixo dos binários da mesma ferramenta.
+const BUILD_EXCEPTIONS = [
+  { name: /^lightningcss(-[a-z0-9-]+)?$/, license: "MPL-2.0", motivo: "minificador de CSS do Metro (Expo) no build do apps/musica; não entra no app" },
+];
+
 function idOk(id) {
   return ALLOWED.has(id.replace(/^\(|\)$/g, "").trim());
 }
@@ -35,6 +42,7 @@ for (const [path, meta] of Object.entries(lock.packages ?? {})) {
   let lic = meta.license;
   if (lic && typeof lic === "object") lic = lic.type;
   const key = `${name}@${lic ?? "UNKNOWN"}`;
+  if (BUILD_EXCEPTIONS.some((e) => e.name.test(name) && e.license === lic)) continue;
   if (EXCEPTIONS.has(key)) {
     if (!meta.dev) problems.push(`${name}@${meta.version}: exceção vale só para desenvolvimento, e o pacote virou de produção`);
     continue;

@@ -107,6 +107,21 @@ describe("SessaoMusical", () => {
     assert.equal(sessao.resumo().pulosManuais, 1);
   });
 
+  it("exposes the on-device state for the screen (context, track, locks, last decision)", async () => {
+    const { sessao, privacidade } = montar();
+    await privacidade.concederSinal();
+    await sessao.iniciar();
+    assert.equal(sessao.estado().contexto, null);
+    for (const a of TREINO.slice(0, 120)) await sessao.processar(a);
+    const e = sessao.estado();
+    assert.equal(e.consentimento, true);
+    assert.ok(e.contexto?.zona);
+    assert.ok(e.tocando?.faixaId);
+    assert.ok(e.ultimaDecisao);
+    sessao.travarZona("z4");
+    assert.equal(sessao.estado().travas.zonaTravada, "z4");
+  });
+
   it("suggest-only mode shows suggestions and never plays by itself", async () => {
     const { sessao, privacidade, player } = montar({ modo: "so_sugestao" });
     await privacidade.concederSinal();

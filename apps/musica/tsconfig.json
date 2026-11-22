@@ -1,0 +1,14 @@
+{
+  "extends": "expo/tsconfig.base.json",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@obedient/*": ["../../packages/*/src/index.ts"]
+    }
+  },
+  "include": ["index.ts", "App.tsx", "src/**/*.ts", "src/**/*.tsx", "shims/**/*.ts"]
+}

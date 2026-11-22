@@ -11,3 +11,7 @@ coverage/
 *.xls
 *.pdf
 *.docx
+
+# App Expo (apps/musica): cache e saída do bundle
+.expo/
+dist-export/
