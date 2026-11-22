@@ -38,6 +38,8 @@ export interface EntradaManifesto {
 export interface Rascunho {
   faixa: FaixaCatalogo & { titulo: string };
   arquivo: { sha256: string; bytes: number; formato: FormatoDistribuicao };
+  /** Caminho local do arquivo de distribuição, para o envio subir os bytes (não vai ao Growth OS). */
+  caminhoDistribuicao: string;
   medidas: Medidas;
   energiaMedida: number;
   revisada: boolean;
@@ -75,6 +77,7 @@ export function montarRascunho(e: EntradaManifesto, arquivos: LeitorArquivos, ag
   return {
     faixa,
     arquivo: { sha256: sha256(dist), bytes: dist.length, formato: e.distribuicao.formato },
+    caminhoDistribuicao: e.distribuicao.arquivo,
     medidas: analise.medidas,
     energiaMedida: analise.energia,
     revisada,

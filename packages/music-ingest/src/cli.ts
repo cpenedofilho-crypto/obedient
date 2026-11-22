@@ -8,12 +8,14 @@
 //     revisão. Não fala com rede nenhuma.
 //
 //   npm run musica:ingerir -- enviar <rascunho.json> --growth-os https://... --confirmo-publicar
-//     Publica no catálogo do Growth OS (POST /api/musica/catalogo), faixa a faixa. Recusa o arquivo
+//     Publica no catálogo do Growth OS (POST /api/musica/catalogo), faixa a faixa, e sobe o arquivo de
+//     distribuição pelo endereço assinado que o Growth OS devolve (conferindo antes que o arquivo é o mesmo
+//     do rascunho). Recusa o arquivo
 //     inteiro se alguma faixa tiver problema. O token da pessoa com musica:catalogo_gerir vem de
 //     GROWTH_OS_TOKEN (nunca de argumento, para não ficar no histórico do terminal).
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { coberturaPorFaixa, corpoParaGrowthOs, type EntradaManifesto, montarRascunho, type Rascunho } from "./manifesto.ts";
+import { coberturaPorFaixa, corpoParaGrowthOs, type EntradaManifesto, montarRascunho, type Rascunho, sha256 } from "./manifesto.ts";
 
 export interface Saida { log(m: string): void; erro(m: string): void }
 
@@ -24,7 +26,9 @@ export async function executar(args: string[], env: Record<string, string | unde
     if (!manifesto || !destino) return uso(saida);
     const base = dirname(resolve(manifesto));
     const entradas = JSON.parse(readFileSync(manifesto, "utf8")) as EntradaManifesto[];
-    const rascunhos = entradas.map((e) => montarRascunho(e, { ler: (c) => new Uint8Array(readFileSync(resolve(base, c))) }, agora.toISOString()));
+    const rascunhos = entradas
+      .map((e) => montarRascunho(e, { ler: (c) => new Uint8Array(readFileSync(resolve(base, c))) }, agora.toISOString()))
+      .map((r) => ({ ...r, caminhoDistribuicao: resolve(base, r.caminhoDistribuicao) }));
     writeFileSync(destino, `${JSON.stringify(rascunhos, null, 2)}\n`);
     const comProblema = rascunhos.filter((r) => r.problemas.length);
     saida.log(`${rascunhos.length} faixa(s) analisada(s); ${comProblema.length} com problema.`);
@@ -54,8 +58,18 @@ export async function executar(args: string[], env: Record<string, string | unde
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(env.GROWTH_OS_ORGANIZACAO ? { "x-organizacao": env.GROWTH_OS_ORGANIZACAO } : {}) },
         body: JSON.stringify(corpoParaGrowthOs(r)),
       });
-      if (resp.ok) saida.log(`  ${r.faixa.id}: ${resp.status === 201 ? "criada" : "atualizada"}`);
-      else { falhas++; saida.erro(`  ${r.faixa.id}: HTTP ${resp.status} ${await resp.text().catch(() => "")}`.slice(0, 300)); }
+      if (!resp.ok) { falhas++; saida.erro(`  ${r.faixa.id}: HTTP ${resp.status} ${await resp.text().catch(() => "")}`.slice(0, 300)); continue; }
+      saida.log(`  ${r.faixa.id}: ${resp.status === 201 ? "criada" : "atualizada"}`);
+      // Com armazenamento configurado no Growth OS, a resposta traz um endereço assinado para subir o arquivo.
+      const corpo = (await resp.json().catch(() => ({}))) as { envio?: { url?: string } | null };
+      const destino = corpo.envio?.url;
+      if (!destino) { saida.log(`    arquivo não enviado: o Growth OS não devolveu endereço de envio (armazenamento não configurado?)`); continue; }
+      const bytes = new Uint8Array(readFileSync(r.caminhoDistribuicao));
+      if (sha256(bytes) !== r.arquivo.sha256 || bytes.length !== r.arquivo.bytes) { falhas++; saida.erro(`    ${r.faixa.id}: o arquivo mudou desde o rascunho; gere o rascunho de novo`); continue; }
+      const up = await f(destino, { method: "PUT", headers: { "content-type": r.arquivo.formato, "x-upsert": "false" }, body: bytes });
+      const texto = up.ok ? "" : await up.text().catch(() => "");
+      if (up.ok || /already exists|Duplicate/i.test(texto)) saida.log(`    arquivo enviado (${r.arquivo.bytes} bytes)`);
+      else { falhas++; saida.erro(`    ${r.faixa.id}: envio do arquivo HTTP ${up.status} ${texto}`.slice(0, 300)); }
     }
     return falhas ? 1 : 0;
   }

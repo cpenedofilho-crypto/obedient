@@ -81,7 +81,9 @@ O `rascunho`:
 
 O `enviar`:
 - só roda com `--confirmo-publicar`, token em variável de ambiente e https;
-- recusa o arquivo inteiro se alguma faixa tiver problema.
+- recusa o arquivo inteiro se alguma faixa tiver problema;
+- sobe cada arquivo de distribuição pelo endereço assinado que o Growth OS devolve, depois de conferir que
+  ele é o mesmo do rascunho (SHA-256 e tamanho).
 
 **Calibração pendente:** a fórmula de energia foi testada com áudio sintético (a ordem está certa). Com as
 primeiras 10 faixas reais, comparar a energia medida com a percepção de quem revisa e ajustar os limites

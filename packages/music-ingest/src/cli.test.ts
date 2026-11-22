@@ -60,19 +60,38 @@ describe("cli de ingestão", () => {
     assert.equal(rede, 0);
   });
 
-  it("enviar posts each track with the bearer token and the organization", async () => {
+  it("enviar posts each track with the bearer token and the organization, then uploads the file to the signed address", async () => {
     const dir = preparar();
     const o = saida();
     await executar(["rascunho", join(dir, "manifesto.json"), join(dir, "r.json")], {}, o.s);
     const pedidos: { url: string; init: RequestInit }[] = [];
-    const f = (async (url: string, init: RequestInit) => { pedidos.push({ url, init }); return new Response(null, { status: 201 }); }) as unknown as typeof fetch;
+    const f = (async (url: string, init: RequestInit) => {
+      pedidos.push({ url, init });
+      return url.includes("/api/musica/catalogo") ? Response.json({ trackRef: "faixa-01", criada: true, envio: { url: "https://storage.exemplo.test/upload?token=x" } }, { status: 201 }) : new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
     const codigo = await executar(["enviar", join(dir, "r.json"), "--growth-os", "https://g.exemplo.test", "--confirmo-publicar"], { GROWTH_OS_TOKEN: "tok", GROWTH_OS_ORGANIZACAO: "org-a" }, o.s, f);
-    assert.equal(codigo, 0);
-    assert.equal(pedidos.length, 1);
+    assert.equal(codigo, 0, o.linhas.join("\n"));
+    assert.equal(pedidos.length, 2);
+    assert.equal(pedidos[1]!.url, "https://storage.exemplo.test/upload?token=x");
+    assert.equal(pedidos[1]!.init.method, "PUT");
+    assert.deepEqual([...(pedidos[1]!.init.body as Uint8Array)], [9, 9, 9]);
+    assert.equal((pedidos[1]!.init.headers as Record<string, string>).authorization, undefined);
     assert.equal(pedidos[0]!.url, "https://g.exemplo.test/api/musica/catalogo");
     const h = pedidos[0]!.init.headers as Record<string, string>;
     assert.equal(h.authorization, "Bearer tok");
     assert.equal(h["x-organizacao"], "org-a");
     assert.equal(JSON.parse(pedidos[0]!.init.body as string).arquivo.sha256.length, 64);
+    assert.ok(!("caminhoDistribuicao" in JSON.parse(pedidos[0]!.init.body as string)));
+  });
+
+  it("a file changed after the draft is not uploaded", async () => {
+    const dir = preparar();
+    const o = saida();
+    await executar(["rascunho", join(dir, "manifesto.json"), join(dir, "r.json")], {}, o.s);
+    writeFileSync(join(dir, "d.m4a"), Uint8Array.from([1, 1, 1]));
+    const urls: string[] = [];
+    const f = (async (url: string) => { urls.push(url); return Response.json({ envio: { url: "https://storage.exemplo.test/u" } }, { status: 201 }); }) as unknown as typeof fetch;
+    assert.equal(await executar(["enviar", join(dir, "r.json"), "--growth-os", "https://g.exemplo.test", "--confirmo-publicar"], { GROWTH_OS_TOKEN: "t" }, o.s, f), 1);
+    assert.deepEqual(urls, ["https://g.exemplo.test/api/musica/catalogo"]);
   });
 });
