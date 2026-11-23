@@ -6,5 +6,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@obedient/integration-gateway": "0.0.0"
   }
 }
