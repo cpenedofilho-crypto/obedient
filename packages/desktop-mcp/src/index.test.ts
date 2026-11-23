@@ -9,8 +9,8 @@ import { CAMPO_COMPROVANTE, assinarComprovante, classificar } from "@obedient/in
 import { createSyntheticDesktopMcp } from "./index.ts";
 
 const pair = generateKeyPairSync("ed25519");
-const privateKey = pair.privateKey.export({ format: "pkcs8", type: "pem" }).toString();
-const publicKey = pair.publicKey.export({ format: "spki", type: "pem" }).toString();
+const privateKey = pair.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+const publicKey = pair.publicKey.export({ format: "pem", type: "spki" }).toString();
 const tool = "desktop_executar_acao_alta";
 async function setup(key?: string) {
   const engine = new SyntheticDesktop();
