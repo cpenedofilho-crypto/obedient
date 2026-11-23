@@ -5,7 +5,9 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./synthetic": "./src/synthetic.ts",
+    "./signed-approval": "./src/signed-approval.ts"
   },
   "dependencies": {
     "@obedient/integration-gateway": "0.0.0"
