@@ -1,0 +1,16 @@
+{
+  "name": "@obedient/desktop-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@obedient/desktop-control": "0.0.0",
+    "@obedient/integration-gateway": "0.0.0",
+    "zod": "4.6.7"
+  }
+}
