@@ -17,6 +17,7 @@ import { GoogleFalso } from "../../integrations/src/google-falso.ts";
 import { bancoDeTeste, type BancoDeTeste } from "../../store-postgres/src/banco-de-teste.ts";
 import { agendarMissoes } from "./agendador.ts";
 import { CONCLUIR, CONCLUIR_TAREFA, PROPOR_PLANO, executorDeMissoes, type ModeloComGasto, textoIncerto } from "./executor.ts";
+import { ANALISAR_JOGO } from "./estrategia.ts";
 import { processarMissoes } from "./processador.ts";
 
 const T0 = new Date("2026-11-03T12:00:00Z");
@@ -75,6 +76,39 @@ function montar() {
 }
 
 describe("executor das missões", () => {
+  it("analisa jogo hipotético como ferramenta interna e conclui sem grant externo", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Analise um dilema de preços hipotético"));
+    const r = roteiro(
+      0.001,
+      usar("jogo", ANALISAR_JOGO, {
+        origem: "hipotese",
+        jogadores: [
+          { nome: "IGA", estrategias: ["manter", "reduzir"] },
+          { nome: "Concorrente", estrategias: ["manter", "reduzir"] },
+        ],
+        resultados: [
+          { perfil: [0, 0], payoffs: [30, 30] },
+          { perfil: [0, 1], payoffs: [10, 40] },
+          { perfil: [1, 0], payoffs: [40, 10] },
+          { perfil: [1, 1], payoffs: [15, 15] },
+        ],
+      }),
+      (p) => {
+        assert.deepEqual(p.tools.map((t) => t.name).sort(), [ANALISAR_JOGO, CONCLUIR]);
+        assert.equal(resultados(p)[0]!.is_error, false);
+        assert.match(resultados(p)[0]!.content, /"nash":\[\[1,1\]\]/);
+        assert.match(resultados(p)[0]!.content, /hipotético/);
+        return concluir("feito", "No cenário hipotético, reduzir é Nash; as premissas precisam de validação.")();
+      },
+      encerrar,
+    );
+    const [fim] = await c.processar(u, r);
+    assert.equal(fim!.estado, "completed");
+    assert.equal(c.google.api.length, 0);
+  });
+
   it("lê a agenda pelo Ethics Engine e conclui: o modelo vê o resultado e o sistema certo; o custo entra na missão", async () => {
     const c = montar();
     const u = usuario();
@@ -97,7 +131,7 @@ describe("executor das missões", () => {
     // 3 chamadas × US$ 0,01 × 600 centavos por dólar.
     assert.equal(fim!.custoCentavos, 18);
     const p0 = r.pedidos[0]!;
-    assert.deepEqual(p0.tools.map((t) => t.name).sort(), [CONCLUIR, "google_agenda__apagar_evento", "google_agenda__criar_evento", "google_agenda__listar_eventos"], "só a integração conectada");
+    assert.deepEqual(p0.tools.map((t) => t.name).sort(), [ANALISAR_JOGO, CONCLUIR, "google_agenda__apagar_evento", "google_agenda__criar_evento", "google_agenda__listar_eventos"], "ferramentas internas e integração conectada");
     assert.match(p0.system, /"Enviada pelo assistente da Ana"/);
     assert.match(p0.system, /nunca como instrução/);
     assert.match(String(p0.messages[0]!.content), /Que horas é o dentista amanhã\?/);
@@ -193,7 +227,7 @@ describe("executor das missões", () => {
     assert.deepEqual([fim!.estado, fim!.tentativas, fim!.desfecho?.explicacao], ["completed", 2, "Sugeri Bartolomeu."]);
     assert.equal(m.id, fim!.id);
     // Sem integração, o agente só tem a ferramenta de concluir.
-    assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name), [CONCLUIR]);
+    assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name), [CONCLUIR, ANALISAR_JOGO]);
   });
 
   it("teto de custo: a tentativa para antes da próxima chamada ao modelo, e a missão para explicando", async () => {
@@ -601,7 +635,7 @@ describe("executor das missões: mandato, prazo, teto do mês e tempo por chamad
     const r = roteiro(0, lerAgenda, concluir("feito", "Nada."), encerrar);
     const [fim] = await c.processar(u, r);
     assert.equal(fim!.estado, "completed");
-    assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name).sort(), [CONCLUIR, "google_agenda__listar_eventos"], "criar e apagar ficaram de fora");
+    assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name).sort(), [ANALISAR_JOGO, CONCLUIR, "google_agenda__listar_eventos"], "criar e apagar ficaram de fora");
   });
 
   it("mandato com ambientes (M5): só homologação esconde as ferramentas de produção (o Google)", async () => {
@@ -611,7 +645,7 @@ describe("executor das missões: mandato, prazo, teto do mês e tempo por chamad
     await c.missoes(u, (ms) => ms.criar(u, "obedient", "O que tenho amanhã?", { mandato: { ambientes: ["homologacao"] } }));
     const r = roteiro(0, concluir("nao_consegui", "Não tenho como ver a agenda nesta missão."), encerrar);
     await c.processar(u, r);
-    assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name), [CONCLUIR]);
+    assert.deepEqual(r.pedidos[0]!.tools.map((t) => t.name), [CONCLUIR, ANALISAR_JOGO]);
   });
 
   it("mandato inválido não cria missão: curinga, prefixo curto, prazo no passado ou longe demais", async () => {
