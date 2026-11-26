@@ -7,6 +7,6 @@ export function runExperiment(seed:number,count:number,limits:Limits){
  return policies.map(policy=>{
   const result=simulate(seed,count,policy);
   // Cost is synthetic attempt count; fairness and utilization are not measured in this experiment.
-  return Object.freeze({result,experience:proposeExperience({experimentId:'retry-'+seed+'-'+count+'-'+policy,seed,strategy:policy,metrics:{successRate:result.successRate,cost:result.attempts,utilization:0,fairness:0,externalEffects:result.externalEffects,violations:0},limits}),unmeasuredMetrics:['utilization','fairness'] as const});
+  return Object.freeze({result,experience:proposeExperience({experimentId:'retry-'+seed+'-'+count+'-'+policy,seed,strategy:policy,metrics:{successRate:result.successRate,cost:result.attempts,utilization:null,fairness:null,externalEffects:result.externalEffects,violations:0},limits}),unmeasuredMetrics:['utilization','fairness'] as const});
  });
 }
