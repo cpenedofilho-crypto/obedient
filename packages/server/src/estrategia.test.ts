@@ -52,6 +52,27 @@ describe("ferramenta interna de análise estratégica", () => {
     assert.equal((semProva.resultado as { verificacao: string }).verificacao, "referencias_declaradas_nao_verificadas");
   });
 
+  it("confere cada payoff contra o número exato em uma leitura autorizada, sem atestar a fonte", () => {
+    const referencia = { tipo: "integracao", descricao: "Tabela consultada", identificador: "leitura:ok" };
+    const valores = dilema.resultados.map((r) => r.payoffs);
+    const evidencias_payoffs = dilema.resultados.flatMap((r, i) => r.payoffs.map((_, jogador) => ({
+      perfil: r.perfil, jogador, identificador: "leitura:ok", caminho: `/tabela/${i}/${jogador}`,
+    })));
+    const args = { ...dilema, origem: "dados_fornecidos", referencias: [referencia], evidencias_payoffs };
+    const leituras = [{ identificador: "leitura:ok", ferramenta: "fonte/ler", resultado: { tabela: valores } }];
+    const completo = executarAnaliseJogo(args, leituras);
+    assert.equal(completo.status, "succeeded");
+    assert.deepEqual((completo.resultado as { cobertura_payoffs: unknown }).cobertura_payoffs, { conferidos: 8, total: 8, completa: true });
+    assert.equal((completo.resultado as { verificacao: string }).verificacao, "payoffs_conferidos_com_resultado_da_leitura");
+
+    const adulterado = executarAnaliseJogo({ ...args, evidencias_payoffs: [
+      ...evidencias_payoffs.slice(0, -1), { ...evidencias_payoffs.at(-1)!, caminho: "/__proto__/valor" },
+    ] }, leituras);
+    assert.deepEqual((adulterado.resultado as { cobertura_payoffs: unknown }).cobertura_payoffs, { conferidos: 7, total: 8, completa: false });
+    assert.equal((adulterado.resultado as { verificacao: string }).verificacao, "execucao_de_leitura_confirmada_conteudo_nao_validado");
+    assert.equal((executarAnaliseJogo(args).resultado as { cobertura_payoffs: { conferidos: number } }).cobertura_payoffs.conferidos, 0);
+  });
+
   it("falha fechado quando faltam dados, aparecem campos inesperados ou origem incorreta", () => {
     assert.equal(executarAnaliseJogo({ ...dilema, origem: "certeza" }).status, "tool_error");
     assert.equal(executarAnaliseJogo({ ...dilema, executar: true }).status, "tool_error");
