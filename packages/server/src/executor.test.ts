@@ -109,6 +109,54 @@ describe("executor das missões", () => {
     assert.equal(c.google.api.length, 0);
   });
 
+  it("confirma referência estratégica apenas após leitura governada na mesma tentativa", async () => {
+    const c = montar();
+    const u = usuario();
+    await c.conectar(u, "google_agenda");
+    c.google.responderApi = () => ({ json: { items: [{ id: "ev1", summary: "Aula" }] } });
+    await c.missoes(u, (ms) => ms.criar(u, "obedient", "Analise um cenário hipotético usando uma leitura autorizada"));
+    let referencia = "";
+    const jogo = {
+      origem: "dados_fornecidos",
+      jogadores: [{ nome: "IGA", estrategias: ["A", "B"] }, { nome: "Outro", estrategias: ["A", "B"] }],
+      resultados: [
+        { perfil: [0, 0], payoffs: [3, 3] }, { perfil: [0, 1], payoffs: [0, 4] },
+        { perfil: [1, 0], payoffs: [4, 0] }, { perfil: [1, 1], payoffs: [1, 1] },
+      ],
+    };
+    const r = roteiro(
+      0.001,
+      usar("ler", "google_agenda__listar_eventos", { de: "2026-11-04T00:00:00-03:00", ate: "2026-11-05T00:00:00-03:00" }),
+      (p) => {
+        const conteudo = JSON.parse(resultados(p)[0]!.content) as { referencia_execucao?: string };
+        referencia = conteudo.referencia_execucao ?? "";
+        assert.match(referencia, /^leitura:[0-9a-f-]{36}$/);
+        return usar("jogo", ANALISAR_JOGO, {
+          ...jogo,
+          referencias: [
+            { tipo: "integracao", descricao: "Agenda consultada", identificador: referencia },
+            { tipo: "integracao", descricao: "ID inventado", identificador: "leitura:falsa" },
+          ],
+        })();
+      },
+      (p) => {
+        const resultado = JSON.parse(resultados(p)[0]!.content) as {
+          verificacao: string;
+          referencias_conferidas: { identificador: string; ferramenta: string }[];
+        };
+        assert.equal(resultado.verificacao, "execucao_de_leitura_confirmada_conteudo_nao_validado");
+        assert.deepEqual(resultado.referencias_conferidas.map(({ identificador, ferramenta }) => ({ identificador, ferramenta })), [
+          { identificador: referencia, ferramenta: "google_agenda/google_agenda.listar_eventos" },
+        ]);
+        return concluir("feito", "Leitura autorizada confirmada, mas os payoffs não estão verificados.")();
+      },
+      encerrar,
+    );
+    const [fim] = await c.processar(u, r);
+    assert.equal(fim!.estado, "completed");
+    assert.equal(c.google.api.length, 1);
+  });
+
   it("lê a agenda pelo Ethics Engine e conclui: o modelo vê o resultado e o sistema certo; o custo entra na missão", async () => {
     const c = montar();
     const u = usuario();
