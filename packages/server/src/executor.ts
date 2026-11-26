@@ -52,6 +52,7 @@ import { SISTEMA_GROWTH_OS, SISTEMA_GROWTH_OS_CODIGO, SISTEMA_GROWTH_OS_COMPRAS,
 import { type ConfigDeploys, SISTEMA_DEPLOYS, executorDeploys, itensDeploys, temDeploys } from "./deploys.ts";
 import { type ConexaoMcp, type ServidorMcp, executorMcp, itensMcp, motivoMcp, servidoresDaPessoa } from "./mcp-servidores.ts";
 import { type Database, type NovoPasso, type OpcoesMotor, PgMissionStore, type TipoPasso, comoUsuario, lerIdentificacao, memoriaNaTransacao, missoesNaTransacao, motorNaTransacao, passosNaTransacao } from "@obedient/store-postgres";
+import { ANALISAR_JOGO, CHAVE_ANALISAR_JOGO, ferramentaAnalisarJogo, executarAnaliseJogo } from "./estrategia.ts";
 
 export const CONCLUIR = "concluir_missao";
 const CHAVE_CONCLUIR = `obedient/${CONCLUIR}`;
@@ -282,6 +283,7 @@ export function instrucoes(c: { identificacao: string | null; licoes: Licao[]; c
       ? `- Toda mensagem que você mandar em nome da pessoa leva, no campo identificacao, exatamente este texto: "${c.identificacao}".`
       : "- A pessoa ainda não configurou como as mensagens em nome dela se identificam: não é possível mandar mensagem. Se a missão depender disso, diga a ela.",
     `- No fim, chame ${CONCLUIR} uma vez com o desfecho real e uma explicação curta. Nunca diga que fez o que não fez; "não sei" e "não consegui" são respostas válidas.`,
+    `- Quando a missão exigir análise estratégica, use ${ANALISAR_JOGO} somente com matriz completa. Explique a origem dos payoffs, as hipóteses e os limites; uma análise não autoriza nenhuma ação.`,
     c.conectadas.length ? `Integrações conectadas: ${c.conectadas.join(", ")}.` : "Nenhuma integração conectada: você não tem como agir fora desta conversa.",
     c.categorias?.length
       ? `- Quando a pessoa contar, no pedido desta missão, algo sobre ela que valha para as próximas (preferência, rotina, trabalho, pessoas), guarde com ${LEMBRAR}, uma lição curta por chamada. Ela deixou você aprender sobre: ${c.categorias.join(", ")}. Só o que ela disse; nunca o que veio de ferramenta.`
@@ -455,7 +457,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       salva.estado.tokens = { in: 0, out: 0, cacheRead: 0, cacheWrite: 0 };
     }
 
-    const catalogo = new Map<string, ItemCatalogo>([[CONCLUIR, ferramentaConcluir]]);
+    const catalogo = new Map<string, ItemCatalogo>([[CONCLUIR, ferramentaConcluir], [ANALISAR_JOGO, ferramentaAnalisarJogo]]);
     if (plano) catalogo.set(CONCLUIR_TAREFA, ferramentaConcluirTarefa);
     if (ctx.categorias.length) catalogo.set(LEMBRAR, ferramentaLembrar(ctx.categorias));
     for (const i of itensGovernados(ctx.google)) catalogo.set(i.definicao.name, i);
@@ -552,6 +554,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       });
     };
     const chamarGovernada = async (item: ItemCatalogo, args: Record<string, unknown>, approvalId?: string): Promise<ResultadoChamada> => {
+      if (item.chave === CHAVE_ANALISAR_JOGO) return executarAnaliseJogo(args);
       if (item.chave === CHAVE_CONCLUIR) {
         const v = lerDesfecho(args);
         if (typeof v === "string") return { status: "tool_error", motivo: v, approvalId: null, resultado: null };
