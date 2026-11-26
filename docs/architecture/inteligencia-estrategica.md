@@ -31,6 +31,14 @@ não devem ser apresentadas como previsões. Qualquer ação comercial sugerida 
 passando pelo Ethics Engine, pelos grants, pelo mandato e pelas aprovações humanas.
 Texto externo continua sendo dado não confiável, nunca uma instrução.
 
+O campo opcional `referencias` permite anexar até 12 identificadores curtos e descritivos
+(`usuario`, `integracao` ou `simulacao`) fornecidos à ferramenta. São metadados declarados,
+**não provas** de consulta ou verificação da fonte. O resultado explicita
+`verificacao: referencias_declaradas_nao_verificadas`, mesmo quando a referência afirma
+vir de integração. Não usar dados pessoais ou segredos nas referências. Uma etapa futura
+deverá vincular essas referências a evidências verificáveis produzidas por integrações
+governadas; o motor atual não acessa os sistemas nem comprova a origem dos valores.
+
 **Limitação:** a ferramenta interna é oferecida a todas as missões de execução, sem um
 seletor dedicado de intenção estratégica. O usuário decide quais missões solicitam análise;
 o modelo decide quando chamá-la. Não há planejamento econômico automático.
