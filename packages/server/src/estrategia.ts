@@ -19,6 +19,15 @@ export const ferramentaAnalisarJogo: ItemCatalogo = {
         jogadores: { type: "array", minItems: 2, maxItems: 4, items: { type: "object", properties: { nome: { type: "string" }, estrategias: { type: "array", minItems: 2, maxItems: 10, items: { type: "string" } } }, required: ["nome", "estrategias"], additionalProperties: false } },
         resultados: { type: "array", maxItems: 4096, items: { type: "object", properties: { perfil: { type: "array", items: { type: "integer" } }, payoffs: { type: "array", items: { type: "number" } } }, required: ["perfil", "payoffs"], additionalProperties: false } },
         origem: { type: "string", enum: ["dados_fornecidos", "hipotese"] },
+        referencias: {
+          type: "array", maxItems: 12,
+          description: "Referências declaradas pelo modelo/usuário, sem validação independente. Não inclua dados pessoais, tokens nem segredos.",
+          items: { type: "object", properties: {
+            tipo: { type: "string", enum: ["usuario", "integracao", "simulacao"] },
+            descricao: { type: "string", maxLength: 200 },
+            identificador: { type: "string", maxLength: 120 },
+          }, required: ["tipo", "descricao", "identificador"], additionalProperties: false },
+        },
       },
       required: ["jogadores", "resultados", "origem"],
       additionalProperties: false,
@@ -31,11 +40,24 @@ const objeto = (v: unknown): v is Record<string, unknown> =>
 const chaves = (v: Record<string, unknown>, esperadas: string[]) =>
   Object.keys(v).every((k) => esperadas.includes(k));
 
-function lerJogo(args: Record<string, unknown>): { jogo: Jogo; origem: string } {
-  if (!chaves(args, ["jogadores", "resultados", "origem"]) ||
+interface Referencia {
+  tipo: "usuario" | "integracao" | "simulacao";
+  descricao: string;
+  identificador: string;
+}
+
+function lerJogo(args: Record<string, unknown>): { jogo: Jogo; origem: string; referencias: Referencia[] } {
+  if (!chaves(args, ["jogadores", "resultados", "origem", "referencias"]) ||
     (args.origem !== "dados_fornecidos" && args.origem !== "hipotese") ||
     !Array.isArray(args.jogadores) || args.jogadores.length < 2 || args.jogadores.length > 4 ||
-    !Array.isArray(args.resultados) || args.resultados.length > 4096) throw new Error("Estrutura de jogo inválida");
+    !Array.isArray(args.resultados) || args.resultados.length > 4096 ||
+    (args.referencias !== undefined && (!Array.isArray(args.referencias) || args.referencias.length > 12))) throw new Error("Estrutura de jogo inválida");
+  const referencias: Referencia[] = (args.referencias ?? [] as unknown[]) as Referencia[];
+  if (referencias.some((r) => !objeto(r) || !chaves(r, ["tipo", "descricao", "identificador"]) ||
+    !["usuario", "integracao", "simulacao"].includes(r.tipo) ||
+    typeof r.descricao !== "string" || !r.descricao.trim() || r.descricao.length > 200 ||
+    typeof r.identificador !== "string" || !r.identificador.trim() || r.identificador.length > 120))
+    throw new Error("Referência inválida");
   const jogadores: Jogo["jogadores"][number][] = args.jogadores.map((j: unknown) => {
     if (!objeto(j) || !chaves(j, ["nome", "estrategias"]) ||
       typeof j.nome !== "string" || j.nome.length > 100 ||
@@ -50,18 +72,20 @@ function lerJogo(args: Record<string, unknown>): { jogo: Jogo; origem: string } 
       throw new Error("Resultado inválido");
     return { perfil: r.perfil as number[], payoffs: r.payoffs as number[] };
   });
-  return { jogo: { jogadores, resultados }, origem: args.origem };
+  return { jogo: { jogadores, resultados }, origem: args.origem, referencias };
 }
 
 export function executarAnaliseJogo(args: Record<string, unknown>): ResultadoChamada {
   try {
-    const { jogo, origem } = lerJogo(args);
+    const { jogo, origem, referencias } = lerJogo(args);
     const analise = analisarJogo(jogo);
     return {
       status: "succeeded", motivo: null, approvalId: null,
       resultado: {
         ...analise,
         origem,
+        referencias,
+        verificacao: "referencias_declaradas_nao_verificadas",
         aviso: origem === "hipotese"
           ? "Cenário hipotético: a análise matemática não valida os payoffs nem prevê o comportamento real."
           : "Os payoffs foram declarados como fornecidos, mas sua exatidão não foi verificada pelo motor.",
