@@ -46,8 +46,19 @@ Referências inventadas, de outros tipos ou de outra tentativa permanecem declar
 sem confirmação. Na ausência de referência confirmada, a marca continua
 `referencias_declaradas_nao_verificadas`. Não incluir dados pessoais ou segredos nas
 referências. Leituras que falham, são negadas, expiram ou retornam tipos não objeto
-não emitem prova. A associação entre conteúdo específico da leitura e cada payoff
-ainda é uma etapa futura; o motor não comprova a origem dos valores.
+não emitem prova.
+
+O campo opcional `evidencias_payoffs` associa cada payoff ao perfil, índice do
+jogador, identificador da leitura e JSON Pointer do **número** na resposta.
+O servidor compara o valor com a matriz por igualdade estrita; caminhos inválidos,
+fontes inexistentes e valores diferentes não contam. `cobertura_payoffs` relata
+quantos valores foram conferidos. Somente com cobertura completa e origem
+`dados_fornecidos` aparece `verificacao: payoffs_conferidos_com_resultado_da_leitura`.
+
+**Conferir um número na resposta não prova a veracidade da fonte, sua unidade ou
+interpretação econômica.** O conteúdo da leitura fica exclusivamente na memória
+da tentativa, limitado a 128 mil caracteres JSON por resposta. Não há persistência
+dessas evidências nem consulta externa adicional pela ferramenta estratégica.
 
 **Limitação:** a ferramenta interna é oferecida a todas as missões de execução, sem um
 seletor dedicado de intenção estratégica. O usuário decide quais missões solicitam análise;

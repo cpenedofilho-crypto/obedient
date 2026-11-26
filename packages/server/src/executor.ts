@@ -502,7 +502,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     let espera: { ate: Date; motivo: string } | null = null;
     let prVisto: PrVisto | null = null;
     // Somente provas de leituras efetivamente concluídas nesta tentativa. Nunca confiar em IDs do modelo.
-    const leiturasConfirmadas: { identificador: string; ferramenta: string }[] = [];
+    const leiturasConfirmadas: { identificador: string; ferramenta: string; resultado?: unknown }[] = [];
 
     // Um executor por sistema; o Ethics Engine autoriza antes de qualquer um rodar.
     const google = d.conexoes ? executorGoogle(d.conexoes, u, d.http ?? fetch) : null;
@@ -663,7 +663,13 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       if (r !== "tempo") {
         if (categoria === "READ" && r.status === "succeeded" && r.resultado !== null && typeof r.resultado === "object" && !Array.isArray(r.resultado)) {
           const identificador = `leitura:${randomUUID()}`;
-          leiturasConfirmadas.push({ identificador, ferramenta: item.chave });
+          // Evita guardar payloads muito grandes apenas para conferência de números.
+          let fonte: unknown;
+          try {
+            const serializado = JSON.stringify(r.resultado);
+            if (serializado && serializado.length <= 128_000) fonte = JSON.parse(serializado);
+          } catch { /* formato não serializável: registra a leitura, mas não atesta números */ }
+          leiturasConfirmadas.push({ identificador, ferramenta: item.chave, resultado: fonte });
           // O modelo recebe o ID emitido pelo servidor para poder citá-lo no jogo.
           return { ...r, resultado: { ...r.resultado, referencia_execucao: identificador } };
         }
