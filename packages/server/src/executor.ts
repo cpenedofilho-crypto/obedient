@@ -29,6 +29,7 @@
 // justamente isso, e o Ethics Engine o confere a cada chamada (Art. 4º). A conversa guardada fica
 // na missão, só para a pessoa (RLS), e some ao terminar, cancelar, impedir e apagar.
 
+import { randomUUID } from "node:crypto";
 import { type Clock, payloadHash, type ToolCategory } from "@obedient/core";
 import {
   type AbrirMotor,
@@ -500,6 +501,8 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
     // Espera pedida pelo agente nesta tentativa, e o PR que a situação da tarefa de código mostrou.
     let espera: { ate: Date; motivo: string } | null = null;
     let prVisto: PrVisto | null = null;
+    // Somente provas de leituras efetivamente concluídas nesta tentativa. Nunca confiar em IDs do modelo.
+    const leiturasConfirmadas: { identificador: string; ferramenta: string }[] = [];
 
     // Um executor por sistema; o Ethics Engine autoriza antes de qualquer um rodar.
     const google = d.conexoes ? executorGoogle(d.conexoes, u, d.http ?? fetch) : null;
@@ -554,7 +557,7 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       });
     };
     const chamarGovernada = async (item: ItemCatalogo, args: Record<string, unknown>, approvalId?: string): Promise<ResultadoChamada> => {
-      if (item.chave === CHAVE_ANALISAR_JOGO) return executarAnaliseJogo(args);
+      if (item.chave === CHAVE_ANALISAR_JOGO) return executarAnaliseJogo(args, leiturasConfirmadas);
       if (item.chave === CHAVE_CONCLUIR) {
         const v = lerDesfecho(args);
         if (typeof v === "string") return { status: "tool_error", motivo: v, approvalId: null, resultado: null };
@@ -657,7 +660,15 @@ export function executorDeMissoes(d: DepsExecutor): ExecutorDeMissao {
       const chamada = chamarGovernada(item, args, approvalId);
       chamada.catch(() => {});
       const r = await Promise.race([chamada, esgotou]).finally(() => clearTimeout(timer));
-      if (r !== "tempo") return r;
+      if (r !== "tempo") {
+        if (categoria === "READ" && r.status === "succeeded" && r.resultado !== null && typeof r.resultado === "object" && !Array.isArray(r.resultado)) {
+          const identificador = `leitura:${randomUUID()}`;
+          leiturasConfirmadas.push({ identificador, ferramenta: item.chave });
+          // O modelo recebe o ID emitido pelo servidor para poder citá-lo no jogo.
+          return { ...r, resultado: { ...r.resultado, referencia_execucao: identificador } };
+        }
+        return r;
+      }
       if (categoria !== "READ") incertas.push(item.chave);
       return { status: "tool_error", motivo: "tempo_esgotado", approvalId: approvalId ?? null, resultado: { resultado_incerto: true, aviso: "a ferramenta passou do tempo; a ação pode ter acontecido mesmo assim: não repita" } };
     };
