@@ -153,7 +153,7 @@ export function executarAnaliseJogo(args: Record<string, unknown>, leituras: rea
         cobertura_payoffs: cobertura,
         aviso: origem === "hipotese"
           ? "Cenário hipotético: a análise matemática não valida os payoffs nem prevê o comportamento real."
-          : "A conferência compara números à resposta da integração, não verifica a veracidade da fonte, a interpretação econômica nem a qualidade da decisão.",
+          : "A exatidão não foi verificada independentemente: a conferência apenas compara números à resposta da integração, não verifica a veracidade da fonte, a interpretação econômica nem a qualidade da decisão.",
         escopo: "Nash somente em estratégias puras; dominância estrita somente por estratégias puras.",
       },
     };
