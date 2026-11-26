@@ -34,6 +34,24 @@ describe("ferramenta interna de análise estratégica", () => {
     assert.equal((r.resultado as { verificacao: string }).verificacao, "referencias_declaradas_nao_verificadas");
   });
 
+  it("confirma somente identificadores de leitura emitidos pelo executor, sem validar payoffs", () => {
+    const referencias = [
+      { tipo: "integracao", descricao: "Consulta autorizada", identificador: "leitura:real" },
+      { tipo: "integracao", descricao: "Consulta inventada", identificador: "leitura:inventada" },
+      { tipo: "usuario", descricao: "Texto do usuário", identificador: "leitura:real" },
+    ];
+    const r = executarAnaliseJogo({ ...dilema, origem: "dados_fornecidos", referencias }, [
+      { identificador: "leitura:real", ferramenta: "google/consultar" },
+    ]);
+    assert.equal(r.status, "succeeded");
+    const resultado = r.resultado as { verificacao: string; referencias_conferidas: unknown[]; aviso: string };
+    assert.equal(resultado.verificacao, "execucao_de_leitura_confirmada_conteudo_nao_validado");
+    assert.deepEqual(resultado.referencias_conferidas, [{ identificador: "leitura:real", ferramenta: "google/consultar", status: "execucao_de_leitura_confirmada" }]);
+    assert.match(resultado.aviso, /exatidão não foi verificada/);
+    const semProva = executarAnaliseJogo({ ...dilema, referencias });
+    assert.equal((semProva.resultado as { verificacao: string }).verificacao, "referencias_declaradas_nao_verificadas");
+  });
+
   it("falha fechado quando faltam dados, aparecem campos inesperados ou origem incorreta", () => {
     assert.equal(executarAnaliseJogo({ ...dilema, origem: "certeza" }).status, "tool_error");
     assert.equal(executarAnaliseJogo({ ...dilema, executar: true }).status, "tool_error");
