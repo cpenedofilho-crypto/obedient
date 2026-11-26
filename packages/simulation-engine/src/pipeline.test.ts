@@ -7,7 +7,7 @@ test('pipeline reproducible and never authorizes production',()=>{
  const a=runExperiment(42,10000,limits);
  assert.deepEqual(a,runExperiment(42,10000,limits));
  assert.equal(a.length,2);
- for(const x of a){assert.equal(x.result.count,10000);assert.equal(x.experience.productionAuthorized,false);assert.equal(x.experience.persistenceAuthorized,false);assert.equal(x.experience.metrics.cost,x.result.attempts);}
+ for(const x of a){assert.equal(x.result.count,10000);assert.equal(x.experience.productionAuthorized,false);assert.equal(x.experience.persistenceAuthorized,false);assert.equal(x.experience.metrics.cost,x.result.attempts);assert.equal(x.experience.score,null);assert.equal(x.experience.metrics.fairness,null);assert.equal(x.experience.metrics.utilization,null);assert.ok(x.experience.reasons.includes('unmeasured'));}
  console.log('OSIL_RETRY_REPORT',JSON.stringify(a));
 });
 test('pipeline rejects insufficient budget',()=>{
