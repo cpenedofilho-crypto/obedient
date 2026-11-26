@@ -26,10 +26,12 @@ describe("ferramenta interna de análise estratégica", () => {
   });
 
   it("retorna matemática reproduzível com aviso sobre hipóteses", () => {
-    const r = executarAnaliseJogo(dilema);
+    const r = executarAnaliseJogo({ ...dilema, referencias: [{ tipo: "simulacao", descricao: "Exemplo de aula", identificador: "cenario-a" }] });
     assert.equal(r.status, "succeeded");
     assert.deepEqual((r.resultado as { nash: number[][] }).nash, [[1, 1]]);
     assert.match((r.resultado as { aviso: string }).aviso, /hipotético/i);
+    assert.deepEqual((r.resultado as { referencias: unknown[] }).referencias, [{ tipo: "simulacao", descricao: "Exemplo de aula", identificador: "cenario-a" }]);
+    assert.equal((r.resultado as { verificacao: string }).verificacao, "referencias_declaradas_nao_verificadas");
   });
 
   it("falha fechado quando faltam dados, aparecem campos inesperados ou origem incorreta", () => {
@@ -37,5 +39,7 @@ describe("ferramenta interna de análise estratégica", () => {
     assert.equal(executarAnaliseJogo({ ...dilema, executar: true }).status, "tool_error");
     assert.equal(executarAnaliseJogo({ ...dilema, resultados: dilema.resultados.slice(1) }).status, "tool_error");
     assert.equal(executarAnaliseJogo({ ...dilema, jogadores: [null, null] }).status, "tool_error");
+    assert.equal(executarAnaliseJogo({ ...dilema, referencias: [{ tipo: "integracao", descricao: "x", identificador: "" }] }).status, "tool_error");
+    assert.equal(executarAnaliseJogo({ ...dilema, referencias: [{ tipo: "desconhecido", descricao: "x", identificador: "id" }] }).status, "tool_error");
   });
 });
