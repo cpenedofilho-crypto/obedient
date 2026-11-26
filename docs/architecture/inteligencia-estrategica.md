@@ -31,13 +31,23 @@ não devem ser apresentadas como previsões. Qualquer ação comercial sugerida 
 passando pelo Ethics Engine, pelos grants, pelo mandato e pelas aprovações humanas.
 Texto externo continua sendo dado não confiável, nunca uma instrução.
 
-O campo opcional `referencias` permite anexar até 12 identificadores curtos e descritivos
-(`usuario`, `integracao` ou `simulacao`) fornecidos à ferramenta. São metadados declarados,
-**não provas** de consulta ou verificação da fonte. O resultado explicita
-`verificacao: referencias_declaradas_nao_verificadas`, mesmo quando a referência afirma
-vir de integração. Não usar dados pessoais ou segredos nas referências. Uma etapa futura
-deverá vincular essas referências a evidências verificáveis produzidas por integrações
-governadas; o motor atual não acessa os sistemas nem comprova a origem dos valores.
+O campo opcional `referencias` aceita até 12 identificadores (`usuario`, `integracao`
+ou `simulacao`). Após uma ferramenta externa de categoria `READ` ser autorizada e
+concluir com sucesso **nesta tentativa**, o executor inclui `referencia_execucao`
+no resultado JSON de objeto retornado ao modelo. O identificador aleatório é criado
+pelo servidor e não pode ser escolhido pelo modelo. Ao citar esse valor como
+`identificador` de uma referência `integracao`, `analisar_jogo` devolve a ferramenta
+correspondente em `referencias_conferidas` e marca
+`verificacao: execucao_de_leitura_confirmada_conteudo_nao_validado`.
+
+**Essa confirmação atesta somente a execução da leitura governada**, não que os
+payoffs foram extraídos corretamente de seu conteúdo nem que os dados sejam verdadeiros.
+Referências inventadas, de outros tipos ou de outra tentativa permanecem declaradas,
+sem confirmação. Na ausência de referência confirmada, a marca continua
+`referencias_declaradas_nao_verificadas`. Não incluir dados pessoais ou segredos nas
+referências. Leituras que falham, são negadas, expiram ou retornam tipos não objeto
+não emitem prova. A associação entre conteúdo específico da leitura e cada payoff
+ainda é uma etapa futura; o motor não comprova a origem dos valores.
 
 **Limitação:** a ferramenta interna é oferecida a todas as missões de execução, sem um
 seletor dedicado de intenção estratégica. O usuário decide quais missões solicitam análise;

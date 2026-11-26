@@ -46,6 +46,12 @@ interface Referencia {
   identificador: string;
 }
 
+/** Provas emitidas exclusivamente pelo executor após uma leitura governada bem-sucedida. */
+export interface LeituraConfirmada {
+  identificador: string;
+  ferramenta: string;
+}
+
 function lerJogo(args: Record<string, unknown>): { jogo: Jogo; origem: string; referencias: Referencia[] } {
   if (!chaves(args, ["jogadores", "resultados", "origem", "referencias"]) ||
     (args.origem !== "dados_fornecidos" && args.origem !== "hipotese") ||
@@ -75,20 +81,27 @@ function lerJogo(args: Record<string, unknown>): { jogo: Jogo; origem: string; r
   return { jogo: { jogadores, resultados }, origem: args.origem, referencias };
 }
 
-export function executarAnaliseJogo(args: Record<string, unknown>): ResultadoChamada {
+export function executarAnaliseJogo(args: Record<string, unknown>, leituras: readonly LeituraConfirmada[] = []): ResultadoChamada {
   try {
     const { jogo, origem, referencias } = lerJogo(args);
     const analise = analisarJogo(jogo);
+    const ids = new Set(leituras.map((l) => l.identificador));
+    const referenciasConferidas = referencias.filter((r) => r.tipo === "integracao" && ids.has(r.identificador)).map((r) => ({
+      identificador: r.identificador,
+      ferramenta: leituras.find((l) => l.identificador === r.identificador)!.ferramenta,
+      status: "execucao_de_leitura_confirmada" as const,
+    }));
     return {
       status: "succeeded", motivo: null, approvalId: null,
       resultado: {
         ...analise,
         origem,
         referencias,
-        verificacao: "referencias_declaradas_nao_verificadas",
+        verificacao: referenciasConferidas.length ? "execucao_de_leitura_confirmada_conteudo_nao_validado" : "referencias_declaradas_nao_verificadas",
+        referencias_conferidas: referenciasConferidas,
         aviso: origem === "hipotese"
           ? "Cenário hipotético: a análise matemática não valida os payoffs nem prevê o comportamento real."
-          : "Os payoffs foram declarados como fornecidos, mas sua exatidão não foi verificada pelo motor.",
+          : "Os payoffs foram declarados como fornecidos, mas sua exatidão não foi verificada pelo motor. Referências confirmadas atestam apenas que uma leitura autorizada ocorreu nesta tentativa.",
         escopo: "Nash somente em estratégias puras; dominância estrita somente por estratégias puras.",
       },
     };
