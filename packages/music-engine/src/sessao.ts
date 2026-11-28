@@ -34,6 +34,16 @@ import type { TrilhaLocal } from "./privacidade/retencao.ts";
 
 export const VERSAO_MOTOR = "0.1.0";
 
+/** O que a tela do aparelho mostra. Fica no aparelho: nada disto vai para o servidor nem para evento. */
+export interface EstadoSessao {
+  readonly consentimento: boolean;
+  readonly contexto: Contexto | null;
+  readonly tocando: Tocando | null;
+  readonly travas: TravasManuais;
+  readonly modo: Preferencias["modo"];
+  readonly ultimaDecisao: Decisao | null;
+}
+
 export interface OpcoesSessao {
   readonly contexto: ConfigContexto;
   readonly preferencias: Preferencias;
@@ -62,6 +72,8 @@ export class SessaoMusical {
   private pulos = 0;
   private amostrasAdaptadas = 0;
   private amostrasRecebidas = 0;
+  private ultimoContexto: Contexto | null = null;
+  private ultimaDecisao: Decisao | null = null;
 
   constructor(private readonly o: OpcoesSessao) {
     this.contexto = new MotorDeContexto(o.contexto);
@@ -136,6 +148,17 @@ export class SessaoMusical {
     return this.resumo();
   }
 
+  estado(): EstadoSessao {
+    return {
+      consentimento: this.consentimento,
+      contexto: this.ultimoContexto,
+      tocando: this.tocando,
+      travas: this.travas,
+      modo: this.preferencias.modo,
+      ultimaDecisao: this.ultimaDecisao,
+    };
+  }
+
   resumo(): ResumoSessao {
     const duracaoS = this.primeiroT === null || this.ultimoT === null ? 0 : Math.round((this.ultimoT - this.primeiroT) / 1000);
     const percentual = this.amostrasRecebidas ? (100 * this.amostrasAdaptadas) / this.amostrasRecebidas : 0;
@@ -143,6 +166,7 @@ export class SessaoMusical {
   }
 
   private async decidirEAplicar(ctx: Contexto, agora: number): Promise<Decisao> {
+    this.ultimoContexto = ctx;
     const tocando = this.tocando ? { ...this.tocando, posicaoMs: Math.max(0, agora - this.tocando.desde) } : null;
     const decisao = decidir({
       agora,
@@ -167,6 +191,7 @@ export class SessaoMusical {
       }
     }
     this.o.trilha?.registrar(decisao);
+    this.ultimaDecisao = decisao;
     return decisao;
   }
 }

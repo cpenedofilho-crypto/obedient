@@ -70,6 +70,30 @@ jobs:
       - name: app de ponta a ponta
         run: npm run test:e2e
 
+  # App do Music Intelligence Engine (D31, F3): projeto Expo separado, com lockfile próprio. Tipos, testes
+  # no Node (controlador, sensor BLE com rádio falso, mixer, cliente do Growth OS), licenças do lockfile do
+  # app e o bundle de produção para Android e iOS (prova que o motor e o shim de node:crypto resolvem).
+  app-musica:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/musica
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/musica/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run licenses
+      - name: bundle Android e iOS
+        run: |
+          npx expo export --platform android --output-dir dist-export/android
+          npx expo export --platform ios --output-dir dist-export/ios
+
   secrets:
     runs-on: ubuntu-latest
     steps:

@@ -14,7 +14,7 @@ const PACOTES = ["music-contracts", "music-engine"];
 function arquivos(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {
     const p = join(dir, n);
-    return statSync(p).isDirectory() ? arquivos(p) : p.endsWith(".ts") && !p.endsWith(".test.ts") ? [p] : [];
+    return statSync(p).isDirectory() ? arquivos(p) : /\.tsx?$/.test(p) && !/\.test\.tsx?$/.test(p) ? [p] : [];
   });
 }
 
@@ -53,6 +53,17 @@ describe("design guard (D31)", () => {
       for (const nome of Object.keys(pkg.dependencies ?? {})) assert.match(nome, /^@obedient\//);
     });
   }
+
+  it("the device app (apps/musica, F3) has no forbidden pieces either", () => {
+    const app = join(raiz, "..", "apps", "musica");
+    for (const pasta of ["src", "shims"])
+      for (const arquivo of arquivos(join(app, pasta))) {
+        const codigo = semComentarios(readFileSync(arquivo, "utf8"));
+        for (const [re, motivo] of PROIBIDOS) assert.doesNotMatch(codigo, re, `${arquivo}: ${motivo}`);
+      }
+    const raizApp = semComentarios(readFileSync(join(app, "App.tsx"), "utf8"));
+    for (const [re, motivo] of PROIBIDOS) assert.doesNotMatch(raizApp, re, `App.tsx: ${motivo}`);
+  });
 
   it("imports only workspace packages and node builtins", () => {
     for (const pacote of PACOTES)
