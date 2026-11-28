@@ -18,10 +18,14 @@ export interface Credenciais {
 
 export type Resposta<T> = { ok: true; dados: T } | { ok: false; status: number; codigo: string };
 
+export interface ArquivoRemoto { sha256: string; bytes: number; formato: string }
+
 export interface FaixaRemota {
   trackRef: string; titulo: string; origem: string; genero: string; explicita: boolean; energia: number;
   duracaoMs: number; fronteirasMs: number[];
   licenca: { permiteCrossfade: boolean; permiteCacheOffline: boolean; validaAte: string | null };
+  /** Ausente enquanto a faixa não tiver arquivo publicado (F4). */
+  arquivo: ArquivoRemoto | null;
 }
 
 export class ClienteGrowthOs {
@@ -65,6 +69,8 @@ export class ClienteGrowthOs {
     return this.pedir("POST", "consentimento", { finalidade, concedido, especifico: concedido, versaoTexto });
   }
   catalogo() { return this.pedir<{ faixas: FaixaRemota[] }>("GET", "catalogo"); }
+  /** Endereço temporário (assinado pelo Growth OS) para baixar ou tocar o arquivo de uma faixa. */
+  urlDoArquivo(trackRef: string) { return this.pedir<{ url: string; expiraEm: string }>("GET", `arquivo?trackRef=${encodeURIComponent(trackRef)}`); }
   enviarResumo(sessaoRef: string, r: ResumoSessao) {
     return this.pedir<{ registrado: boolean }>("POST", "sessoes", {
       sessaoRef, duracaoMin: Math.round(r.duracaoS / 60), trocasAutomaticas: r.trocasAutomaticas,

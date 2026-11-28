@@ -1,0 +1,9 @@
+{
+  "name": "@obedient/music-ingest",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "description": "Ingestão do catálogo próprio do Music Intelligence Engine (D31, F4): lê o WAV mestre, mede energia e fronteiras de frase (sem medir andamento), confere a licença e monta o rascunho para revisão humana.",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}

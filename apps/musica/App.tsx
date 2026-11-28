@@ -9,12 +9,16 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { systemClock } from "@obedient/core";
 import { ClienteGrowthOs } from "./src/api/cliente.ts";
 import { ControladorDoTreino } from "./src/treino/controlador.ts";
+import type { FaixaCatalogo } from "@obedient/music-contracts";
+import { ArquivosDoCatalogo } from "./src/catalogo/arquivos.ts";
 import { CATALOGO_DEMO } from "./src/catalogo/demo.ts";
+import { doGrowthOs } from "./src/catalogo/remoto.ts";
 import { GROWTH_OS_URL } from "./src/config.ts";
 import { prepararArquivosDemo } from "./src/plataforma/arquivos-demo.ts";
 import { gerenteBlePlx } from "./src/plataforma/ble-plx.ts";
 import { canalExpoAudio, prepararAudio } from "./src/plataforma/canal-expo-audio.ts";
 import { kvDoAparelho } from "./src/plataforma/kv-async-storage.ts";
+import { baixarComFetch, pastaDoCatalogo } from "./src/plataforma/pasta-expo.ts";
 import { pedirPermissaoBluetooth } from "./src/plataforma/permissoes.ts";
 import { Mixer } from "./src/player/mixer.ts";
 import { procurarCintas, SensorBle } from "./src/sensor/ble.ts";
@@ -33,15 +37,20 @@ function montar() {
   let uris = new Map<string, string>();
   const ble = gerenteBlePlx();
   let aoSugerir: (id: string) => void = () => undefined;
-  const mixer = new Mixer([canalExpoAudio(), canalExpoAudio()], async (id) => uris.get(id) ?? null,
+  const api = GROWTH_OS_URL ? new ClienteGrowthOs(GROWTH_OS_URL, { token: async () => null, organizacao: async () => null }) : null;
+  // Catálogo real (F4): só com Growth OS e login. Sem isso, o app toca a demonstração.
+  const arquivos = api ? new ArquivosDoCatalogo(pastaDoCatalogo(), api, baixarComFetch) : null;
+  let catalogoReal: FaixaCatalogo[] = [];
+  const mixer = new Mixer([canalExpoAudio(), canalExpoAudio()], async (id) => uris.get(id) ?? (await arquivos?.uriDe(id)) ?? null,
     { agora: Date.now, depois: (ms, f) => { const t = setTimeout(f, ms); return () => clearTimeout(t); } },
     (id) => aoSugerir(id));
   const controlador = new ControladorDoTreino({
     kv: kvDoAparelho, clock: systemClock, relogio: Date.now, player: mixer,
-    catalogo: () => CATALOGO_DEMO.map((d) => d.faixa),
+    catalogo: () => (catalogoReal.length ? catalogoReal : CATALOGO_DEMO.map((d) => d.faixa)),
     intervalo: (ms, f) => { const t = setInterval(f, ms); return () => clearInterval(t); },
     novoId: randomUUID,
-    ...(GROWTH_OS_URL ? { api: new ClienteGrowthOs(GROWTH_OS_URL, { token: async () => null, organizacao: async () => null }) } : {}),
+    ...(api ? { api } : {}),
+    ...(arquivos ? { apagarArquivos: () => arquivos.apagarTudo() } : {}),
   });
   aoSugerir = (id) => controlador.mostrarSugestao(id);
   const sensores: FontesDeSensor = {
@@ -57,6 +66,14 @@ function montar() {
     await prepararAudio();
     uris = await prepararArquivosDemo();
     await controlador.carregar();
+    if (api && arquivos && (await api.logado())) {
+      const r = await api.catalogo();
+      if (r.ok) {
+        const faixas = doGrowthOs(r.dados.faixas, new Date().toISOString());
+        await arquivos.atualizar(faixas);
+        catalogoReal = faixas.map((f) => f.faixa);
+      }
+    }
   };
   return { controlador, sensores, iniciar };
 }

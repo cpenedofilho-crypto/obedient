@@ -74,5 +74,5 @@ Parâmetros em constantes exportadas (`INTERVALO_MINIMO_TROCA_MS`, `LIMITE_SINAL
 | F0 | Parecer de patentes, termos, LGPD, AGPL × lojas, licença comercial e CLA | Advogado; dossiê em `docs/governance/music-engine-f0.md` |
 | F2 | Servidor no Growth OS: preferências, consentimento, catálogo, agregados, RLS forçada | Aprovação; migration no casa-de-ia |
 | F3 | App em `apps/musica` (Expo): sensor BLE, player de dois canais, consentimento, controles, offline, cliente do Growth OS. Ver `apps/musica/README.md` | Feito no código e testado no Node; falta build nativo e teste em aparelho, login, e o sensor real fica desligado até a F0 |
-| F4 | Catálogo próprio com energia e fronteiras anotadas e licença com evidência | Contratos de encomenda |
+| F4 | Ferramentas prontas: `@obedient/music-ingest` (análise do WAV, rascunho, envio) e o cache conferido no app. Roteiro de encomenda e checklist contratual em `docs/governance/music-catalogo-f4.md` | Contratos de encomenda e as faixas; decidir onde os arquivos ficam |
 | F5 | Piloto fechado | F0 a F4 |

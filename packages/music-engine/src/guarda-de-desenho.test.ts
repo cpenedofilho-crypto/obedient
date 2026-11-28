@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const raiz = fileURLToPath(new URL("../..", import.meta.url)); // packages/
-const PACOTES = ["music-contracts", "music-engine"];
+const PACOTES = ["music-contracts", "music-engine", "music-ingest"];
 
 function arquivos(dir: string): string[] {
   return readdirSync(dir).flatMap((n) => {

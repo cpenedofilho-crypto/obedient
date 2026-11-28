@@ -16,7 +16,8 @@
     "test": "node --import tsx --test \"packages/*/src/**/*.test.ts\" \"tests/**/*.test.ts\"",
     "licenses": "node scripts/check-licenses.mjs",
     "check": "npm run typecheck && npm test && npm run licenses",
-    "test:e2e": "node --import tsx --test --test-timeout=120000 \"e2e/**/*.e2e.ts\""
+    "test:e2e": "node --import tsx --test --test-timeout=120000 \"e2e/**/*.e2e.ts\"",
+    "musica:ingerir": "node --import tsx packages/music-ingest/src/cli.ts"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.10",
