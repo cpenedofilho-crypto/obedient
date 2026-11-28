@@ -47,7 +47,9 @@
           "neverForLocation": true,
           "bluetoothAlwaysPermission": "Para ler a frequência cardíaca da sua cinta ou relógio durante o treino. O sinal fica só neste aparelho."
         }
-      ]
-    ]
+      ],
+      "expo-secure-store"
+    ],
+    "scheme": "obedient-musica"
   }
 }
