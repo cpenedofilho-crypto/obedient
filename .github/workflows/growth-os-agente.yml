@@ -1,0 +1,143 @@
+# Growth OS: agente de desenvolvimento da AI Software Factory (docs/HARNESS_RUNTIME.md §GitHub Actions).
+#
+# Vai para o REPOSITÓRIO DE DESTINO em .github/workflows/growth-os-agente.yml, com o executor em
+# .github/growth-os/executor.mjs. Quem dispara é o Growth OS (workflow_dispatch); as entradas ficam
+# visíveis no repositório, por isso o token do job chega cifrado.
+#
+# Configurar no repositório de destino:
+#   segredos  GROWTH_OS_HARNESS_CHAVE  a mesma chave de HARNESS_GHA_CHAVE do Growth OS (32 bytes, base64)
+#             ANTHROPIC_API_KEY        chave do modelo do agente de código (de preferência só para este uso)
+#             FABRICA_PUSH_TOKEN       opcional: token de GitHub App com escrita de conteúdo e PR SÓ neste
+#                                      repositório. Sem ele, usa o GITHUB_TOKEN, e o push e o PR feitos com
+#                                      o GITHUB_TOKEN NÃO disparam a CI (regra do GitHub).
+#   variáveis GROWTH_OS_URL            endereço público do Growth OS (o único callback aceito)
+#             CLAUDE_CODE_VERSAO       versão exata do agente de código (sem versão, o job não roda)
+#             AGENTE_CMD               opcional: troca SÓ o binário (lista: claude) e o modelo, em JSON:
+#                                      {"binario":"claude","modelo":"..."}. Flags de ferramenta/permissão
+#                                      vindas dele são descartadas; outro programa ou flag desconhecida
+#                                      falham o job (agente_cmd_invalido).
+#   proteção  branch principal com revisão humana e CI obrigatórias; agente não tem permissão de merge.
+#
+# Dois jobs, de propósito (docs/HARNESS_RUNTIME.md §Isolamento dos comandos):
+#   agente  roda o agente de código e os comandos da especificação, que executam código que o agente editou.
+#           NENHUM token de escrita existe neste job: o GITHUB_TOKEN só lê, o FABRICA_PUSH_TOKEN não entra, e a
+#           chave do harness e a do modelo chegam por um arquivo que o executor apaga antes de rodar qualquer
+#           coisa (no mesmo usuário, um comando leria o /proc/<pid>/environ de quem tivesse o segredo no ambiente).
+#   envio   outra máquina, depois do agente: checkout limpo da base, push do commit preparado SÓ na branch
+#           agent/… (ou a ação abrir_pr). Não roda npm, comando nem código do repositório alterado.
+#           Só aqui entram FABRICA_PUSH_TOKEN e o GITHUB_TOKEN com escrita.
+name: Growth OS — agente
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Job do Growth OS
+        required: true
+        type: string
+      callback:
+        description: Endereço público do Growth OS
+        required: true
+        type: string
+      token_cifrado:
+        description: Token do job, cifrado
+        required: true
+        type: string
+
+permissions: {}          # cada job declara o mínimo
+
+concurrency:
+  group: growth-os-${{ inputs.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  agente:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read      # sem escrita: aqui roda código que o agente editou
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false   # o agente não herda credencial do git
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Dependências do projeto (sem segredo no ambiente)
+        if: hashFiles('package-lock.json') != ''
+        run: npm ci
+
+      - name: Agente de código
+        env:
+          VERSAO: ${{ vars.CLAUDE_CODE_VERSAO }}
+        run: |
+          test -n "$VERSAO" || { echo "defina a variável CLAUDE_CODE_VERSAO com uma versão exata"; exit 1; }
+          npm install -g "@anthropic-ai/claude-code@$VERSAO"
+
+      # Os segredos ficam só no ambiente deste passo, que termina antes do executor começar; o executor lê o
+      # arquivo e o apaga antes do agente e dos comandos rodarem.
+      - name: Segredos do executor (arquivo de uso único)
+        env:
+          CHAVE: ${{ secrets.GROWTH_OS_HARNESS_CHAVE }}
+          MODELO: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          umask 077
+          node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ GROWTH_OS_HARNESS_CHAVE: process.env.CHAVE, ANTHROPIC_API_KEY: process.env.MODELO }), { mode: 0o600 })' "$RUNNER_TEMP/growth-os-segredos.json"
+
+      - name: Executor do Growth OS (agente e comandos, sem token de escrita)
+        env:
+          GROWTH_OS_FASE: preparar
+          GROWTH_OS_JOB_ID: ${{ inputs.job_id }}
+          GROWTH_OS_CALLBACK: ${{ inputs.callback }}
+          GROWTH_OS_TOKEN_CIFRADO: ${{ inputs.token_cifrado }}
+          GROWTH_OS_CALLBACK_PERMITIDO: ${{ vars.GROWTH_OS_URL }}
+          GROWTH_OS_SEGREDOS_ARQUIVO: ${{ runner.temp }}/growth-os-segredos.json
+          GROWTH_OS_ESTADO_DIR: ${{ runner.temp }}/growth-os-estado
+          AGENTE_CMD: ${{ vars.AGENTE_CMD }}
+        run: node .github/growth-os/executor.mjs
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: growth-os-estado-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/growth-os-estado
+          retention-days: 1
+          if-no-files-found: error
+
+  envio:
+    needs: agente
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write       # o executor só escreve em branch agent/…
+      pull-requests: write  # abrir o PR; merge nunca
+      checks: read          # ler a CI do commit
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4   # a base, limpa: nada do que o agente editou roda aqui
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: growth-os-estado-${{ inputs.job_id }}
+          path: ${{ runner.temp }}/growth-os-estado
+
+      - name: Executor do Growth OS (push da branch agent/… ou PR)
+        env:
+          GROWTH_OS_FASE: enviar
+          GROWTH_OS_JOB_ID: ${{ inputs.job_id }}
+          GROWTH_OS_CALLBACK: ${{ inputs.callback }}
+          GROWTH_OS_TOKEN_CIFRADO: ${{ inputs.token_cifrado }}
+          GROWTH_OS_CALLBACK_PERMITIDO: ${{ vars.GROWTH_OS_URL }}
+          GROWTH_OS_HARNESS_CHAVE: ${{ secrets.GROWTH_OS_HARNESS_CHAVE }}
+          GROWTH_OS_ESTADO_DIR: ${{ runner.temp }}/growth-os-estado
+          FABRICA_PUSH_TOKEN: ${{ secrets.FABRICA_PUSH_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/growth-os/executor.mjs
